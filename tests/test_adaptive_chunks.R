@@ -197,5 +197,27 @@ order_restore_body <- paste(
 )
 stopifnot(
   grepl("setorderv", order_restore_body, fixed = TRUE),
-  !grepl("[order(point_order)", order_restore_body, fixed = TRUE)
+  !grepl("[order(point_order)", order_restore_body, fixed = TRUE),
+  grepl("is.unsorted", order_restore_body, fixed = TRUE),
+  !grepl("anyDuplicated", order_restore_body, fixed = TRUE)
 )
+
+# Allocation-safe validation must still reject a duplicate source ordinal.
+duplicate_order_las <- lidR::LAS(data.frame(
+  X = c(0, 1),
+  Y = c(0, 1),
+  Z = c(1, 2),
+  OriginalPointIndex = c(7, 7)
+))
+duplicate_order_rejected <- tryCatch(
+  {
+    restore_original_point_order(
+      duplicate_order_las,
+      "OriginalPointIndex",
+      "adaptive test"
+    )
+    FALSE
+  },
+  error = function(error) grepl("duplicate", conditionMessage(error))
+)
+stopifnot(duplicate_order_rejected)

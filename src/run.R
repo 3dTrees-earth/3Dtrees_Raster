@@ -36,10 +36,10 @@ restore_original_point_order <- function(las, point_order_dimension = NULL,
       point_order_dimension
     ))
   }
-  # Pull the key once so validation and sorting use exactly the same values.
-  point_order <- las@data[[point_order_dimension]]
-  # Missing or duplicate ordinals make deterministic reconstruction impossible.
-  if (anyNA(point_order) || anyDuplicated(point_order)) {
+  # Missing ordinals make deterministic reconstruction impossible.  Do not bind
+  # the complete column separately: an extra reference can prevent in-place work
+  # on very dense windows.
+  if (anyNA(las@data[[point_order_dimension]])) {
     stop(sprintf(
       "%s received missing or duplicate %s values",
       phase,
@@ -50,6 +50,15 @@ restore_original_point_order <- function(las, point_order_dimension = NULL,
   # A row subset would allocate a second full LAS table; on dense windows that
   # copy alone can consume several GiB and breach the internal memory budget.
   data.table::setorderv(las@data, point_order_dimension)
+  # Once sorted, strict monotonicity detects duplicate ordinals in one linear C
+  # scan without the large hash table allocated by anyDuplicated().
+  if (is.unsorted(las@data[[point_order_dimension]], strictly = TRUE)) {
+    stop(sprintf(
+      "%s received missing or duplicate %s values",
+      phase,
+      point_order_dimension
+    ))
+  }
   # Return the same LAS object shape expected by existing scientific functions.
   las
 }

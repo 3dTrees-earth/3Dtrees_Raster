@@ -92,6 +92,7 @@ run_foreststructure \
   "${test_root}/copc-output" \
   "${test_root}/copc-work" \
   --original-point-cloud /in/distinct.laz \
+  --target-chunk-points 500 \
   2>&1 | tee "${test_root}/copc.log"
 
 # Require byte identity for every tabular/vector artifact in all three dimensions.
@@ -129,6 +130,13 @@ fi
 jq -e '
   .requested_is_copc == true and
   .point_order_dimension == "OriginalPointIndex" and
+  .adaptive_chunking.enabled == true and
+  .adaptive_chunking.method == "mean_density" and
+  .adaptive_chunking.target_points == 500 and
+  .adaptive_chunking.selected_chunk_size_m > 0 and
+  .adaptive_chunking.selected_chunk_size_m < 60 and
+  .adaptive_chunking.observed.chm.chunks > 1 and
+  .adaptive_chunking.observed.segmentation.chunks > 1 and
   .processed_instance_dimensions == [
     "PredInstance", "PredInstance_SAT", "PredInstance_FM"
   ]

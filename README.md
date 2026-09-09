@@ -84,12 +84,51 @@ docker run --rm --network none \
   --dataset-id 150 \
   --output-dir /out \
   --temp-dir /work \
-  --memory-budget-gib 25
+  --memory-budget-gib 25 \
+  --target-chunk-points 50000000
 ```
 
 `--original-point-cloud` is optional. When supplied, it is used only for
 header identity and provenance checks; scientific point reads still use COPC.
 Plain LAS/LAZ input is also supported directly.
+
+### Adaptive COPC windows
+
+COPC CHM and segmentation reads target approximately 50 million points per
+spatial window by default. The runner reads the point count and XY extent from
+the COPC header, calculates mean density, and selects:
+
+```text
+floor(sqrt(50,000,000 / mean_density)) metres
+```
+
+The result is aligned downward to a whole metre and bounded to 1–60 m. A
+smaller `--chunk-size` remains an additional ceiling; values above 60 m cannot
+widen the validated maximum. Use `--target-chunk-points 0` only for controlled
+comparisons that need fixed metre-based behavior. Plain LAS/LAZ always retains
+fixed-size behavior.
+
+The 50-million-point value is an approximate planning target based on mean
+density, not a hard per-window limit. Locally denser windows may exceed it. The
+run warns without failing and records the target, density, selected size,
+estimated count, observed minimum/maximum counts, and oversize count in the
+performance CSV and run-provenance JSON.
+
+CHM and segmentation use zero buffer and an absolute one-metre chunk alignment.
+This alignment is compatible with the 0.2 m voxel and 0.5 m CHM grids. CHM
+window rasters are written immediately and merged through a disk-backed VRT.
+Segmentation writes compact voxel, layer, and apex summaries to the mounted SSD
+before releasing raw points and temporary tables; the existing bucket reducer
+then aggregates one bounded partition at a time.
+
+`OriginalPointIndex` makes a changed window layout scientifically deterministic:
+equal-height apexes choose the lowest original index, duplicate voxels retain
+their earliest original index, and voxels return to global source order before
+PCA. Output artifact names and schemas are unchanged.
+
+DTM is deliberately outside this policy. It still uses 60 m chunks and its
+existing 20 m buffer because terrain interpolation needs neighboring ground
+points and was not the memory-failure stage addressed by adaptive chunking.
 
 Supported instance dimensions are:
 

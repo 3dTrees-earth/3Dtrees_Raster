@@ -45,6 +45,13 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
+  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_adaptive_chunks.R")'
+docker run --rm --network none \
+  "${docker_limits[@]}" \
+  --entrypoint Rscript \
+  --volume "${repo_dir}:/workspace:ro" \
+  --workdir /workspace/src \
+  "${image_name}" \
   -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_dtm_coordinate_scale.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
@@ -89,6 +96,8 @@ for expected_help in \
   "default: 0.5" \
   "--dtm-chunk-size" \
   "default: 60" \
+  "--target-chunk-points" \
+  "default: 50000000" \
   "--instance-dimension" \
   "--segment-diagnostics"; do
   grep -q -- "${expected_help}" "${help_path}"
@@ -138,6 +147,8 @@ run_failure_case invalid_threads "--threads must be zero or greater" \
   /in/point_cloud.laz /fixtures/aoi.geojson rw 150 --threads -1
 run_failure_case invalid_catalog_workers "--catalog-workers must be at least one" \
   /in/point_cloud.laz /fixtures/aoi.geojson rw 150 --catalog-workers 0
+run_failure_case invalid_target_chunk_points "--target-chunk-points must be zero or greater" \
+  /in/point_cloud.laz /fixtures/aoi.geojson rw 150 --target-chunk-points -1
 run_failure_case malformed_aoi "must contain only Polygon or MultiPolygon" \
   /in/point_cloud.laz /fixtures/aoi_invalid.geojson rw 150
 run_failure_case nonoverlap_aoi "does not overlap the point-cloud XY extent" \

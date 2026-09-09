@@ -46,8 +46,10 @@ restore_original_point_order <- function(las, point_order_dimension = NULL,
       point_order_dimension
     ))
   }
-  # Reorder the complete point table so all dimensions remain row-aligned.
-  las@data <- las@data[order(point_order), ]
+  # Reorder the complete point table in place so all dimensions remain aligned.
+  # A row subset would allocate a second full LAS table; on dense windows that
+  # copy alone can consume several GiB and breach the internal memory budget.
+  data.table::setorderv(las@data, point_order_dimension)
   # Return the same LAS object shape expected by existing scientific functions.
   las
 }

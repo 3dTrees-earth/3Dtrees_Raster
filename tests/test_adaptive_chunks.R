@@ -186,3 +186,16 @@ stopifnot(
   grepl("opt_chunk_alignment", chm_catalog_body, fixed = TRUE),
   grepl("opt_chunk_alignment", segment_catalog_body, fixed = TRUE)
 )
+
+# Sorting a very dense window must not materialize a second complete LAS table.
+# The order vector is unavoidable, but data.table's in-place reordering avoids
+# the multi-gigabyte row-subset copy that previously pushed dataset 157 over its
+# 64 GiB internal memory gate after otherwise successful processing.
+order_restore_body <- paste(
+  deparse(body(restore_original_point_order)),
+  collapse = "\n"
+)
+stopifnot(
+  grepl("setorderv", order_restore_body, fixed = TRUE),
+  !grepl("[order(point_order)", order_restore_body, fixed = TRUE)
+)

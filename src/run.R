@@ -9,8 +9,10 @@ suppressPackageStartupMessages({
 
 # Runtime invariants chosen for the validated production image. Catalog
 # workers use one lidR thread; segment aggregation uses a small, fixed
-# data.table pool and deterministic disk buckets to bound peak memory.
-DATA_TABLE_THREADS <- 5L
+# data.table pool and deterministic disk buckets to bound peak memory.  A single
+# table thread prevents dense OriginalPointIndex radix sorts from allocating one
+# large scratch buffer per thread inside the single LAScatalog worker.
+DATA_TABLE_THREADS <- 1L
 SEGMENT_BUCKET_COUNT <- 64L
 MAX_LIDR_POINT_COUNT <- .Machine$integer.max
 DTM_CATALOG_SELECTION <- "xyz"

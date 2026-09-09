@@ -221,3 +221,8 @@ duplicate_order_rejected <- tryCatch(
   error = function(error) grepl("duplicate", conditionMessage(error))
 )
 stopifnot(duplicate_order_rejected)
+
+# One LAScatalog worker must not fan the very large source-order radix sort out
+# to several data.table buffers.  Scientific operations and their parameters
+# are unchanged; this is the memory-bound execution policy for dense windows.
+stopifnot(identical(DATA_TABLE_THREADS, 1L))

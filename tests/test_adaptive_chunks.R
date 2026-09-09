@@ -222,6 +222,36 @@ duplicate_order_rejected <- tryCatch(
 )
 stopifnot(duplicate_order_rejected)
 
+# DTM geometry guards must use bounded block scans rather than materializing a
+# second unique XY table for a dense catalog chunk.  Exercise points spanning
+# scan blocks, exact collinearity, ground-only filtering, and too-few points.
+stopifnot(
+  !xy_has_nondegenerate_points(c(0, 1), c(0, 1), block_size = 1L),
+  !xy_has_nondegenerate_points(c(0, 1, 2), c(0, 1, 2), block_size = 1L),
+  xy_has_nondegenerate_points(c(0, 1, 2), c(0, 1, 0), block_size = 1L),
+  !xy_has_nondegenerate_points(
+    c(0, 1, 2, 3), c(0, 1, 0, 2), c(1L, 1L, 1L, 2L), 2L,
+    block_size = 2L
+  ),
+  xy_has_nondegenerate_points(
+    c(0, 1, 2, 3), c(0, 1, 0, 2), c(2L, 2L, 2L, 1L), 2L,
+    block_size = 2L
+  )
+)
+geometry_guard_body <- paste(
+  deparse(body(xy_has_nondegenerate_points)),
+  collapse = "\n"
+)
+stopifnot(
+  !grepl("unique", geometry_guard_body, fixed = TRUE),
+  !grepl("as.matrix", geometry_guard_body, fixed = TRUE)
+)
+
+# Once DTM order is restored, the order key itself is scientifically unused by
+# PTD/TIN and must be released before those high-water-memory operations.
+dtm_body <- paste(deparse(body(dtm_chunk)), collapse = "\n")
+stopifnot(grepl("release_point_order_dimension", dtm_body, fixed = TRUE))
+
 # One LAScatalog worker must not fan the very large source-order radix sort out
 # to several data.table buffers.  Scientific operations and their parameters
 # are unchanged; this is the memory-bound execution policy for dense windows.

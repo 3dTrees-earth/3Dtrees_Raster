@@ -87,6 +87,10 @@ schemas.
 DTM is unchanged: it continues to use 60 m chunks with a 20 m buffer. DTM
 interpolation requires neighboring ground points, and this change targets the
 CHM/segmentation memory peaks rather than changing terrain science.
+The COPC path restores original row order before DTM and then drops the ordinal
+column because PTD/TIN no longer needs it. Non-collinearity guards scan bounded
+blocks rather than allocating full duplicate XY tables. Neither optimization
+changes the selected points, row order, DTM parameters, or terrain algorithm.
 
 ## File-by-file review map
 

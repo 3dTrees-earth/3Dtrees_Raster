@@ -129,6 +129,12 @@ PCA. Output artifact names and schemas are unchanged.
 DTM is deliberately outside this policy. It still uses 60 m chunks and its
 existing 20 m buffer because terrain interpolation needs neighboring ground
 points and was not the memory-failure stage addressed by adaptive chunking.
+For COPC, DTM still restores Julia's source-point order first; it then releases
+the now-redundant `OriginalPointIndex` column before PTD/TIN. Its checks for
+three non-collinear input and ground points scan fixed-size blocks instead of
+materializing duplicate full-chunk XY tables. These are memory-lifetime changes
+only: DTM geometry, buffer, classification, triangulation, and output remain
+unchanged.
 
 Supported instance dimensions are:
 

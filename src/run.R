@@ -873,6 +873,85 @@ compute_edge_flags <- function(tiles, tile_size) {
 
 # Disk-backed DTM and CHM pipeline -----------------------------------------
 
+# Determine whether an XY sequence contains a triangle without building the
+# full unique-coordinate table used by the former guard.  Dense DTM windows can
+# contain hundreds of millions of rows, so even a temporary duplicate XY table
+# can exceed the process budget before PTD or TIN begins.  Fixed-size blocks
+# bound every temporary vector while preserving the same yes/no geometry guard.
+xy_has_nondegenerate_points <- function(x, y, classes = NULL,
+                                        eligible_class = NULL,
+                                        block_size = 1000000L) {
+  if (length(x) != length(y)) stop("XY vectors must have equal length")
+  if (!is.null(classes) && length(classes) != length(x)) {
+    stop("classification and XY vectors must have equal length")
+  }
+  if (!is.null(classes) && length(eligible_class) != 1L) {
+    stop("an eligible class is required for a classified XY scan")
+  }
+  block_size <- suppressWarnings(as.integer(block_size))
+  if (length(block_size) != 1L || is.na(block_size) || block_size < 1L) {
+    stop("XY geometry scan block size must be a positive integer")
+  }
+  point_count <- length(x)
+  if (point_count < 3L) return(FALSE)
+
+  first_point <- NULL
+  second_point <- NULL
+  for (start in seq.int(1L, point_count, by = block_size)) {
+    finish <- min(point_count, as.double(start) + block_size - 1)
+    rows <- seq.int(start, finish)
+    block_x <- x[rows]
+    block_y <- y[rows]
+    eligible <- is.finite(block_x) & is.finite(block_y)
+    if (!is.null(classes)) {
+      eligible <- eligible & !is.na(classes[rows]) &
+        classes[rows] == eligible_class
+    }
+    candidates <- which(eligible)
+    if (length(candidates) == 0L) next
+
+    if (is.null(first_point)) {
+      first_row <- candidates[[1L]]
+      first_point <- c(block_x[[first_row]], block_y[[first_row]])
+    }
+    if (is.null(second_point)) {
+      different <- candidates[
+        block_x[candidates] != first_point[[1L]] |
+          block_y[candidates] != first_point[[2L]]
+      ]
+      if (length(different) > 0L) {
+        second_row <- different[[1L]]
+        second_point <- c(block_x[[second_row]], block_y[[second_row]])
+      }
+    }
+    if (is.null(second_point)) next
+
+    delta_x <- second_point[[1L]] - first_point[[1L]]
+    delta_y <- second_point[[2L]] - first_point[[2L]]
+    candidate_dx <- block_x[candidates] - first_point[[1L]]
+    candidate_dy <- block_y[candidates] - first_point[[2L]]
+    cross_product <- delta_x * candidate_dy - delta_y * candidate_dx
+    magnitude <- pmax(
+      1,
+      abs(delta_x * candidate_dy) + abs(delta_y * candidate_dx)
+    )
+    if (any(abs(cross_product) > 1e-12 * magnitude)) return(TRUE)
+  }
+  FALSE
+}
+
+# The source ordinal is required to establish Julia-compatible row order, but
+# PTD and TIN do not read it afterward.  Releasing this UInt64 column before
+# those dense DTM operations shortens its lifetime without changing DTM chunks,
+# buffers, classification, triangulation, coordinates, or row order.
+release_point_order_dimension <- function(las, point_order_dimension = NULL) {
+  if (is.null(point_order_dimension) ||
+      !point_order_dimension %in% names(las@data)) return(las)
+  las@data[, (point_order_dimension) := NULL]
+  gc(verbose = FALSE)
+  las
+}
+
 # Process one DTM catalog chunk.  The optional order field is selected by the
 # catalog caller and restored immediately after reading.
 dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
@@ -888,6 +967,9 @@ dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
   )
   # Match the record sequence seen by Julia's original LAZ-based workflow.
   las <- restore_original_point_order(las, point_order_dimension, "DTM")
+  # The order is now encoded by the rows themselves; do not retain a redundant
+  # eight-byte ordinal per point through the memory-intensive PTD/TIN stages.
+  las <- release_point_order_dimension(las, point_order_dimension)
   if (!las_has_nondegenerate_xy(las)) {
     message(
       "DTM chunk has fewer than three non-collinear input points; ",
@@ -956,9 +1038,7 @@ legacy_tin <- function(..., extrapolate = knnidw(3, 1, 50)) {
 }
 
 las_has_nondegenerate_xy <- function(las) {
-  xy <- unique(as.data.table(las@data)[, .(X, Y)])
-  if (nrow(xy) < 3L) return(FALSE)
-  qr(scale(as.matrix(xy), center = TRUE, scale = FALSE))$rank >= 2L
+  xy_has_nondegenerate_points(las@data[["X"]], las@data[["Y"]])
 }
 
 chunk_has_valid_extent <- function(chunk) {
@@ -998,22 +1078,19 @@ empty_chunk_raster <- function(chunk, resolution) {
 
 classified_ground_surface <- function(las, dtm_resolution) {
   classifications <- las[["Classification"]]
-  if (is.null(classifications) || !any(classifications == 2L, na.rm = TRUE)) {
+  if (is.null(classifications)) {
     message(
       "DTM chunk contains no PTD ground points; leaving it empty for ",
       "buffered neighbouring chunks"
     )
     return(NULL)
   }
-  ground_xy <- unique(
-    as.data.table(las@data)[Classification == 2L, .(X, Y)]
-  )
-  ground_rank <- if (nrow(ground_xy) < 3L) {
-    0L
-  } else {
-    qr(scale(as.matrix(ground_xy), center = TRUE, scale = FALSE))$rank
-  }
-  if (nrow(ground_xy) < 3L || ground_rank < 2L) {
+  if (!xy_has_nondegenerate_points(
+    las@data[["X"]],
+    las@data[["Y"]],
+    classifications,
+    2L
+  )) {
     message(
       "DTM chunk has fewer than three non-collinear PTD ground points; ",
       "leaving it empty for buffered neighbouring chunks"

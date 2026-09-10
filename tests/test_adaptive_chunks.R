@@ -187,6 +187,16 @@ stopifnot(
   grepl("opt_chunk_alignment", segment_catalog_body, fixed = TRUE)
 )
 
+# Adaptive window selection must not replace the baseline's numeric-resolution
+# CHM rasterization with a fixed per-window template.  The latter changes only
+# a few NA/value cells at exact window edges, but valid_updated parity is an
+# exact contract rather than a tolerance-based comparison.
+chm_chunk_body <- paste(deparse(body(chm_chunk)), collapse = "\n")
+stopifnot(
+  grepl("res = chm_resolution", chm_chunk_body, fixed = TRUE),
+  !grepl("chunk_template", chm_chunk_body, fixed = TRUE)
+)
+
 # Sorting a very dense window must not materialize a second complete LAS table.
 # The order vector is unavoidable, but data.table's in-place reordering avoids
 # the multi-gigabyte row-subset copy that previously pushed dataset 157 over its

@@ -1723,22 +1723,18 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
   if (is.empty(las)) return(empty_chunk_raster(chunk, chm_resolution))
   voxels <- voxelize_points(las, res = voxel_resolution)
   if (is.empty(voxels)) return(empty_chunk_raster(chunk, chm_resolution))
-  # A fixed core template prevents lidR from deriving a data-dependent local
-  # raster extent.  Every window therefore owns exactly its aligned grid cells,
-  # including sparse edge windows and points lying on chunk boundaries.
-  chunk_template <- empty_chunk_raster(chunk, chm_resolution)
-  template_crs <- spatial_reference_wkt(las)
-  if (!is.na(template_crs) && nzchar(template_crs)) {
-    terra::crs(chunk_template) <- template_crs
-  }
+  # Preserve the baseline lidR rasterization semantics.  Passing the numeric
+  # resolution lets lidR derive the local extent from the chunk's populated
+  # voxels; a fixed core template changes NA/value ownership for points lying
+  # on window edges and therefore does not reproduce valid_updated exactly.
   chunk_raster <- rasterize_canopy(
     voxels,
-    res = chunk_template,
+    res = chm_resolution,
     algorithm = p2r()
   )
   # A worker needs only the raster after this point. Drop the raw points and
   # voxel table before LAScatalog schedules the next spatial window.
-  rm(las, voxels, chunk_template)
+  rm(las, voxels)
   gc(verbose = FALSE)
   chunk_raster
 }

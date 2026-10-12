@@ -1757,7 +1757,8 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
                                observation_directory = NULL,
                                target_chunk_points = 0, read_size,
                                source_bounds = NULL) {
-  lidR::set_lidr_threads(1L)
+  # Bound both lidR and data.table scratch allocations inside this worker.
+  configure_catalog_worker()
   bounds <- sf::st_bbox(chunk)
   # LAScatalog probes callbacks with a zero-area dummy chunk before scheduling.
   if (bounds$xmax <= bounds$xmin || bounds$ymax <= bounds$ymin) return(NULL)

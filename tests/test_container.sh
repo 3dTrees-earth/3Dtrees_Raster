@@ -3,7 +3,7 @@ set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image_name="${FORESTSTRUCTURE_IMAGE:-3dtrees-foreststructure:test}"
-docker_limits=(--cpus "${FORESTSTRUCTURE_CPUS:-10}" --memory "${FORESTSTRUCTURE_MEMORY:-100g}")
+docker_limits=(--cpus "${FORESTSTRUCTURE_CPUS:-10}" --memory "${FORESTSTRUCTURE_MEMORY:-70g}" --memory-swap "${FORESTSTRUCTURE_MEMORY:-70g}")
 input_dir="$(mktemp -d)"
 results_dir="$(mktemp -d)"
 trap 'rm -rf "${input_dir}" "${results_dir}"' EXIT
@@ -23,7 +23,7 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_runtime_helpers.R")'
+  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
@@ -153,6 +153,8 @@ run_failure_case invalid_threads "--threads must be zero or greater" \
   /in/point_cloud.laz /fixtures/aoi.geojson rw 150 --threads -1
 run_failure_case invalid_catalog_workers "--catalog-workers must be at least one" \
   /in/point_cloud.laz /fixtures/aoi.geojson rw 150 --catalog-workers 0
+run_failure_case excessive_catalog_workers "--catalog-workers must not exceed ten" \
+  /in/point_cloud.laz /fixtures/aoi.geojson rw 150 --catalog-workers 11
 run_failure_case invalid_target_chunk_points "--target-chunk-points must be zero or greater" \
   /in/point_cloud.laz /fixtures/aoi.geojson rw 150 --target-chunk-points -1
 run_failure_case malformed_aoi "must contain only Polygon or MultiPolygon" \

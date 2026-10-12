@@ -73,8 +73,8 @@ parameter_or <- function(parameters, name, default) {
 validated_catalog_worker_count <- function(value, thread_budget) {
   workers <- suppressWarnings(as.integer(value))
   if (length(workers) != 1L || is.na(workers) ||
-      !workers %in% c(1L, 2L)) {
-    stop("FORESTSTRUCTURE_CATALOG_WORKERS must be 1 or 2")
+      suppressWarnings(as.numeric(value)) != workers || workers < 1L || workers > 10L) {
+    stop("FORESTSTRUCTURE_CATALOG_WORKERS must be an integer from 1 to 10")
   }
   if (workers > thread_budget) {
     stop("FORESTSTRUCTURE_CATALOG_WORKERS exceeds FORESTSTRUCTURE_THREADS")
@@ -274,7 +274,9 @@ script_directory <- if (length(script_argument)) {
   getwd()
 }
 source(file.path(script_directory, "tile_scheduler.R"))
+source(file.path(script_directory, "catalog_scheduler.R"))
 source(file.path(script_directory, "voxel_counts.R"))
+source(file.path(script_directory, "artifact_publication.R"))
 
 # CLI and artifact naming ---------------------------------------------------
 
@@ -547,6 +549,9 @@ parse_parameters <- function() {
   if (!is.finite(args$catalog_workers) || args$catalog_workers < 1) {
     stop("--catalog-workers must be at least one")
   }
+  if (args$catalog_workers > 10L) {
+    stop("--catalog-workers must not exceed ten")
+  }
   args
 }
 
@@ -667,6 +672,33 @@ read_audit_aoi <- function(path) {
   )
 }
 
+# Snap header bounds to their stored coordinate lattice. Some writers retain
+# pre-quantization extrema, while COPC reports the actual stored coordinates.
+# This is only an inexpensive header compatibility check, not identity proof.
+point_cloud_xyz_bounds <- function(path) {
+  # lidR exposes LAS/COPC public-header fields through the same header object.
+  header <- readLASheader(path)
+  # Return a named vector so comparison order is explicit and reviewable.
+  bounds <- c(
+    xmin = as.numeric(header@PHB[["Min X"]]),
+    ymin = as.numeric(header@PHB[["Min Y"]]),
+    zmin = as.numeric(header@PHB[["Min Z"]]),
+    xmax = as.numeric(header@PHB[["Max X"]]),
+    ymax = as.numeric(header@PHB[["Max Y"]]),
+    zmax = as.numeric(header@PHB[["Max Z"]])
+  )
+  scales <- rep(vapply(c("X", "Y", "Z"), function(axis) {
+    as.numeric(header@PHB[[paste(axis, "scale factor")]])
+  }, numeric(1)), 2L)
+  offsets <- rep(vapply(c("X", "Y", "Z"), function(axis) {
+    as.numeric(header@PHB[[paste(axis, "offset")]])
+  }, numeric(1)), 2L)
+  if (any(!is.finite(c(bounds, scales, offsets))) || any(scales <= 0)) {
+    stop("invalid LAS coordinate lattice in companion header")
+  }
+  round((bounds - offsets) / scales) * scales + offsets
+}
+
 point_cloud_xy_bounds <- function(path) {
   header <- readLASheader(path)
   bounds <- c(
@@ -684,7 +716,9 @@ point_cloud_xy_bounds <- function(path) {
 }
 
 read_point_cloud_extent <- function(path) {
-  bounds <- point_cloud_xy_bounds(path)
+  # Use stored-coordinate extrema for the fallback AOI too: a pre-quantization
+  # header must not invalidate a complete boundary voxel.
+  bounds <- point_cloud_xyz_bounds(path)[c("xmin", "ymin", "xmax", "ymax")]
   ring <- matrix(c(
     bounds[["xmin"]], bounds[["ymin"]],
     bounds[["xmax"]], bounds[["ymin"]],
@@ -959,7 +993,7 @@ release_point_order_dimension <- function(las, point_order_dimension = NULL) {
 # catalog caller and restored immediately after reading.
 dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
                       point_order_dimension = NULL) {
-  lidR::set_lidr_threads(1L)
+  configure_catalog_worker()
   las <- readLAS(chunk)
   if (is.empty(las)) return(empty_chunk_raster(chunk, dtm_resolution))
   # Treat a missing order key as a hard error before classification or TIN work.
@@ -1143,7 +1177,9 @@ classified_ground_surface <- function(las, dtm_resolution) {
 }
 
 assert_catalog_completed <- function(results, phase) {
-  if (length(results) == 0L || any(vapply(results, is.null, logical(1)))) {
+  if (length(results) == 0L || any(vapply(results, function(result) {
+    is.null(result) || inherits(result, "try-error")
+  }, logical(1)))) {
     stop(sprintf(
       "%s LAScatalog processing failed or returned incomplete chunks",
       phase
@@ -1549,12 +1585,8 @@ write_global_dtm <- function(point_cloud, output_path, work_directory,
   catalog@output_options$drivers$SpatRaster$param$datatype <- "FLT8S"
   if (is.null(source_crs)) source_crs <- spatial_reference_wkt(catalog)
 
-  results <- with_catalog_workers(
-    workers,
-    "DTM",
-    catalog_apply(
-      catalog,
-      dtm_chunk,
+  results <- apply_catalog_chunks(
+      catalog, dtm_chunk, workers, "DTM",
       dtm_resolution = dtm_resolution,
       ptd_resolution = ptd_resolution,
       # Every worker restores source record order before ground/TIN operations.
@@ -1564,7 +1596,6 @@ write_global_dtm <- function(point_cloud, output_path, work_directory,
         drop_null = FALSE,
         raster_alignment = dtm_resolution
       )
-    )
   )
   chunk_paths <- complete_chunk_raster_paths(results, "DTM")
   mosaic <- build_dtm_overlap_mosaic(
@@ -1710,7 +1741,7 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
                       chm_resolution, point_order_dimension = NULL,
                       observation_directory = NULL,
                       target_chunk_points = 0) {
-  lidR::set_lidr_threads(1L)
+  configure_catalog_worker()
   las <- readLAS(chunk)
   record_chunk_observation(
     observation_directory,
@@ -1854,12 +1885,8 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
   } else {
     chm_chunk
   }
-  results <- with_catalog_workers(
-    workers,
-    "CHM",
-    catalog_apply(
-      catalog,
-      callback,
+  results <- apply_catalog_chunks(
+      catalog, callback, workers, "CHM",
       dtm_path = dtm_path,
       voxel_resolution = voxel_resolution,
       maximum_height = maximum_height,
@@ -1873,7 +1900,6 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
         drop_null = FALSE,
         raster_alignment = chm_resolution
       )
-    )
   )
   result <- build_chunk_virtual_raster(
     results,
@@ -2167,12 +2193,8 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
     "Reading segment dimensions with LAS selection %s",
     selection
   ))
-  chunks <- with_catalog_workers(
-    workers,
-    "segment",
-    catalog_apply(
-      catalog,
-      segment_chunk,
+  chunks <- apply_catalog_chunks(
+      catalog, segment_chunk, workers, "segment",
       dtm_path = dtm_path,
       voxel_resolution = voxel_resolution,
       maximum_height = maximum_height,
@@ -2188,7 +2210,6 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
       observation_directory = observation_directory,
       target_chunk_points = target_chunk_points,
       .options = list(automerge = FALSE, drop_null = FALSE)
-    )
   )
   assert_catalog_completed(chunks, "segment")
   chunks <- lapply(chunks, `[[`, "paths")
@@ -3379,7 +3400,7 @@ run_analysis <- function(parameters) {
   message("FORESTSTRUCTURE_STAGE stage=tiles status=started")
   tile_started <- proc.time()[["elapsed"]]
   tile_indices <- seq_len(nrow(tiles))
-  tile_plan <- tile_worker_plan(thread_budget, length(tile_indices))
+  tile_plan <- tile_worker_plan(thread_budget, length(tile_indices), catalog_workers)
   tile_workers <- tile_plan$process_workers
   tile_threads_per_worker <- tile_plan$threads_per_worker
   calculate_row <- function(index) {
@@ -3406,9 +3427,9 @@ run_analysis <- function(parameters) {
   }
   if (length(tile_indices) > 0L) {
     message(sprintf(
-      "Calculating %d tile metric rows sequentially with %d lidR thread(s)",
+      "Calculating %d tile metric rows with %d process worker(s), %d lidR thread(s) each",
       length(tile_indices),
-      tile_threads_per_worker
+      tile_workers, tile_threads_per_worker
     ))
   }
   base_result <- collect_tile_rows(tile_indices, calculate_row, tile_workers)
@@ -3489,8 +3510,28 @@ run_analysis <- function(parameters) {
   invisible(output_paths)
 }
 
+run_standard_analysis <- function(parameters) {
+  destination <- parameters$output_dir
+  staging <- tempfile(".incoming_", tmpdir = destination)
+  if (!dir.create(staging)) stop("cannot create analysis staging directory")
+  on.exit(unlink(staging, recursive = TRUE, force = TRUE), add = TRUE)
+  parameters$output_dir <- staging
+  dimension_paths <- run_analysis(parameters)
+  common <- artifact_paths(staging, parameters$dataset_id)
+  artifacts <- c(unlist(dimension_paths), common$dtm, common$chm, common$tiles_png,
+                 if (isTRUE(parameters$performance_report)) common$performance)
+  if (isTRUE(parameters$export_voxel_counts)) {
+    artifacts <- c(artifacts,
+      validate_voxel_count_artifacts(staging, parameters$dataset_id))
+  }
+  if (any(!file.exists(artifacts)) || any(file.info(artifacts)$size <= 0)) {
+    stop("incoming analysis artifacts missing or empty")
+  }
+  promote_artifacts(artifacts, destination, parameters$dataset_id)
+}
+
 main <- function() {
-  run_analysis(parse_parameters())
+  run_standard_analysis(parse_parameters())
 }
 
 if (!identical(Sys.getenv("FORESTSTRUCTURE_SOURCE_ONLY"), "1")) {

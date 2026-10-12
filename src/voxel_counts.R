@@ -21,7 +21,10 @@ validate_voxel_count_parameters <- function(parameters) {
 }
 
 write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
-  paths <- voxel_count_paths(parameters$output_dir, parameters$dataset_id)
+  staging <- tempfile(".voxel_incoming_", tmpdir = parameters$output_dir)
+  dir.create(staging)
+  on.exit(unlink(staging, recursive = TRUE, force = TRUE), add = TRUE)
+  paths <- voxel_count_paths(staging, parameters$dataset_id)
   chunk_points <- parameter_or(parameters, "voxel_count_chunk_points", 250000L)
   if (!is.finite(chunk_points) || chunk_points < 1L) {
     stop("--voxel-count-chunk-points must be positive")
@@ -29,7 +32,7 @@ write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
   # The helper runs beside the R process, so reserve the parent's live memory.
   budget <- parameter_or(parameters, "memory_budget_gib", Inf)
   available <- if (is.finite(budget)) budget - current_rss_bytes() / 1024^3 else 1
-  assert_memory_budget(128 * 1024^2, parameters, "voxel point-count export")
+  assert_memory_budget(256 * 1024^2, parameters, "voxel point-count export")
   usable_path <- file.path(work_directory, "voxel_usable.gpkg")
   sf::st_write(sf::st_sf(geometry = aoi$usable), usable_path, quiet = TRUE)
   config <- list(
@@ -44,8 +47,11 @@ write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
   status <- system2("python3", c(shQuote(file.path(script_directory, "voxel_counts.py")),
                                  shQuote(config_path)))
   if (!identical(status, 0L)) stop("voxel point-count export failed")
-  validate_voxel_count_artifacts(parameters$output_dir, parameters$dataset_id)
-  jsonlite::read_json(paths$metadata, simplifyVector = TRUE)
+  artifacts <- validate_voxel_count_artifacts(staging, parameters$dataset_id)
+  metadata <- jsonlite::read_json(paths$metadata, simplifyVector = TRUE)
+  promote_artifacts(artifacts, parameters$output_dir, parameters$dataset_id,
+                    replace_dataset = FALSE)
+  metadata
 }
 
 validate_voxel_count_artifacts <- function(directory, dataset_id) {

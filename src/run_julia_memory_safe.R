@@ -14,30 +14,14 @@ is_copc_point_cloud <- function(path) {
   grepl("\\.copc\\.laz$", path, ignore.case = TRUE)
 }
 
-# Read exact header bounds without loading any point records.  These values form
-# the inexpensive companion-file identity check below.
-point_cloud_xyz_bounds <- function(path) {
-  # lidR exposes LAS/COPC public-header fields through the same header object.
-  header <- readLASheader(path)
-  # Return a named vector so comparison order is explicit and reviewable.
-  c(
-    xmin = as.numeric(header@PHB[["Min X"]]),
-    ymin = as.numeric(header@PHB[["Min Y"]]),
-    zmin = as.numeric(header@PHB[["Min Z"]]),
-    xmax = as.numeric(header@PHB[["Max X"]]),
-    ymax = as.numeric(header@PHB[["Max Y"]]),
-    zmax = as.numeric(header@PHB[["Max Z"]])
-  )
-}
-
 # The original LAZ is optional at runtime and is never used for computation.
-# When supplied, prove that it describes the same cloud as the requested COPC so
-# provenance cannot accidentally name an unrelated ordered source.
+# Reject incompatible companions without re-scanning the source. Lossless
+# preparation validation (indices and fingerprints) remains the identity proof.
 validate_original_companion <- function(requested_point_cloud, point_cloud) {
   # Compare header counts without paying the cost of two full point scans.
   requested_count <- point_count_from_las_header(requested_point_cloud)
   source_count <- point_count_from_las_header(point_cloud)
-  # Compare all six XYZ extrema at a tolerance far below source quantization.
+  # Compare the six extrema on their stored coordinate lattices.
   requested_bounds <- point_cloud_xyz_bounds(requested_point_cloud)
   source_bounds <- point_cloud_xyz_bounds(point_cloud)
   # Either disagreement means the companion cannot safely describe this COPC.
@@ -323,52 +307,6 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
   invisible(paths)
 }
 
-promote_artifacts <- function(incoming_artifacts, output_directory, dataset_id) {
-  # Promote only paths returned by validate_incoming_artifacts(). GDAL may
-  # leave non-scientific PAM sidecars beside TIFFs; those files are cleaned up
-  # with the staging directory and never enter the published artifact set.
-  incoming <- normalizePath(incoming_artifacts, mustWork = TRUE)
-  prefix_pattern <- sprintf("^%s(_|\\.)", dataset_id)
-  existing <- list.files(
-    output_directory,
-    pattern = prefix_pattern,
-    full.names = TRUE,
-    recursive = FALSE,
-    all.files = FALSE
-  )
-  backup_directory <- tempfile(
-    pattern = sprintf(".backup_%s_", dataset_id),
-    tmpdir = output_directory
-  )
-  dir.create(backup_directory)
-  promoted <- character()
-  success <- FALSE
-  on.exit({
-    if (!success) {
-      unlink(promoted, force = TRUE)
-      backup <- list.files(backup_directory, full.names = TRUE)
-      for (path in backup) {
-        file.rename(path, file.path(output_directory, basename(path)))
-      }
-    }
-    unlink(backup_directory, recursive = TRUE, force = TRUE)
-  }, add = TRUE)
-
-  for (path in existing) {
-    if (!file.rename(path, file.path(backup_directory, basename(path)))) {
-      stop(sprintf("cannot stage existing artifact %s for replacement", path))
-    }
-  }
-  for (path in incoming) {
-    target <- file.path(output_directory, basename(path))
-    if (!file.rename(path, target)) {
-      stop(sprintf("cannot atomically promote %s", basename(path)))
-    }
-    promoted <- c(promoted, target)
-  }
-  success <- TRUE
-  invisible(promoted)
-}
 
 package_versions <- function() {
   packages <- c(
@@ -512,6 +450,20 @@ julia_memory_safe_main <- function() {
     }
   }
 
+  thread_count <- suppressWarnings(as.integer(Sys.getenv(
+    "FORESTSTRUCTURE_THREADS",
+    "20"
+  )))
+  if (!is.finite(thread_count) || thread_count < 1L) thread_count <- 20L
+  catalog_worker_count <- validated_catalog_worker_count(
+    Sys.getenv("FORESTSTRUCTURE_CATALOG_WORKERS", "1"),
+    thread_count
+  )
+  message(sprintf(
+    "Using validated Julia-memory-safe catalog worker count: %d",
+    catalog_worker_count
+  ))
+
   message("FORESTSTRUCTURE_STAGE stage=aoi_conversion status=started")
   generated_gpkg <- file.path(
     job_directory,
@@ -521,7 +473,7 @@ julia_memory_safe_main <- function() {
     aoi_geojson,
     generated_gpkg,
     point_cloud_xy_bounds(staged_point_cloud),
-    tile_threads = 1L
+    tile_threads = thread_count
   )
   write_json(
     aoi_provenance,
@@ -626,19 +578,6 @@ julia_memory_safe_main <- function() {
   message(sprintf("SELECTOR phase=tile selector=%s", point_order_selector))
   message("FORESTSTRUCTURE_STAGE stage=dimension_projection status=completed")
 
-  thread_count <- suppressWarnings(as.integer(Sys.getenv(
-    "FORESTSTRUCTURE_THREADS",
-    "20"
-  )))
-  if (!is.finite(thread_count) || thread_count < 1L) thread_count <- 20L
-  catalog_worker_count <- validated_catalog_worker_count(
-    Sys.getenv("FORESTSTRUCTURE_CATALOG_WORKERS", "1"),
-    thread_count
-  )
-  message(sprintf(
-    "Using validated Julia-memory-safe catalog worker count: %d",
-    catalog_worker_count
-  ))
   segment_bucket_count <- suppressWarnings(as.integer(Sys.getenv(
     "FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT",
     as.character(SEGMENT_BUCKET_COUNT)

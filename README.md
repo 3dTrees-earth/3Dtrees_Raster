@@ -89,8 +89,35 @@ docker run --rm --network none \
 ```
 
 `--original-point-cloud` is optional. When supplied, it is used only for
-header identity and provenance checks; scientific point reads still use COPC.
+header compatibility and provenance checks; scientific point reads still use COPC.
+Extrema are compared on each header's coordinate lattice because original writers
+can retain pre-quantization bounds. This lightweight check is not identity proof: the
+preparation validator must still verify complete point indices and fingerprints.
 Plain LAS/LAZ input is also supported directly.
+
+### Catalog and tile concurrency
+
+`FORESTSTRUCTURE_CATALOG_WORKERS` accepts 1–10 workers within
+`FORESTSTRUCTURE_THREADS`; the memory-safe default remains one. The standard
+CLI exposes the same upper limit through `--catalog-workers`. Tile metrics
+reuse that process count and divide the thread allowance between workers.
+Increase workers only after measuring the largest spatial reads: compressed
+file size alone does not predict the memory of locally dense chunks.
+
+On the pinned lidR 4.3.2 Linux runtime, bounded fork workers call lidR's existing
+chunk engine directly. This avoids repeated future-global discovery while
+retaining chunk construction, buffers, callbacks, raster writers and ordered
+results. Each child handles one task and exits, releasing its working set.
+Other lidR versions or platforms without safe fork support retain the public
+catalog scheduler. BLAS pools are limited to one thread in the image to avoid
+multiplying native threads inside workers. Scientific algorithms and source
+point order are unchanged.
+
+The worker count bounds concurrency, not total memory. The internal budget
+and voxel admission estimates do not reserve the sum of all concurrent DTM,
+CHM and tile working sets. Keep a hard container limit with equal
+`--memory`/`--memory-swap` values, leave headroom, and retain the recorded cgroup
+peak. Dense inputs can need fewer workers than available CPUs.
 
 ### Adaptive COPC windows
 
@@ -315,6 +342,19 @@ Finite negative heights are excluded and counted, never clamped into the first
 layer. There is no 0.5 m vegetation cutoff, 70 m ceiling or automatic high-point
 outlier rejection. Review anomalous heights using the accounting metadata;
 exceeding TIFF's 65,535-band capacity fails rather than silently truncating.
+The grid covers the usable AOI independently of LAS header extrema. Without an
+explicit AOI, the standard runner derives its fallback footprint from header
+extrema snapped to the stored coordinate lattice; this corrects pre-quantization
+rounding but does not certify arbitrarily corrupted headers. Both entry
+points stage and validate the complete voxel quartet before replacing existing
+voxel products. Cells require finite support from every intersecting DTM pixel,
+including interior pixels when the DTM resolution is finer than 0.5 m.
+
+Admission accounts for raster tile directories outside GDAL's cache as well as
+bounded point batches. Extremely wide or tall cubes fail explicitly if the
+available memory or conservative uncompressed output-space estimate is exceeded.
+These estimates are not a substitute for a container memory limit.
+
 A source with no eligible points emits a headers-only CSV and one zero/NoData
 band for 0–0.5 m. Missing or non-metric CRS fails this optional export explicitly.
 
@@ -333,7 +373,7 @@ raster block/band is written separately through GDAL. No complete cloud, DTM or
 dense 3D cube is loaded. Temporary disk and final output still scale with the
 number of occupied voxels and the requested raster volume. SQLite sorting and
 count reduction trade additional disk I/O for bounded memory. Ensure sufficient
-scratch/output disk; write failures prevent promotion in the memory-safe runner.
+scratch/output disk; write failures prevent promotion in both runners.
 
 The JSON records source/read/included/rejected point accounting, peak batch
 size, occupied voxels, scratch bytes and duration. Band height bounds and units

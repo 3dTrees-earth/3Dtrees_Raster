@@ -22,3 +22,11 @@ stopifnot(
   identical(plan$process_workers, 1L),
   identical(plan$threads_per_worker, 10L)
 )
+
+plan <- tile_worker_plan(10L, 34L, 10L)
+stopifnot(plan$process_workers == 10L, plan$threads_per_worker == 1L)
+plan <- tile_worker_plan(10L, 2L, 10L)
+stopifnot(plan$process_workers == 2L, plan$threads_per_worker == 5L)
+serial <- collect_tile_rows(1:6, calculate_row, 1L)
+parallel <- collect_tile_rows(1:6, calculate_row, 2L)
+stopifnot(identical(serial, parallel))

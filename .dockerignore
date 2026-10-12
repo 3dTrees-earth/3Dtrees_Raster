@@ -2,3 +2,5 @@
 .github
 benchmarks
 tests
+
+**/__pycache__/

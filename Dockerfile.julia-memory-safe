@@ -3,6 +3,10 @@
 ARG BASE_IMAGE=3dtrees-foreststructure:v0.1.2
 FROM ${BASE_IMAGE}
 
+# Native BLAS pools otherwise start one thread per host core in every worker.
+# Parallelism belongs to the bounded catalog/tile process scheduler.
+ENV OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 BLIS_NUM_THREADS=1
+
 # Embed build identity and pin the two Python packages used only by conversion
 # helpers and ExtraByte projection/validation.
 ARG VCS_REF=unknown

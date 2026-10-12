@@ -5,12 +5,29 @@ import subprocess
 import sys
 import tempfile
 import unittest
+import importlib.util
 import laspy
 import numpy as np
 
 VALIDATOR = Path(__file__).resolve().parents[1] / 'validation/validate_indexed_copc_streaming.py'
 
 class BoundsValidation(unittest.TestCase):
+    def test_crs_serializations_preserve_meaning_and_axis_order(self):
+        from pyproj import CRS
+        spec = importlib.util.spec_from_file_location('indexed_validator', VALIDATOR)
+        validator = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(validator)
+        crs = CRS.from_epsg(32632)
+        modern = {'crs_wkt': crs.to_wkt()}
+        legacy = {'crs_wkt': crs.to_wkt(version='WKT1_GDAL')}
+        self.assertNotEqual(modern, legacy)
+        self.assertTrue(validator.crs_compatible(modern, legacy))
+        self.assertFalse(validator.crs_compatible(modern, {'crs_wkt': CRS.from_epsg(32633).to_wkt()}))
+        self.assertFalse(validator.crs_compatible(modern, {'crs_wkt': None}))
+        self.assertFalse(validator.crs_compatible(
+            {'crs_wkt': CRS.from_epsg(4326).to_wkt()},
+            {'crs_wkt': CRS.from_user_input('OGC:CRS84').to_wkt()}))
+
     def test_bounds_correction_preserves_strict_point_identity(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

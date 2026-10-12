@@ -15,6 +15,7 @@ import json
 import math
 from pathlib import Path
 import sqlite3
+import shutil
 import tempfile
 import time
 
@@ -26,6 +27,8 @@ RESOLUTION = 0.5
 BLOCK = 128
 NODATA = 4294967295
 MAX_BANDS = 65535  # TIFF SamplesPerPixel limit; fail explicitly, never truncate.
+FIXED_MEMORY_RESERVE = 192 * 1024**2
+MINIMUM_MEMORY = 256 * 1024**2
 
 
 def sha256_file(path):
@@ -115,8 +118,9 @@ def make_validity_mask(path, grid, geometry, dtm):
     """1: entire cell in AOI and valid DTM; 0: AOI/boundary; 2: invalid terrain.
 
     Rasterize interiors quickly, then inspect only boundary cells geometrically.
-    Checking four interior corners suffices for the north-up rectangular DTM
-    cells. Counts and zero-valued cells use exactly this same domain mask.
+    Sample every intersected terrain cell, including fine-resolution interior
+    cells. Sampling is streamed over bounded blocks, never a dense DTM window.
+    Counts and zero-valued cells use exactly this same domain mask.
     """
     output = create_raster(path, grid, 1, gdal.GDT_Byte)
     output.GetRasterBand(1).SetDescription("0=excluded;1=valid;2=invalid_DTM")
@@ -150,8 +154,13 @@ def make_validity_mask(path, grid, geometry, dtm):
                              y0 - (np.arange(height) + 0.5) * RESOLUTION)
         terrain_valid = np.ones(xx.size, dtype=bool)
         # Move inside each edge to avoid sampling the neighboring cell.
-        for dx in (-0.25, 0.25):
-            for dy in (-0.25, 0.25):
+        transform = dtm.dataset.GetGeoTransform()
+        # Spacing no larger than a DTM pixel visits every intersected pixel,
+        # regardless of lattice alignment. Corners alone miss interior holes.
+        dxs = np.linspace(-0.25, 0.25, max(1, math.ceil(RESOLUTION / transform[1])) + 1)
+        dys = np.linspace(-0.25, 0.25, max(1, math.ceil(RESOLUTION / -transform[5])) + 1)
+        for dx in dxs:
+            for dy in dys:
                 x = np.nextafter(xx.ravel() + dx, xx.ravel())
                 y = np.nextafter(yy.ravel() + dy, yy.ravel())
                 terrain_valid &= np.isfinite(dtm.sample(x, y))
@@ -265,6 +274,28 @@ def write_counts(connection, paths, grid, bands, mask):
     return exported
 
 
+def raster_memory_bytes(grid, bands):
+    """Conservative libtiff/GDAL directory allowance, outside the block cache.
+
+    BigTIFF needs offset and byte-count arrays per tile per band. Reserve twice
+    their 16-byte payload plus per-band objects/metadata; the 192 MiB fixed reserve
+    in check_raster_budget covers GDAL/SQLite caches and the bounded samplers.
+    """
+    tiles = math.ceil(grid["width"] / BLOCK) * math.ceil(grid["height"] / BLOCK)
+    return tiles * bands * 32 + bands * 4096
+
+
+def check_raster_budget(grid, bands, budget, other_raster_bytes=0):
+    estimate = raster_memory_bytes(grid, bands)
+    required = FIXED_MEMORY_RESERVE + estimate + other_raster_bytes
+    if required > budget:
+        raise ValueError(
+            f"memory_budget_exceeded: raster directories require {required} bytes "
+            f"including caches, available {int(budget)}; reduce AOI or increase budget")
+    return dict(directory_bytes=estimate, fixed_cache_reserve_bytes=FIXED_MEMORY_RESERVE,
+                required_bytes=required, available_bytes=int(budget))
+
+
 def export(config):
     started = time.monotonic()
     gdal.UseExceptions()
@@ -285,15 +316,17 @@ def export(config):
     if geometry.IsEmpty() or not geometry.IsValid():
         raise ValueError("invalid voxel-count AOI")
     budget = float(config.get("memory_available_gib", 1)) * 1024**3
-    if budget < 128 * 1024**2:
-        raise ValueError("memory_budget_exceeded: voxel export needs at least 128 MiB available")
+    if budget < MINIMUM_MEMORY:
+        raise ValueError("memory_budget_exceeded: voxel export needs at least 256 MiB available")
     paths = config["paths"]
     with laspy.open(config["point_cloud"]) as source:
+        # The product domain is the usable AOI, independent of potentially
+        # stale/pre-quantization LAS header extrema. All source records stream.
         extent = geometry.GetEnvelope()
-        xmin = math.floor(max(extent[0], source.header.mins[0]) / RESOLUTION) * RESOLUTION
-        ymin = math.floor(max(extent[2], source.header.mins[1]) / RESOLUTION) * RESOLUTION
-        xmax = (math.floor(min(extent[1], source.header.maxs[0]) / RESOLUTION) + 1) * RESOLUTION
-        ymax = (math.floor(min(extent[3], source.header.maxs[1]) / RESOLUTION) + 1) * RESOLUTION
+        xmin = math.floor(extent[0] / RESOLUTION) * RESOLUTION
+        ymin = math.floor(extent[2] / RESOLUTION) * RESOLUTION
+        xmax = math.ceil(extent[1] / RESOLUTION) * RESOLUTION
+        ymax = math.ceil(extent[3] / RESOLUTION) * RESOLUTION
         if xmax <= xmin or ymax <= ymin:
             raise ValueError("AOI and source extent do not intersect")
         grid = dict(width=int(round((xmax-xmin)/RESOLUTION)),
@@ -303,9 +336,11 @@ def export(config):
         block_count = ((grid["width"] + BLOCK - 1) // BLOCK) * ((grid["height"] + BLOCK - 1) // BLOCK)
         if block_count > np.iinfo(np.int64).max // (MAX_BANDS * BLOCK * BLOCK):
             raise ValueError("grid exceeds integer voxel-address capacity")
-        # Reserve fixed caches and conservatively budget temporary arrays/sorts.
+        mask_bookkeeping = raster_memory_bytes(grid, 1)
+        check_raster_budget(grid, 1, budget)
+        # Reserve GDAL/SQLite caches, raster directories and batch temporaries.
         chunk_points = min(int(config.get("chunk_points", 250000)),
-                           int((budget - 96 * 1024**2) / (source.header.point_format.size + 320)))
+                           int((budget - FIXED_MEMORY_RESERVE - mask_bookkeeping) / (2 * source.header.point_format.size + 320)))
         if chunk_points < 1:
             raise ValueError("chunk_points must be positive within the memory budget")
         terrain = RasterSampler(dtm_ds)
@@ -316,6 +351,12 @@ def export(config):
                 connection.execute("PRAGMA cache_size=-16384")
                 connection.execute("PRAGMA temp_store=FILE")
                 bands, counters, occupied, peak = accumulate(source, connection, grid, mask, terrain, chunk_points)
+                raster_resources = check_raster_budget(grid, bands, budget, mask_bookkeeping)
+                # Admission uses uncompressed tiled size and conservative CSV rows;
+                # compression is data dependent and must not be assumed here.
+                required_disk = block_count * BLOCK * BLOCK * 4 * bands + occupied * 128
+                if shutil.disk_usage(Path(paths["raster"]).parent).free < required_disk:
+                    raise ValueError("disk_budget_exceeded: insufficient free space for voxel products")
                 if write_counts(connection, paths, grid, bands, mask_ds) != counters["included"]:
                     raise ValueError("CSV/raster export lost counts")
                 disk_bytes = sum(p.stat().st_size for p in Path(scratch).iterdir())
@@ -337,6 +378,8 @@ def export(config):
                      resolution_m=[transform[1], -transform[5]]),
             point_accounting=counters, domain_cells=domain, occupied_voxels=occupied,
             chunk_points=chunk_points, peak_batch_points=peak, temporary_disk_bytes=disk_bytes,
+            raster_resource_estimate=raster_resources,
+            grid_extent_source="usable AOI; independent of LAS header bounds",
             elapsed_seconds=time.monotonic()-started,
             artifacts={key: Path(value).name for key, value in paths.items()})
         Path(paths["metadata"]).write_text(json.dumps(metadata, indent=2, allow_nan=False)+"\n", encoding="utf-8")

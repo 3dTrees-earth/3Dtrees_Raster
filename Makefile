@@ -39,7 +39,7 @@ test-artifact-promotion:
 		--volume "$(CURDIR):/repo:ro" \
 		--workdir /repo/src \
 		"$(JULIA_MEMORY_SAFE_IMAGE)" \
-		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("/repo/src/run_julia_memory_safe.R"); source("/repo/tests/test_artifact_promotion.R")'
+		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("/repo/src/run_julia_memory_safe.R"); source("/repo/tests/test_artifact_promotion.R"); source("/repo/tests/test_companion_bounds.R")'
 
 .PHONY: test-voxel-counts
 test-voxel-counts:

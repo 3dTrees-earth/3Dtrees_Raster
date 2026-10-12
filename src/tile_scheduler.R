@@ -1,8 +1,21 @@
-tile_worker_plan <- function(requested_threads, tile_count) {
+# Stable result order and one task per child bound each worker's object lifetime.
+run_bounded_tasks <- function(indices, calculate, workers,
+                              parallel_runner = parallel::mclapply) {
+  if (length(indices) > 0L && workers > 1L) {
+    parallel_runner(indices, calculate, mc.cores = workers,
+                    mc.preschedule = FALSE, mc.set.seed = FALSE)
+  } else {
+    lapply(indices, calculate)
+  }
+}
+
+tile_worker_plan <- function(requested_threads, tile_count, requested_workers = 1L) {
   requested_threads <- max(1L, as.integer(requested_threads))
+  workers <- max(1L, min(as.integer(requested_workers), requested_threads,
+                         as.integer(tile_count)))
   list(
-    process_workers = 1L,
-    threads_per_worker = requested_threads
+    process_workers = workers,
+    threads_per_worker = max(1L, requested_threads %/% workers)
   )
 }
 
@@ -29,17 +42,8 @@ collect_tile_rows <- function(
     calculate_row,
     tile_workers,
     parallel_runner = parallel::mclapply) {
-  if (length(tile_indices) > 0L && tile_workers > 1L) {
-    rows <- parallel_runner(
-      tile_indices,
-      calculate_row,
-      mc.cores = tile_workers,
-      mc.preschedule = FALSE,
-      mc.set.seed = FALSE
-    )
-  } else {
-    rows <- lapply(tile_indices, calculate_row)
-  }
+  rows <- run_bounded_tasks(tile_indices, calculate_row, tile_workers,
+                            parallel_runner)
   validate_tile_rows(tile_indices, rows)
   if (length(rows)) {
     data.table::rbindlist(rows, use.names = TRUE, fill = TRUE)

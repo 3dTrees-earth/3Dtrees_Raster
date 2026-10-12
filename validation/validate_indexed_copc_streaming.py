@@ -18,6 +18,7 @@ from typing import Any
 
 import laspy
 import numpy as np
+from pyproj import CRS
 
 
 # This is the stable join key inserted before Untwine spatially reorders points.
@@ -144,8 +145,17 @@ def headers_compatible(source: dict[str, Any], candidate: dict[str, Any]) -> boo
     No numerical tolerance is applied to point coordinates or candidate bounds.
     """
     same = all(source.get(k) == candidate.get(k) for k in
-               ("point_count", "scales", "offsets", "crs_wkt", "stored_mins", "stored_maxs"))
-    return same and all(candidate.get("stored_" + k) == candidate[k] for k in ("mins", "maxs"))
+               ("point_count", "scales", "offsets", "stored_mins", "stored_maxs"))
+    return (same and crs_compatible(source, candidate) and
+            all(candidate.get("stored_" + k) == candidate[k] for k in ("mins", "maxs")))
+
+
+def crs_compatible(source: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    """Compare CRS meaning, preserving axis order, rather than WKT spelling."""
+    left, right = source.get("crs_wkt"), candidate.get("crs_wkt")
+    if left == right:
+        return True
+    return bool(left and right and CRS.from_wkt(left).equals(CRS.from_wkt(right)))
 
 
 def source_fingerprint(
@@ -215,7 +225,7 @@ def candidate_fingerprint(
                 raise ValueError(f"candidate is missing {required}")
         # The candidate header defines the only valid index interval [0, n).
         point_count = metadata["point_count"]
-        # One bit per expected index gives an exact missing/duplicate audit while
+        # One byte per expected index gives an exact missing/duplicate audit while
         # using far less memory than retaining all point records.
         seen = np.zeros(point_count, dtype=np.bool_)
         # Counters provide useful diagnostics instead of a single Boolean result.
@@ -350,6 +360,7 @@ def main() -> None:
         "dimensions": dimensions,
         "header_equal": header_equal,
         "header_compatible": header_compatible,
+        "crs_equivalent": crs_compatible(source_metadata, candidate_metadata),
         "bounds_comparison": "exact extrema of stored source and candidate points; candidate header must match stored extrema",
         "fingerprint_equal": fingerprint_equal,
         "fingerprint_equal_by_dimension": fingerprint_equal_by_dimension,

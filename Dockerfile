@@ -1,5 +1,9 @@
 FROM rocker/geospatial:4.5
 
+# Native BLAS pools otherwise start one thread per host core in every worker.
+# Parallelism belongs to the bounded catalog/tile process scheduler.
+ENV OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 BLIS_NUM_THREADS=1
+
 ARG LIDR_VERSION=4.3.2
 ARG LIDR_SHA256=3df920ff4146b0c29680c68e1fd654091906addbbdf9e3ae7e2fa8e964fec4e0
 

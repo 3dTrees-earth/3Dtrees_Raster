@@ -1,14 +1,14 @@
 stopifnot(identical(JULIA_MEMORY_SAFE_SEGMENT_SELECTION, "xyz"))
 stopifnot(identical(validated_catalog_worker_count("1", 20L), 1L))
 stopifnot(identical(validated_catalog_worker_count("2", 20L), 2L))
-invalid_catalog_workers <- vapply(c("0", "3", "not-a-number"), function(value) {
+invalid_catalog_workers <- vapply(c("0", "11", "1.5", "not-a-number"), function(value) {
   tryCatch(
     {
       validated_catalog_worker_count(value, 20L)
       FALSE
     },
     error = function(error) grepl(
-      "FORESTSTRUCTURE_CATALOG_WORKERS must be 1 or 2",
+      "FORESTSTRUCTURE_CATALOG_WORKERS must be an integer from 1 to 10",
       conditionMessage(error),
       fixed = TRUE
     )

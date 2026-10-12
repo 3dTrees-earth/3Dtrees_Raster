@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import struct
 import unittest
 
 import laspy
@@ -174,6 +175,38 @@ class VoxelCountsTest(unittest.TestCase):
         self.assertEqual(observed, {(1000.25, 2000.25), (1064.25, 2064.25), (1129.75, 2129.75)})
         cube = gdal.Open(paths["raster"])
         self.assertEqual(int(cube.ReadAsArray().sum()), 3)
+
+    def test_stale_header_bounds_do_not_clip_records(self):
+        _, expected, _ = self.run_export("baseline")
+        # Header geometry alone changes; every stored point stays identical.
+        with open(self.root / "source.laz", "r+b") as stream:
+            stream.seek(179)  # Max X, LAS public header
+            stream.write(struct.pack("<d", 1000.49996))
+        result, actual, _ = self.run_export("stale")
+        self.assertEqual(actual, expected)
+        self.assertEqual(result["point_accounting"]["included"], 7)
+
+    def test_fine_dtm_interior_hole_invalidates_whole_voxel(self):
+        dtm = gdal.GetDriverByName("MEM").Create("", 5, 5, 1, gdal.GDT_Float64)
+        dtm.SetGeoTransform((1000, .1, 0, 2000.5, 0, -.1))
+        dtm.SetProjection(self.srs.ExportToWkt())
+        values = np.zeros((5, 5)); values[2, 2] = -9999
+        dtm.GetRasterBand(1).SetNoDataValue(-9999)
+        dtm.GetRasterBand(1).WriteArray(values)
+        grid = dict(width=1, height=1, transform=[1000,.5,0,2000.5,0,-.5],
+                    crs_wkt=self.srs.ExportToWkt())
+        mask, totals = voxel.make_validity_mask(str(self.root / "mask.tif"), grid,
+            voxel.rectangle(1000,2000,1000.5,2000.5), voxel.RasterSampler(dtm))
+        self.assertEqual(int(mask.ReadAsArray()[0,0]), 2)
+        self.assertEqual(totals["invalid_dtm"], 1)
+
+    def test_raster_directory_memory_is_admitted_before_creation(self):
+        grid = dict(width=12800, height=12800)
+        # This directory alone takes >30 MiB, outside GDAL's block cache.
+        self.assertGreater(voxel.raster_memory_bytes(grid, 100), 30 * 1024**2)
+        with self.assertRaisesRegex(ValueError, "raster directories"):
+            voxel.check_raster_budget(grid, 100, 120 * 1024**2)
+        voxel.check_raster_budget(grid, 100, 256 * 1024**2)
 
     def test_insufficient_budget_fails_before_allocating_cube(self):
         with self.assertRaisesRegex(ValueError, "memory_budget_exceeded"):

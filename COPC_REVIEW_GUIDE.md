@@ -53,6 +53,45 @@ The original LAS/LAZ can be mounted with `--original-point-cloud`, but it is
 used only to validate point count/XYZ bounds and to preserve the historical
 source filename in output metadata. Scientific point reads always use the COPC.
 
+## Adaptive window policy
+
+CHM and every independent `PredInstance`, `PredInstance_SAT`, and
+`PredInstance_FM` pass use the same density-derived COPC window width. From the
+header point count and XY area, the runner computes the mean point density and
+then floors `sqrt(target_points / density)` to whole metres. The result is
+bounded to 1–60 m and may be reduced further by `--chunk-size`. The default
+target is 50,000,000 points; `--target-chunk-points 0` restores fixed-size mode.
+Non-COPC LAS/LAZ remains fixed-size.
+
+This is intentionally an approximate target. Spatial density is not uniform,
+so an individual window can contain more than the target without invalidating
+the run. Each window records its observed point count, emits a structured
+warning when oversized, and contributes minimum, maximum, count, and oversize
+totals to performance and provenance artifacts.
+
+CHM and segmentation retain zero buffer. Their catalogs share the absolute
+origin `(0, 0)` and whole-metre window widths, so boundaries stay aligned with
+both the 0.2 m voxel lattice and the 0.5 m CHM raster. CHM produces one raster
+per window and streams their VRT mosaic to the unchanged dataset-level CHM.
+Segmentation writes only compact voxel, layer, and apex summaries to SSD, drops
+the raw LAS and temporary tables before the next read, and reuses the existing
+bucket-at-a-time disk reducer.
+
+Changing window boundaries must not change order-dependent results. Compact
+COPC summaries therefore carry `OriginalPointIndex`: apex ties use maximum
+height then minimum original index, duplicate voxels retain their earliest
+original index, and the merged voxel table is restored to global source order
+before PCA. These internal ordinal fields never enter public scientific output
+schemas.
+
+DTM is unchanged: it continues to use 60 m chunks with a 20 m buffer. DTM
+interpolation requires neighboring ground points, and this change targets the
+CHM/segmentation memory peaks rather than changing terrain science.
+The COPC path restores original row order before DTM and then drops the ordinal
+column because PTD/TIN no longer needs it. Non-collinearity guards scan bounded
+blocks rather than allocating full duplicate XY tables. Neither optimization
+changes the selected points, row order, DTM parameters, or terrain algorithm.
+
 ## File-by-file review map
 
 ### `tests/add_original_point_index.py`
@@ -106,6 +145,22 @@ to its geometry and scientific instance value without assuming physical order.
 - DTM, CHM, segment, and tile functions receive the order key explicitly. There
   is no hidden global COPC mode.
 - Plain LAS/LAZ passes `NULL`, so its established order and behavior are unchanged.
+- `adaptive_chunk_plan()` derives one bounded whole-metre COPC window size from
+  header density for CHM and segmentation only.
+- Per-window observation records make the approximate target and local-density
+  overshoots auditable without retaining point tables in memory.
+- CHM adapts point reads, not the baseline raster footprints. Each smaller read
+  is normalized and voxelized unchanged, then reduced to maximum height per
+  exact voxel XY. Combining these compact columns retains the baseline occupied
+  XY extent while bounding memory (about 90,000 rows for a 60 m parent). The
+  original numeric-resolution `p2r()` runs once per parent, whose raster is
+  written to disk and merged in the original catalog order. No fixed raster
+  template, coordinate rounding, interpolation, or new rasterization is used.
+  This matters because a voxel on a small raster's outer edge can otherwise be
+  assigned to a different cell than in the original 60 m raster. The regression
+  in `tests/test_chm_adaptive_edges.R` exercises this through real spatial reads.
+- The segment disk reducer restores duplicate-voxel and PCA order globally from
+  `OriginalPointIndex`, so adaptive boundaries do not change tie behavior.
 - `legacy_tin()` retries only the known lidR Delaunay integer-conversion error.
   It explicitly uses lidR 4.3.2's floating-point `tDelaunay()` and
   `tInterpolate()` path with the original LAS coordinates and header.

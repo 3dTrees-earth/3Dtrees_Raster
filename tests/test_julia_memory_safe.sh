@@ -33,6 +33,7 @@ cmp "${test_root}/output/150_PredInstance_segment_diagnostics.csv" "${test_root}
 cmp "${test_root}/output/150_PredInstance_segment_diagnostics.csv" "${test_root}/output/150_PredInstance_FM_segment_diagnostics.csv"
 jq -e '.processed_instance_dimensions | length == 3' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 jq -e '.projections | length == 3' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
+jq -e '.adaptive_chunking.enabled == false and .adaptive_chunking.target_points == 50000000' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 test -z "$(find "${test_root}/work" -mindepth 1 -print -quit)"
 
 # A second run must recompute and replace the validated artifacts, not skip.

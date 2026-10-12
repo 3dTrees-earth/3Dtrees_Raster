@@ -88,6 +88,15 @@ parse_julia_memory_safe_parameters <- function() {
   parser$add_argument("--output-dir", required = TRUE)
   parser$add_argument("--temp-dir", required = TRUE)
   parser$add_argument("--memory-budget-gib", type = "double", default = 60)
+  parser$add_argument(
+    "--target-chunk-points",
+    type = "double",
+    default = 50000000,
+    help = paste(
+      "Approximate COPC CHM/segment points per spatial chunk; 0 disables",
+      "adaptive sizing (default: 50000000)"
+    )
+  )
   parser$add_argument("--sensor", default = "NA")
   parser$add_argument("--country", default = "NA")
   parser$add_argument(
@@ -165,6 +174,10 @@ parse_julia_memory_safe_parameters <- function() {
       "--memory-budget-gib must be greater than zero and at most %s",
       MAX_MEMORY_BUDGET_GIB
     ))
+  }
+  if (!is.finite(arguments$target_chunk_points) ||
+      arguments$target_chunk_points < 0) {
+    stop("--target-chunk-points must be zero or greater")
   }
   arguments
 }
@@ -651,6 +664,7 @@ julia_memory_safe_main <- function() {
     gap_height_threshold = 3,
     dtm_chunk_size = 60,
     chunk_size = 60,
+    target_chunk_points = arguments$target_chunk_points,
     dtm_buffer = 20,
     threads = thread_count,
     catalog_workers = catalog_worker_count,
@@ -722,6 +736,40 @@ julia_memory_safe_main <- function() {
     parent_peak_rss_mib = performance$peak_rss_mib[[1]],
     cgroup_memory_peak_mib = performance$cgroup_memory_peak_mib[[1]],
     temporary_disk_peak_mib = temporary_disk_peak_mib,
+    adaptive_chunking = list(
+      enabled = performance$adaptive_chunking_enabled[[1]],
+      method = performance$adaptive_chunking_method[[1]],
+      target_points = performance$target_chunk_points[[1]],
+      configured_maximum_chunk_size_m = performance$chunk_size[[1]],
+      selected_chunk_size_m = performance$adaptive_chunk_size_m[[1]],
+      # Read windows adapt; baseline raster footprints do not. Record both so
+      # the scientific geometry cannot be mistaken for the memory policy.
+      chm_raster_chunk_size_m = performance$chunk_size[[1]],
+      chm_reduction = "maximum_voxel_height_per_exact_xy_within_baseline_chunk",
+      mean_density_points_m2 = performance$adaptive_mean_density_points_m2[[1]],
+      estimated_points_per_full_chunk =
+        performance$adaptive_estimated_points_per_full_chunk[[1]],
+      observed = list(
+        chm = list(
+          chunks = performance$adaptive_chm_observed_chunks[[1]],
+          minimum_points =
+            performance$adaptive_chm_observed_minimum_points[[1]],
+          maximum_points =
+            performance$adaptive_chm_observed_maximum_points[[1]],
+          oversized_chunks =
+            performance$adaptive_chm_oversized_chunks[[1]]
+        ),
+        segmentation = list(
+          chunks = performance$adaptive_segment_observed_chunks[[1]],
+          minimum_points =
+            performance$adaptive_segment_observed_minimum_points[[1]],
+          maximum_points =
+            performance$adaptive_segment_observed_maximum_points[[1]],
+          oversized_chunks =
+            performance$adaptive_segment_oversized_chunks[[1]]
+        )
+      )
+    ),
     scientific_parameters = list(
       tile_size = 20,
       grid_search_step = 0.5,
@@ -729,7 +777,7 @@ julia_memory_safe_main <- function() {
       dtm_resolution = 1,
       dtm_chunk_size = 60,
       dtm_buffer = 20,
-      segment_chunk_size = 60,
+      segment_chunk_size = performance$adaptive_chunk_size_m[[1]],
       voxel_resolution = 0.2,
       maximum_height = 70,
       vegetation_minimum_height = 0.5,

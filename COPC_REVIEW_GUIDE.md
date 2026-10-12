@@ -149,6 +149,16 @@ to its geometry and scientific instance value without assuming physical order.
   header density for CHM and segmentation only.
 - Per-window observation records make the approximate target and local-density
   overshoots auditable without retaining point tables in memory.
+- CHM adapts point reads, not the baseline raster footprints. Each smaller read
+  is normalized and voxelized unchanged, then reduced to maximum height per
+  exact voxel XY. Combining these compact columns retains the baseline occupied
+  XY extent while bounding memory (about 90,000 rows for a 60 m parent). The
+  original numeric-resolution `p2r()` runs once per parent, whose raster is
+  written to disk and merged in the original catalog order. No fixed raster
+  template, coordinate rounding, interpolation, or new rasterization is used.
+  This matters because a voxel on a small raster's outer edge can otherwise be
+  assigned to a different cell than in the original 60 m raster. The regression
+  in `tests/test_chm_adaptive_edges.R` exercises this through real spatial reads.
 - The segment disk reducer restores duplicate-voxel and PCA order globally from
   `OriginalPointIndex`, so adaptive boundaries do not change tie behavior.
 - `legacy_tin()` retries only the known lidR Delaunay integer-conversion error.

@@ -116,7 +116,14 @@ performance CSV and run-provenance JSON.
 
 CHM and segmentation use zero buffer and an absolute one-metre chunk alignment.
 This alignment is compatible with the 0.2 m voxel and 0.5 m CHM grids. CHM
-window rasters are written immediately and merged through a disk-backed VRT.
+reads adapt, but its raster footprints retain the configured baseline size
+(normally 60 m). Each read uses the unchanged normalization and voxelization;
+only the maximum voxel height at each exact XY is retained across reads
+(about 90,000 XY columns per 60 m parent at 0.2 m resolution). Raw points and
+3D voxels are released before the next read. The parent is then rasterized
+once with the original numeric-resolution `p2r()` and written to disk for the
+VRT merge. This preserves lidR's occupied-extent edge assignment: rasterizing
+each smaller read independently can move an exact-edge point by one cell.
 Segmentation writes compact voxel, layer, and apex summaries to the mounted SSD
 before releasing raw points and temporary tables; the existing bucket reducer
 then aggregates one bounded partition at a time.

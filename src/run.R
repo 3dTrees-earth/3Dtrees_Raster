@@ -1739,19 +1739,95 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
   chunk_raster
 }
 
-# Build the disk-backed CHM and ensure catalog workers receive the order key.
+# Reduce only vertical voxel columns: p2r() uses their maximum, so lower voxels
+# cannot affect either its result or its XY extent. Never round XY here: the
+# exact voxel coordinates are needed for lidR's raster-edge ownership rules.
+chm_column_maxima <- function(points) {
+  points[, .(Z = max(Z)), by = .(X, Y)]
+}
+
+# Keep the baseline raster footprint while reading smaller COPC windows. A
+# numeric-resolution p2r() call derives its extent from occupied voxels; doing
+# that separately per adaptive read can move a boundary point by one cell.
+# Instead retain at most one maximum per 0.2 m XY column of the baseline 60 m
+# parent (about 90,000 rows), then rasterize that parent exactly once.
+adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
+                               maximum_height, chm_resolution,
+                               point_order_dimension = NULL,
+                               observation_directory = NULL,
+                               target_chunk_points = 0, read_size,
+                               source_bounds = NULL) {
+  lidR::set_lidr_threads(1L)
+  bounds <- sf::st_bbox(chunk)
+  # LAScatalog probes callbacks with a zero-area dummy chunk before scheduling.
+  if (bounds$xmax <= bounds$xmin || bounds$ymax <= bounds$ymin) return(NULL)
+  x_starts <- seq(bounds$xmin, bounds$xmax, by = read_size)
+  y_starts <- seq(bounds$ymin, bounds$ymax, by = read_size)
+  # Header bounds safely exclude empty edge queries without moving the parent
+  # grid. Keep a child starting exactly at the source maximum: it owns that edge.
+  if (!is.null(source_bounds)) {
+    x_starts <- x_starts[x_starts <= source_bounds[["xmax"]] &
+                           x_starts + read_size > source_bounds[["xmin"]]]
+    y_starts <- y_starts[y_starts <= source_bounds[["ymax"]] &
+                           y_starts + read_size > source_bounds[["ymin"]]]
+  }
+  maxima <- data.table(X = numeric(), Y = numeric(), Z = numeric())
+  header <- NULL
+  # Parent chunks remain in catalog order; children stay inside their parent.
+  # Reuse lidR's half-open spatial-filter constructor, with no buffer, so each
+  # point belongs to precisely the same baseline parent as before adaptation.
+  for (y in y_starts[y_starts < bounds$ymax]) {
+    for (x in x_starts[x_starts < bounds$xmax]) {
+      width <- min(read_size, bounds$xmax - x)
+      height <- min(read_size, bounds$ymax - y)
+      child <- lidR:::LAScluster(
+        list(x = x + width / 2, y = y + height / 2),
+        width, height, 0, lidR:::LIDRRECTANGLE,
+        chunk@files, chunk@name, sf::st_crs(chunk), chunk@index
+      )
+      child@select <- chunk@select
+      las <- readLAS(child)
+      record_chunk_observation(observation_directory, "chm", nrow(las@data),
+                               target_chunk_points)
+      if (is.empty(las)) next
+      las <- restore_original_point_order(las, point_order_dimension, "CHM")
+      las <- normalize_height(las, terra::rast(dtm_path))
+      las <- filter_poi(las, is.finite(Z) & Z >= 0 & Z <= maximum_height)
+      if (is.empty(las)) next
+      voxels <- voxelize_points(las, res = voxel_resolution)
+      if (is.empty(voxels)) next
+      # Preserve the LAS header to avoid re-quantizing floating voxel centers
+      # when reconstructing the compact cloud for the unchanged p2r() call.
+      header <- voxels@header
+      maxima <- chm_column_maxima(rbindlist(list(
+        maxima, chm_column_maxima(voxels@data)
+      )))
+      # Release every dense table before the next spatial query. Only the tiny
+      # two-dimensional maximum table survives across reads, never 3D voxels.
+      rm(las, voxels)
+      gc(verbose = FALSE)
+    }
+  }
+  if (nrow(maxima) == 0L) return(empty_chunk_raster(chunk, chm_resolution))
+  compact <- LAS(maxima, header = header, crs = sf::st_crs(chunk), check = FALSE)
+  rasterize_canopy(compact, res = chm_resolution, algorithm = p2r())
+}
+
+# Build the disk-backed CHM. Raster chunks retain the configured baseline size;
+# only raw point reads adapt. Completed parent rasters still stream through VRT.
 write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
                              chunk_size, voxel_resolution, maximum_height,
                              chm_resolution, workers, source_crs = NULL,
                              point_order_dimension = NULL,
-                             target_chunk_points = 0) {
+                             target_chunk_points = 0,
+                             raster_chunk_size = chunk_size) {
   prepare_raster_work_directory(work_directory, "CHM")
   on.exit(unlink(work_directory, recursive = TRUE, force = TRUE), add = TRUE)
   observation_directory <- file.path(work_directory, "observations")
   dir.create(observation_directory)
 
   catalog <- readLAScatalog(point_cloud)
-  opt_chunk_size(catalog) <- chunk_size
+  opt_chunk_size(catalog) <- raster_chunk_size
   opt_chunk_alignment(catalog) <- c(0, 0)
   opt_chunk_buffer(catalog) <- 0
   # Keep the COPC read spatial/selective while adding only the required key.
@@ -1764,12 +1840,22 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
   opt_output_files(catalog) <- file.path(work_directory, "chm_{ID}")
   if (is.null(source_crs)) source_crs <- spatial_reference_wkt(catalog)
 
+  # Fixed-size runs keep the original callback unchanged. Adaptive runs share
+  # its normalization, voxelization and p2r semantics but bound the raw reads.
+  source_bounds <- point_cloud_xy_bounds(point_cloud)
+  callback <- if (chunk_size < raster_chunk_size) {
+    function(chunk, ...) adaptive_chm_chunk(
+      chunk, ..., read_size = chunk_size, source_bounds = source_bounds
+    )
+  } else {
+    chm_chunk
+  }
   results <- with_catalog_workers(
     workers,
     "CHM",
     catalog_apply(
       catalog,
-      chm_chunk,
+      callback,
       dtm_path = dtm_path,
       voxel_resolution = voxel_resolution,
       maximum_height = maximum_height,
@@ -3134,7 +3220,8 @@ run_analysis <- function(parameters) {
       parameters$adaptive_chunking$target_points
     } else {
       0
-    }
+    },
+    raster_chunk_size = parameters$chunk_size
   )
   chm_seconds <- elapsed_seconds(chm_started)
   temporary_disk_peak_bytes <- max(

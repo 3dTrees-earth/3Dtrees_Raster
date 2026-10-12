@@ -742,6 +742,10 @@ julia_memory_safe_main <- function() {
       target_points = performance$target_chunk_points[[1]],
       configured_maximum_chunk_size_m = performance$chunk_size[[1]],
       selected_chunk_size_m = performance$adaptive_chunk_size_m[[1]],
+      # Read windows adapt; baseline raster footprints do not. Record both so
+      # the scientific geometry cannot be mistaken for the memory policy.
+      chm_raster_chunk_size_m = performance$chunk_size[[1]],
+      chm_reduction = "maximum_voxel_height_per_exact_xy_within_baseline_chunk",
       mean_density_points_m2 = performance$adaptive_mean_density_points_m2[[1]],
       estimated_points_per_full_chunk =
         performance$adaptive_estimated_points_per_full_chunk[[1]],

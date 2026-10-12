@@ -63,7 +63,7 @@ and publishes the COPC only after validation succeeds.
 
 ## Run
 
-The validated controlled profile is 10 CPUs, a 30 GiB hard memory limit, a
+One conservative validated profile is 10 CPUs, a 30 GiB hard memory limit, a
 25 GiB internal budget, and one LAScatalog worker:
 
 ```bash
@@ -100,7 +100,8 @@ Plain LAS/LAZ input is also supported directly.
 `FORESTSTRUCTURE_CATALOG_WORKERS` accepts 1–10 workers within
 `FORESTSTRUCTURE_THREADS`; the memory-safe default remains one. The standard
 CLI exposes the same upper limit through `--catalog-workers`. Tile metrics
-reuse that process count and divide the thread allowance between workers.
+reuse that process count. Forked workers use one native thread each to avoid
+inherited OpenMP pool deadlocks; a sequential worker can use the full allowance.
 Increase workers only after measuring the largest spatial reads: compressed
 file size alone does not predict the memory of locally dense chunks.
 
@@ -118,6 +119,24 @@ and voxel admission estimates do not reserve the sum of all concurrent DTM,
 CHM and tile working sets. Keep a hard container limit with equal
 `--memory`/`--memory-swap` values, leave headroom, and retain the recorded cgroup
 peak. Dense inputs can need fewer workers than available CPUs.
+
+The full-resolution study benchmarks use ten workers for datasets 647/2080 and
+three for dense dataset 1805, all under 10 CPUs, a 70 GiB hard limit and a
+60 GiB internal budget. See the [measured profiles and exact-parity evidence](
+benchmarks/results/2026-10-12-voxel-optimization.json). These are measured
+dataset profiles rather than a fixed RAM-per-compressed-GB rule.
+
+| Dataset | Original GB | Million points | Baseline minutes | Optimized minutes | Peak GiB |
+|---|---:|---:|---:|---:|---:|
+| 647 | 0.445 | 44.99 | 19.72 | 3.20 | 3.77 |
+| 2080 | 0.645 | 60.99 | 27.62 | 3.18 | 5.57 |
+| 1805 | 7.750 | 1425.44 | 155.12 | 54.27 | 27.38 |
+
+The baseline allowed 20 CPUs with one catalog worker. These single-run analysis
+timings exclude downloads and COPC preparation; cache state and shared-host load
+can affect measurements. Peaks are observations, not guaranteed minimum limits.
+Every scientific raster cell, CSV count and tile vector matches the saved
+baseline. Julia's separate reference dataset also retains exact metric parity.
 
 ### Adaptive COPC windows
 
@@ -363,6 +382,25 @@ laser sampling. Invalid/excluded cells use UInt32 NoData `4294967295` in every
 band. Sparse CSV omissions can only be interpreted with the grid and validity
 mask. These counts are not GEDI PAVD/PAI. Summing ten aligned height bands gives
 a 5 m point-count interval; waveform comparison needs additional methods.
+
+### Consumer read-through
+
+In the validated dataset-647 export (EPSG:25832), zero-based column 93, row 2
+has centre `(474838.25, 5463373.75)`. This bounded GDAL read returns five points
+in band 1, representing heights `[0,0.5)` m above the DTM:
+
+```bash
+gdal_translate -q -of XYZ -b 1 -srcwin 93 2 1 1 \
+  647_voxel_counts.tif /vsistdout/
+# 474838.25 5463373.75 5
+```
+
+At the same XY cell, bands 1–10 contain `[5,0,0,0,0,0,0,1,0,0]`: six points
+over `[0,5)` m, exactly matching the sum of CSV rows at that centre with
+`0 <= height_lower_m < 5`. The adjacent row 3, column 93 has zero in band 1
+and validity 1; row 0, column 0 has NoData and validity 0. Always read the
+validity mask before interpreting absent CSV rows or aggregating raster bands.
+Use UInt64 or a wider accumulator for sums across many cells/bands.
 
 ### Scaling and validation
 

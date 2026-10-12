@@ -1,0 +1,762 @@
+{
+  "status": "validated",
+  "date": "2026-10-12",
+  "baseline_scientific_commit": "32905b5631cd300a4629b4f37e200ec6172aafba",
+  "candidate_code_commit": "94213020cbaac80fa8ba373842369d08aba1f9df",
+  "runtime_source_hashes": {
+    "run.R": "5dc85cafbe05f6af993c4036afce2f16133a6c47d290e8c1f45eca5cb3866aba",
+    "tile_scheduler.R": "779dc4d47b741167c0905cc7037400edfbd1dec757472eb28e3229f77b77f715",
+    "voxel_counts.py": "98dcc382d956093786cb0cb8c7aeaa6ce646ef8228d6d557b5b4a004dc15c67f",
+    "aoi_conversion.R": "83f73b11988454a6e6a452767acf4def60349c1d429d1a4ae9bacc218342d03b",
+    "project_instance_dimension.py": "b132d2c3a7db3be0e769a72e253c543d5af3c2ec7f71f5fd826352e9e0f53984",
+    "convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+    "run_julia_memory_safe.R": "4a4aabf84d18329f3b68255bd53b630e88e766998d16be47e129b73503257171",
+    "catalog_scheduler.R": "c0c81023150c4499c3a299d8336032daef2fc4dd311c0685f73ff3bc11b84cd7",
+    "artifact_publication.R": "a32f2ab3b6ea57549f96119012c7a88da1be2fa04a43a2f188d3df7f57b8c2b2",
+    "voxel_counts.R": "bc40dcb01682694ad3aa231356bab661b92845bfa810c991af62add92da4333d"
+  },
+  "candidate_image": "sha256:58265fc07c83db8c697f7bea4230b64dcc7be7f31754c9e69aaa81488e072c2c",
+  "repository_dockerfile_image": "sha256:ac2987eb5a24a9d2ed30dc3a8b4d51f938a5aac2710da0497eed7298338041bf",
+  "resources": {
+    "baseline_cpus": 20,
+    "candidate_cpus": 10,
+    "hard_memory_gib": 70,
+    "internal_memory_budget_gib": 60,
+    "additional_swap": false,
+    "network": false,
+    "gpu": false,
+    "voxel_batch_points": 250000,
+    "adaptive_window_target_points": 50000000
+  },
+  "datasets": [
+    {
+      "dataset": 647,
+      "source_points": 44989913,
+      "original_size_bytes": 444967579,
+      "originals": [
+        {
+          "file": "4281.laz",
+          "size_bytes": 444967579,
+          "sha256": "e713e290a5253bbeeaf298e0184212410a141145ed243db6776a4f000f61dabd",
+          "points": 44989913,
+          "epsg": 25832
+        }
+      ],
+      "baseline_wall_seconds": 1183.0434160232544,
+      "baseline_peak_cgroup_gib": 2.2952041625976562,
+      "candidate_workers": 10,
+      "candidate_image": "sha256:15111fae681180c11b4e0fcd05d05df120f555ef2b4be6d770d6411412e2b950",
+      "status": "valid",
+      "candidate_wall_seconds": 192.072274684906,
+      "speedup": 6.159365884347617,
+      "candidate_peak_cgroup_gib": 3.773693359375,
+      "parent_peak_rss_mib": 441.051,
+      "tool_reported_scratch_peak_mib": 27.9967,
+      "voxel_sqlite_bytes": 29159424,
+      "voxel_export_seconds": 36.74042636109516,
+      "point_accounting": {
+        "read": 44989913,
+        "nonfinite": 0,
+        "excluded_domain": 29227678,
+        "invalid_dtm": 0,
+        "negative_height": 235727,
+        "included": 15526508
+      },
+      "occupied_voxels": 2103198,
+      "band_count": 58,
+      "canonical_source_sha256": "c48d3339ea8442ade73a982d2f0e4e841f0e06670cd036b63fe3bee862129402",
+      "stage_seconds": {
+        "grid_seconds": 1.658,
+        "dtm_seconds": 78.663,
+        "chm_seconds": 38.359,
+        "segment_seconds": 0.002,
+        "tile_seconds": 21.531,
+        "output_seconds": 0.254,
+        "total_seconds": 177.676
+      },
+      "baseline_comparison": {
+        "status": "valid",
+        "rasters": {
+          "647_voxel_counts.tif": {
+            "differing_cells": 0,
+            "bands": 58
+          },
+          "647_voxel_counts_validity.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          },
+          "647_dtm.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          },
+          "647_chm.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          }
+        },
+        "tables": {
+          "647_voxel_counts.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          },
+          "647_segment_diagnostics.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          },
+          "647_results.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          }
+        }
+      },
+      "voxel_validation": {
+        "status": "valid",
+        "dataset_id": 647,
+        "source_points": 44989913,
+        "epsg": 25832,
+        "point_accounting": {
+          "read": 44989913,
+          "nonfinite": 0,
+          "excluded_domain": 29227678,
+          "invalid_dtm": 0,
+          "negative_height": 235727,
+          "included": 15526508
+        },
+        "domain_cells": {
+          "valid": 187448,
+          "excluded": 103414,
+          "invalid_dtm": 0
+        },
+        "occupied_voxels": 2103198,
+        "band_count": 58,
+        "height_upper_m": 29.0,
+        "csv_raster_exact_comparison": true,
+        "grid_shape": [
+          678,
+          429
+        ],
+        "output_sha256": {
+          "647_voxel_counts.tif": "e81ef7a2c09f1f13c1951195666f8cc4a69edd49105a3598649890c111e16b5b",
+          "647_voxel_counts.csv": "73620534d14485dfa7a0b786b6bb7a6095726cdb8063ebcdade199a093553de7",
+          "647_julia_memory_safe_run.json": "1f93c558085f671be53cb96392e5044421e44a0f7c827383c96716fa79faa8d3",
+          "647_voxel_counts_validity.tif": "cab5aee13abd6b47dbeb8fcdf3b45346d6651be6264d2741e5d30b02ec7bf2ef",
+          "647_voxel_counts.json": "fe7ef819c7e34132bfb93ac3457f752785f8aad3078bcf339bda915c3c425663",
+          "647_tiles.png": "e93413b041a7c571a1896ba51244405788a34420e375e55cf4e26d5aa2cca5b4",
+          "647_dtm.tif": "3f01cdfab6baf74a0a6f6afba2f5089f7b3d0ab5b8878eabf432cbb0822ac8cb",
+          "647_segment_diagnostics.csv": "8331e7a88c839b7949785437ff7ae8b917f8431c7da1bb30fca0e346c1991ab0",
+          "647_results.csv": "5654bc22868de39733cce02b67f75c989f0c3ac2e3a3df6368654cea0f54357b",
+          "647_aoi_conversion.json": "ac43df73cbf26b58e52f980d31db6108a949c030c86b8708a51aa45665cc5b5f",
+          "647_performance.csv": "116dbcfec20e0f5434a689cac83d34f5efb5ad7b0f8c5af97bd742a44559235a",
+          "647_tiles.geojson": "c796f72ee78384aa8eee986545d40ac7f26d5c99ba8b67b9aa6cd9ae5dc79efc",
+          "647_chm.tif": "0c6e1782f8c421cf7396f1e7c6d06d4a41b75f4bb0271bb0dba63f8020a807a8"
+        }
+      },
+      "artifact_validation": {
+        "dataset_id": 647,
+        "errors": [],
+        "ignored_gdal_sidecars": [],
+        "missing_instance_dimensions": [
+          "PredInstance",
+          "PredInstance_SAT",
+          "PredInstance_FM"
+        ],
+        "processed_instance_dimensions": [],
+        "publish_artifacts": [
+          "647_aoi_conversion.json",
+          "647_chm.tif",
+          "647_dtm.tif",
+          "647_julia_memory_safe_run.json",
+          "647_performance.csv",
+          "647_results.csv",
+          "647_segment_diagnostics.csv",
+          "647_tiles.geojson",
+          "647_tiles.png",
+          "647_voxel_counts.csv",
+          "647_voxel_counts.json",
+          "647_voxel_counts.tif",
+          "647_voxel_counts_validity.tif"
+        ],
+        "status": "valid",
+        "validated_at_utc": "2026-10-12T21:05:08.267284+00:00"
+      }
+    },
+    {
+      "dataset": 2080,
+      "source_points": 60990576,
+      "original_size_bytes": 644856817,
+      "originals": [
+        {
+          "file": "7966.laz",
+          "size_bytes": 644856817,
+          "sha256": "23e2daba169179514ad98bc2d4ebc0053343180e28002af81e8fcea4c38e08f1",
+          "points": 60990576,
+          "epsg": 32633
+        }
+      ],
+      "baseline_wall_seconds": 1657.0921335220337,
+      "baseline_peak_cgroup_gib": 2.8120384216308594,
+      "candidate_workers": 10,
+      "candidate_image": "sha256:9d6e6db1ed06b3f1d51bc9a96bd6233cc5f13d5f3d42ace74df6f42a2a93ba9e",
+      "status": "valid",
+      "candidate_wall_seconds": 190.6265082359314,
+      "speedup": 8.692873561273608,
+      "candidate_peak_cgroup_gib": 5.5709033203125,
+      "parent_peak_rss_mib": 575.312,
+      "tool_reported_scratch_peak_mib": 61.2238,
+      "voxel_sqlite_bytes": 64000000,
+      "voxel_export_seconds": 58.53454428794794,
+      "point_accounting": {
+        "read": 60990576,
+        "nonfinite": 0,
+        "excluded_domain": 13745263,
+        "invalid_dtm": 0,
+        "negative_height": 4521347,
+        "included": 42723966
+      },
+      "occupied_voxels": 4595788,
+      "band_count": 87,
+      "canonical_source_sha256": "98d49eefe88baaae9582c4d65f77932741a283072128f8e411cae9963c5521e7",
+      "stage_seconds": {
+        "grid_seconds": 2.772,
+        "dtm_seconds": 45.847,
+        "chm_seconds": 24.681,
+        "segment_seconds": 0.005,
+        "tile_seconds": 41.5,
+        "output_seconds": 0.392,
+        "total_seconds": 174.228
+      },
+      "baseline_comparison": {
+        "status": "valid",
+        "rasters": {
+          "2080_chm.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          },
+          "2080_voxel_counts.tif": {
+            "differing_cells": 0,
+            "bands": 87
+          },
+          "2080_voxel_counts_validity.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          },
+          "2080_dtm.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          }
+        },
+        "tables": {
+          "2080_voxel_counts.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          },
+          "2080_results.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          },
+          "2080_segment_diagnostics.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          }
+        }
+      },
+      "voxel_validation": {
+        "status": "valid",
+        "dataset_id": 2080,
+        "source_points": 60990576,
+        "epsg": 32633,
+        "point_accounting": {
+          "read": 60990576,
+          "nonfinite": 0,
+          "excluded_domain": 13745263,
+          "invalid_dtm": 0,
+          "negative_height": 4521347,
+          "included": 42723966
+        },
+        "domain_cells": {
+          "valid": 520648,
+          "excluded": 49194,
+          "invalid_dtm": 0
+        },
+        "occupied_voxels": 4595788,
+        "band_count": 87,
+        "height_upper_m": 43.5,
+        "csv_raster_exact_comparison": true,
+        "grid_shape": [
+          707,
+          806
+        ],
+        "output_sha256": {
+          "2080_aoi_conversion.json": "d4bba77051790cbae76cff5a6cec5f4ea570dea320ac876a0531cce9809fa737",
+          "2080_chm.tif": "e3456ae4ec622a1f7be8d618c9e950e1e35484ad3a00394dfdeec3259b53a1f0",
+          "2080_voxel_counts.tif": "9c678e07e559bc8de0437aac58343730f50cd69c6b60e882dea5cb339d71d110",
+          "2080_tiles.geojson": "3a8bc18d07f791ef8a7c09bef61c257d52698c1af2a47d2fe1e4a5453c74f2fb",
+          "2080_voxel_counts_validity.tif": "61fb3a6aa0c82f52cde277156e373f0f0e555cefba4116c67c7fdaff0b307332",
+          "2080_voxel_counts.json": "59415e7a4e410a4268577bd2ff2429776df29fc5f18b49b3b756100e6365267a",
+          "2080_voxel_counts.csv": "098885bf88b8007e3ddce01c76d5dd6921200ef789ea4099f46cf62e26fa83ce",
+          "2080_tiles.png": "aebb58edfbc98a13c103b279d6e0c7b8097ca3f044ec4987d0c7407908f6e034",
+          "2080_julia_memory_safe_run.json": "c0948761ae31e470fb586372657a20d1965421d8b32dc64d2125086c76e27401",
+          "2080_performance.csv": "cb79312a1811e2ae7a98f16c08ecdba79bbfe67ba75051835afd3798c61422b7",
+          "2080_results.csv": "1571bdadd6b216ee96e0d064ae4c6ee967256ebd031c447337760fa4de4cb2b2",
+          "2080_dtm.tif": "0abfed192b935e6a3cba751806b6daa22b10e6750ab71af346f3021cdb7c7565",
+          "2080_segment_diagnostics.csv": "8331e7a88c839b7949785437ff7ae8b917f8431c7da1bb30fca0e346c1991ab0"
+        }
+      },
+      "artifact_validation": {
+        "dataset_id": 2080,
+        "errors": [],
+        "ignored_gdal_sidecars": [],
+        "missing_instance_dimensions": [
+          "PredInstance",
+          "PredInstance_SAT",
+          "PredInstance_FM"
+        ],
+        "processed_instance_dimensions": [],
+        "publish_artifacts": [
+          "2080_aoi_conversion.json",
+          "2080_chm.tif",
+          "2080_dtm.tif",
+          "2080_julia_memory_safe_run.json",
+          "2080_performance.csv",
+          "2080_results.csv",
+          "2080_segment_diagnostics.csv",
+          "2080_tiles.geojson",
+          "2080_tiles.png",
+          "2080_voxel_counts.csv",
+          "2080_voxel_counts.json",
+          "2080_voxel_counts.tif",
+          "2080_voxel_counts_validity.tif"
+        ],
+        "status": "valid",
+        "validated_at_utc": "2026-10-12T21:09:34.022965+00:00"
+      }
+    },
+    {
+      "dataset": 1805,
+      "source_points": 1425442745,
+      "original_size_bytes": 7750002635,
+      "originals": [
+        {
+          "file": "7493.laz",
+          "size_bytes": 1604895641,
+          "sha256": "98223035c3ccbe229b338e868da4ac8cfea9f25d125724a451135aa6140733a6",
+          "points": 288378661,
+          "epsg": 32611
+        },
+        {
+          "file": "7494.laz",
+          "size_bytes": 1897770918,
+          "sha256": "f563c5939df570ab8cba45b833d07e9d7eaf5fec625293a104c395c05ae5d444",
+          "points": 351716488,
+          "epsg": 32611
+        },
+        {
+          "file": "7495.laz",
+          "size_bytes": 824508012,
+          "sha256": "220c0b7d02d14b736c1353090023af2cd60400c3dd03c1f70403dd05858999fe",
+          "points": 153181399,
+          "epsg": 32611
+        },
+        {
+          "file": "7496.laz",
+          "size_bytes": 852727951,
+          "sha256": "4ffc2d0454b0992175dffa62af67f00fb50616b7aac93a941d2d855d1282a9c7",
+          "points": 153416109,
+          "epsg": 32611
+        },
+        {
+          "file": "7497.laz",
+          "size_bytes": 713711025,
+          "sha256": "d44a5d136f2a3a97e22803a212813dd82386d65285fcf6448ed575a9c96c39fa",
+          "points": 128663042,
+          "epsg": 32611
+        },
+        {
+          "file": "7498.laz",
+          "size_bytes": 1856389088,
+          "sha256": "59d98f1e5a3e60dc911bb67348e3f20ea5cf7afd1224da1fe66842aa6d587369",
+          "points": 350087046,
+          "epsg": 32611
+        }
+      ],
+      "baseline_wall_seconds": 9307.03100991249,
+      "baseline_peak_cgroup_gib": 29.320377349853516,
+      "candidate_workers": 3,
+      "candidate_image": "sha256:58265fc07c83db8c697f7bea4230b64dcc7be7f31754c9e69aaa81488e072c2c",
+      "status": "valid",
+      "candidate_wall_seconds": 3256.177104473114,
+      "speedup": 2.8582692867433797,
+      "candidate_peak_cgroup_gib": 27.382884765625,
+      "parent_peak_rss_mib": 429.438,
+      "tool_reported_scratch_peak_mib": 54.4147,
+      "voxel_sqlite_bytes": 56860672,
+      "voxel_export_seconds": 574.4750418248586,
+      "point_accounting": {
+        "read": 1425442745,
+        "nonfinite": 0,
+        "excluded_domain": 735605558,
+        "invalid_dtm": 0,
+        "negative_height": 9654783,
+        "included": 680182404
+      },
+      "occupied_voxels": 3945607,
+      "band_count": 174,
+      "canonical_source_sha256": "c30f13d9d5292f14f5cd75cb091398fd070a1613e8b8746971368203e2195a16",
+      "stage_seconds": {
+        "grid_seconds": 7.742,
+        "dtm_seconds": 1439.578,
+        "chm_seconds": 797.485,
+        "segment_seconds": 0.071,
+        "tile_seconds": 392.106,
+        "output_seconds": 0.389,
+        "total_seconds": 3212.37
+      },
+      "baseline_comparison": {
+        "status": "valid",
+        "rasters": {
+          "1805_voxel_counts_validity.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          },
+          "1805_dtm.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          },
+          "1805_voxel_counts.tif": {
+            "differing_cells": 0,
+            "bands": 174
+          },
+          "1805_chm.tif": {
+            "differing_cells": 0,
+            "bands": 1
+          }
+        },
+        "tables": {
+          "1805_results.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          },
+          "1805_segment_diagnostics.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          },
+          "1805_voxel_counts.csv": {
+            "byte_identical": true,
+            "differing_scientific_values": 0
+          }
+        }
+      },
+      "voxel_validation": {
+        "status": "valid",
+        "dataset_id": 1805,
+        "source_points": 1425442745,
+        "epsg": 32611,
+        "point_accounting": {
+          "read": 1425442745,
+          "nonfinite": 0,
+          "excluded_domain": 735605558,
+          "invalid_dtm": 0,
+          "negative_height": 9654783,
+          "included": 680182404
+        },
+        "domain_cells": {
+          "valid": 250258,
+          "excluded": 1281102,
+          "invalid_dtm": 0
+        },
+        "occupied_voxels": 3945607,
+        "band_count": 174,
+        "height_upper_m": 87.0,
+        "csv_raster_exact_comparison": true,
+        "grid_shape": [
+          1126,
+          1360
+        ],
+        "output_sha256": {
+          "1805_julia_memory_safe_run.json": "b89336aa1fc6540b0b26470aa56c2ad16356d295c687937f0f15802716063dc1",
+          "1805_voxel_counts_validity.tif": "674e7bf282d5b50232f6a3798df918841070a3dbca55fb5b21b4d24f74c7040e",
+          "1805_aoi_conversion.json": "7bf75b284c9f4222ba0489a93eda21172beee085946444fe2fad6c12dbc2524b",
+          "1805_dtm.tif": "8512573484317f7dc1805516fcede9caa27ab6284569b8a02375f7dc3e2d896f",
+          "1805_results.csv": "9941aa21a5be4a4f3e1fbf62ee364df290df44e2a6633ffd6ae676620a31d50d",
+          "1805_voxel_counts.tif": "1aeb5362b4d9cf4069c0485efdd5a3fdc3f36b1ab294e81d2bd20f6258b1631a",
+          "1805_segment_diagnostics.csv": "8331e7a88c839b7949785437ff7ae8b917f8431c7da1bb30fca0e346c1991ab0",
+          "1805_voxel_counts.csv": "dd6b0e309c1666af6c33b05e04694b77c1df67a32a839739c3491b45a457d281",
+          "1805_voxel_counts.json": "860725e4cefa0f1e12b199885828005a18b0d53d167e39bebea3bbaa94fce93f",
+          "1805_tiles.geojson": "e48c2b7b9af087a9deb2cae392b87e53c0c8248f2724a3bd39cda3ac03948c31",
+          "1805_chm.tif": "123637fcd3a9f15f2faad943bf11d6440a4e4fb61be417fe6a53976e98170784",
+          "1805_performance.csv": "d502c4352aea83ef7326dcb5d3066ba243d833bab9cda2ee57249661878fe23d",
+          "1805_tiles.png": "f66f0af121addb9dbb31c4428b7a122639d672e3317b37f1c74d54210b8683b0"
+        }
+      },
+      "artifact_validation": {
+        "dataset_id": 1805,
+        "errors": [],
+        "ignored_gdal_sidecars": [],
+        "missing_instance_dimensions": [
+          "PredInstance",
+          "PredInstance_SAT",
+          "PredInstance_FM"
+        ],
+        "processed_instance_dimensions": [],
+        "publish_artifacts": [
+          "1805_aoi_conversion.json",
+          "1805_chm.tif",
+          "1805_dtm.tif",
+          "1805_julia_memory_safe_run.json",
+          "1805_performance.csv",
+          "1805_results.csv",
+          "1805_segment_diagnostics.csv",
+          "1805_tiles.geojson",
+          "1805_tiles.png",
+          "1805_voxel_counts.csv",
+          "1805_voxel_counts.json",
+          "1805_voxel_counts.tif",
+          "1805_voxel_counts_validity.tif"
+        ],
+        "status": "valid",
+        "validated_at_utc": "2026-10-12T23:13:44.372313+00:00"
+      }
+    }
+  ],
+  "sampled_1805_resources": {
+    "sampling_interval_seconds": 30,
+    "note": "Sampled maxima can miss short peaks; use final cgroup peak for the whole run.",
+    "stages": {
+      "preflight": {
+        "samples": 1,
+        "observed_seconds": 0.0,
+        "sampled_peak_current_gib": 0.21876907348632812,
+        "sampled_peak_anonymous_gib": 0.20571517944335938,
+        "sampled_peak_file_cache_gib": 0.0097503662109375,
+        "mean_cpu_cores": null
+      },
+      "grid": {
+        "samples": 1,
+        "observed_seconds": 0.0,
+        "sampled_peak_current_gib": 2.877452850341797,
+        "sampled_peak_anonymous_gib": 1.3666763305664062,
+        "sampled_peak_file_cache_gib": 1.4940147399902344,
+        "mean_cpu_cores": null
+      },
+      "dtm": {
+        "samples": 47,
+        "observed_seconds": 1387.864823102951,
+        "sampled_peak_current_gib": 20.897235870361328,
+        "sampled_peak_anonymous_gib": 19.43402862548828,
+        "sampled_peak_file_cache_gib": 1.4967842102050781,
+        "mean_cpu_cores": 3.00555312921176
+      },
+      "voxel_counts": {
+        "samples": 19,
+        "observed_seconds": 546.1281929016113,
+        "sampled_peak_current_gib": 2.0921058654785156,
+        "sampled_peak_anonymous_gib": 0.5694808959960938,
+        "sampled_peak_file_cache_gib": 1.5262069702148438,
+        "mean_cpu_cores": 2.043585371541267
+      },
+      "chm": {
+        "samples": 27,
+        "observed_seconds": 785.1181004047394,
+        "sampled_peak_current_gib": 13.141536712646484,
+        "sampled_peak_anonymous_gib": 11.474506378173828,
+        "sampled_peak_file_cache_gib": 1.6367874145507812,
+        "mean_cpu_cores": 3.0100268173434337
+      },
+      "tiles": {
+        "samples": 13,
+        "observed_seconds": 363.0578558444977,
+        "sampled_peak_current_gib": 4.853038787841797,
+        "sampled_peak_anonymous_gib": 3.2004051208496094,
+        "sampled_peak_file_cache_gib": 1.6347694396972656,
+        "mean_cpu_cores": 3.0203683306874214
+      }
+    },
+    "memory_events": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    }
+  },
+  "julia_reference": {
+    "tables": {
+      "status": "valid",
+      "comparison": "zero-tolerance string equality",
+      "julia_script_modified": false,
+      "tile_rows": 147,
+      "segment_rows": 397,
+      "differing_headers": 0,
+      "differing_rows": 0,
+      "differing_values": 0
+    },
+    "terrain": {
+      "status": "valid",
+      "comparison": "zero-tolerance cell equality",
+      "geometry_equal": true,
+      "cells": 77248,
+      "populated_cells": 72437,
+      "differing_cells": 0,
+      "resolution": [
+        1,
+        1
+      ],
+      "extent": [
+        292033,
+        292305,
+        6456580,
+        6456864
+      ],
+      "crs": "",
+      "julia_datatype": "FLT8S",
+      "candidate_datatype": "FLT8S"
+    },
+    "candidate_wall_seconds": 98.51711797714233
+  },
+  "repaired_three_worker_julia_reference": {
+    "status": "valid",
+    "rasters": {
+      "150_chm.tif": {
+        "differing_cells": 0,
+        "bands": 1
+      },
+      "150_dtm.tif": {
+        "differing_cells": 0,
+        "bands": 1
+      }
+    },
+    "tables": {
+      "150_PredInstance_results.csv": {
+        "byte_identical": true,
+        "differing_scientific_values": 0
+      },
+      "150_PredInstance_segment_diagnostics.csv": {
+        "byte_identical": true,
+        "differing_scientific_values": 0
+      }
+    }
+  },
+  "failed_attempt": {
+    "dataset": 1805,
+    "image": "sha256:9d6e6db1ed06b3f1d51bc9a96bd6233cc5f13d5f3d42ace74df6f42a2a93ba9e",
+    "cause": "Inherited OpenMP pools deadlocked in three forked tile workers requesting three native threads each; confirmed futex wait and no CPU progress. Stopped by operator, not an OOM. Excluded from successful timings.",
+    "resolution": "One native thread per forked worker; full fresh run and exact parity validation."
+  },
+  "consumer_readthrough": {
+    "status": "valid",
+    "dataset": 647,
+    "height_reference": "metres above DTM",
+    "xy": {
+      "x_center": 474838.25,
+      "y_center": 5463373.75,
+      "row": 2,
+      "column": 93
+    },
+    "bands_1_to_10_counts": [
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      1,
+      0,
+      0
+    ],
+    "height_interval_m": [
+      0,
+      5
+    ],
+    "raster_sum": 6,
+    "csv_sum": 6,
+    "zero_and_nodata_examples": {
+      "valid_zero": {
+        "row": 3,
+        "column": 93,
+        "validity": 1,
+        "band_1_count": 0
+      },
+      "excluded_nodata": {
+        "row": 0,
+        "column": 0,
+        "validity": 0,
+        "band_1_count": 4294967295
+      }
+    }
+  },
+  "validation_suites": [
+    {
+      "command": [
+        "bash",
+        "tests/test_voxel_counts.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 98.69732594490051
+    },
+    {
+      "command": [
+        "bash",
+        "tests/test_julia_memory_safe.sh"
+      ],
+      "exit_code": 0,
+      "elapsed_seconds": 59.68853211402893
+    },
+    {
+      "command": [
+        "bash",
+        "tests/test_copc_all_instance_dimensions.sh"
+      ],
+      "exit_code": 1,
+      "elapsed_seconds": 45.51278018951416
+    },
+    {
+      "command": [
+        "bash",
+        "tests/test_copc_all_instance_dimensions.sh"
+      ],
+      "exit_code": 0,
+      "note": "Rerun passed after semantic-CRS comparison fix; final log retained."
+    },
+    {
+      "command": [
+        "bash",
+        "tests/test_container.sh"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "Rscript",
+        "publication, companion bounds and catalog scheduler regressions"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "python3",
+        "tests/test_indexed_copc_bounds.py"
+      ],
+      "exit_code": 0
+    },
+    {
+      "command": [
+        "Rscript",
+        "tests/test_tile_scheduler.R"
+      ],
+      "exit_code": 0,
+      "cpu_limit": 10,
+      "memory_limit_gib": 4,
+      "network": false
+    }
+  ],
+  "limitations": [
+    "Timings are individual observations on a shared host, not repeated cold-cache trials. Preparation and download are excluded.",
+    "Dataset 647 used the earlier direct-scheduler candidate. Later runtime differences restore a diagnostic option, retain a log prefix, reject more than ten standard-CLI workers, and keep native threads at one per forked tile worker. 647/2080 already used one native thread per forked worker; final three-worker behavior is separately validated.",
+    "The worker count bounds concurrency, not aggregate scientific memory. Retain container limits and validate dense-input profiles.",
+    "The release Dockerfile was built on the previously validated scientific image; a fresh standard-rocker dependency rebuild was not used.",
+    "Per-file rename and rollback preserve prior generations on handled failures; publication is not a crash-atomic multi-file transaction for concurrent readers.",
+    "Counts measure recorded returns, not GEDI waveform energy or vegetation density."
+  ]
+}

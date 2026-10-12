@@ -53,6 +53,10 @@ test-voxel-counts:
 # Differential fixture acceptance: ordered LAZ and canonical COPC must match for
 # PredInstance, PredInstance_SAT, and PredInstance_FM under identical resources.
 test-copc-all-instance-dimensions:
+	docker run --rm --network none --cpus 2 --memory 1g --memory-swap 1g \
+		--env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
+		--volume "$(CURDIR):/repo:ro" "$(JULIA_MEMORY_SAFE_IMAGE)" \
+		/repo/tests/test_indexed_copc_bounds.py
 	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
 	bash tests/test_copc_all_instance_dimensions.sh
 

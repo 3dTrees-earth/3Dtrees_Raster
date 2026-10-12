@@ -146,7 +146,7 @@ docker run --rm --network none \
 
 # `jq -e` exits nonzero unless the entire validation expression is true.
 # `.status` requires the validator's overall verdict to be valid.
-# `.header_equal` requires matching point counts and XYZ bounds.
+# `.header_compatible` requires exact stored bounds, quantization and CRS.
 # `.fingerprint_equal` requires matching indexed XYZ/scientific tuples.
 # `.unique_complete_range` rejects missing, duplicate, or out-of-range indices.
 # `extra_dimensions[0]` keeps OriginalPointIndex in the first streamable slot.
@@ -160,7 +160,7 @@ docker run --rm --network none \
 # The report path is passed explicitly and successful JSON output is suppressed.
 jq -e '
   .status == "valid" and
-  .header_equal == true and
+  .header_compatible == true and
   .fingerprint_equal == true and
   .index_validation.unique_complete_range == true and
   .candidate.extra_dimensions[0] == "OriginalPointIndex" and

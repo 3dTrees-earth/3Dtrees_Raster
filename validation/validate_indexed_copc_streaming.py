@@ -107,10 +107,12 @@ def header_metadata(reader: laspy.LasReader) -> dict[str, Any]:
 
     # Keep the reader header local so the report records the exact open file.
     header = reader.header
+    crs = header.parse_crs()
     # Scales and offsets are included because equal displayed coordinates are
     # insufficient if later software decodes the underlying integers differently.
     return {
         "point_count": int(header.point_count),
+        "crs_wkt": crs.to_wkt() if crs else None,
         "scales": header.scales.tolist(),
         "offsets": header.offsets.tolist(),
         "mins": header.mins.tolist(),
@@ -120,6 +122,30 @@ def header_metadata(reader: laspy.LasReader) -> dict[str, Any]:
             item.name for item in header.point_format.extra_dimensions
         ],
     }
+
+
+def update_stored_bounds(metadata: dict[str, Any], points) -> None:
+    """Accumulate actual stored XYZ extrema during the existing bounded scan."""
+    if not len(points):
+        return
+    low = [float(np.min(points[name])) * scale + offset for name, scale, offset
+           in zip(("X", "Y", "Z"), metadata["scales"], metadata["offsets"])]
+    high = [float(np.max(points[name])) * scale + offset for name, scale, offset
+            in zip(("X", "Y", "Z"), metadata["scales"], metadata["offsets"])]
+    metadata["stored_mins"] = [min(a, b) for a, b in zip(metadata.get("stored_mins", low), low)]
+    metadata["stored_maxs"] = [max(a, b) for a, b in zip(metadata.get("stored_maxs", high), high)]
+
+
+def headers_compatible(source: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    """Require exact stored geometry, quantization and CRS, and accurate candidate bounds.
+
+    Source writers can retain bounds from before integer quantization. Preserve
+    those original bounds as evidence, but compare actual extrema from the scan.
+    No numerical tolerance is applied to point coordinates or candidate bounds.
+    """
+    same = all(source.get(k) == candidate.get(k) for k in
+               ("point_count", "scales", "offsets", "crs_wkt", "stored_mins", "stored_maxs"))
+    return same and all(candidate.get("stored_" + k) == candidate[k] for k in ("mins", "maxs"))
 
 
 def source_fingerprint(
@@ -146,6 +172,7 @@ def source_fingerprint(
                 raise ValueError(f"source is missing {dimension}")
         # Iterate sequentially because the implicit ordinal depends on row order.
         for points in reader.chunk_iterator(chunk_points):
+            update_stored_bounds(metadata, points)
             # Construct exactly the indices that the indexing copy should add.
             indexes = np.arange(ordinal, ordinal + len(points), dtype=np.uint64)
             # Bind XYZ and each requested instance value to those indices.
@@ -199,6 +226,7 @@ def candidate_fingerprint(
         out_of_range_indexes = 0
         # Process the spatially ordered candidate in bounded chunks.
         for points in reader.chunk_iterator(chunk_points):
+            update_stored_bounds(metadata, points)
             # Decode the persisted order key as UInt64 without changing values.
             indexes = np.asarray(points[INDEX_DIMENSION], dtype=np.uint64)
             # Count every candidate record, including invalid-index records.
@@ -292,11 +320,12 @@ def main() -> None:
     candidate_metadata, candidate_digests, index_validation = candidate_fingerprint(
         args.candidate, dimensions, args.chunk_points
     )
-    # Require point count, quantization, offsets, and full XYZ bounds to match.
+    # Preserve raw header equality as evidence, separate from stored geometry.
     header_equal = all(
         source_metadata[name] == candidate_metadata[name]
         for name in ("point_count", "scales", "offsets", "mins", "maxs")
     )
+    header_compatible = headers_compatible(source_metadata, candidate_metadata)
     # Report individual dimension verdicts so one corrupt field is diagnosable.
     fingerprint_equal_by_dimension = {
         dimension: source_digests[dimension] == candidate_digests[dimension]
@@ -307,7 +336,7 @@ def main() -> None:
     # Publication is allowed only when metadata, tuple identity, and exact index
     # uniqueness all agree.
     valid = (
-        header_equal
+        header_compatible
         and fingerprint_equal
         and index_validation["unique_complete_range"]
     )
@@ -320,6 +349,8 @@ def main() -> None:
         ),
         "dimensions": dimensions,
         "header_equal": header_equal,
+        "header_compatible": header_compatible,
+        "bounds_comparison": "exact extrema of stored source and candidate points; candidate header must match stored extrema",
         "fingerprint_equal": fingerprint_equal,
         "fingerprint_equal_by_dimension": fingerprint_equal_by_dimension,
         "source_fingerprints": {

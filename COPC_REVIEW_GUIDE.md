@@ -114,7 +114,13 @@ This is the only step that defines original order. It runs before Untwine.
 
 ### `validation/validate_indexed_copc_streaming.py`
 
-- Verifies exact point-count, XYZ bounds, scale, and offset equality.
+- Verifies exact point-count, stored XYZ extrema, scale, offset and CRS equality.
+  Source headers may contain bounds calculated before coordinate quantization;
+  the validator records this discrepancy and compares extrema from the existing
+  point scan. Candidate header bounds must match its stored extrema exactly.
+  The optional runtime original-companion check remains header-only: omit that
+  argument for a source with stale bounds after full streaming validation, and
+  retain its source hashes and comparison report as external provenance.
 - Uses a bitset to prove that all indices from `0` through `n - 1` occur exactly
   once, with no missing, duplicate, or out-of-range values.
 - Compares order-independent dual fingerprints over

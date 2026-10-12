@@ -30,6 +30,7 @@ mkdir -p \
 
 # Generate a deterministic fixture in which all three instance dimensions differ.
 docker run --rm --network none \
+  --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
   --user "$(id -u):$(id -g)" \
   --entrypoint Rscript \
   --volume "${repo_dir}/tests:/tests:ro" \
@@ -77,6 +78,8 @@ run_foreststructure() {
     --dataset-id 150 \
     --output-dir /out \
     --temp-dir /work \
+    --export-voxel-counts \
+    --voxel-count-chunk-points 257 \
     --memory-budget-gib 3
 }
 
@@ -102,6 +105,13 @@ for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
       "${test_root}/ordered-output/150_${dimension}_${artifact}" \
       "${test_root}/copc-output/150_${dimension}_${artifact}"
   done
+done
+# The observation cube is independent of both COPC order and adaptive windows.
+cmp "${test_root}/ordered-output/150_voxel_counts.csv" \
+    "${test_root}/copc-output/150_voxel_counts.csv"
+for raster in voxel_counts.tif voxel_counts_validity.tif; do
+  cmp "${test_root}/ordered-output/150_${raster}" \
+      "${test_root}/copc-output/150_${raster}"
 done
 # DTM and CHM must also be byte-identical between ordered LAZ and COPC.
 for raster in dtm.tif chm.tif; do

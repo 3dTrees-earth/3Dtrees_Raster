@@ -41,6 +41,15 @@ test-artifact-promotion:
 		"$(JULIA_MEMORY_SAFE_IMAGE)" \
 		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("/repo/src/run_julia_memory_safe.R"); source("/repo/tests/test_artifact_promotion.R")'
 
+.PHONY: test-voxel-counts
+test-voxel-counts:
+	docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g \
+		--env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
+		--volume "$(CURDIR):/repo:ro" "$(JULIA_MEMORY_SAFE_IMAGE)" \
+		/repo/tests/test_voxel_counts.py
+	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
+		bash tests/test_voxel_counts.sh
+
 # Differential fixture acceptance: ordered LAZ and canonical COPC must match for
 # PredInstance, PredInstance_SAT, and PredInstance_FM under identical resources.
 test-copc-all-instance-dimensions:

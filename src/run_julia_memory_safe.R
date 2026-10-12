@@ -79,6 +79,7 @@ parse_julia_memory_safe_parameters <- function() {
       "and disk-backed memory guards"
     )
   )
+  add_voxel_count_arguments(parser)
   # ``--point-cloud`` is the sole scientific input and may now be canonical COPC.
   parser$add_argument("--point-cloud", required = TRUE)
   # ``--original-point-cloud`` is optional identity/provenance evidence only.
@@ -105,6 +106,7 @@ parse_julia_memory_safe_parameters <- function() {
     default = NULL
   )
   arguments <- parser$parse_args()
+  validate_voxel_count_parameters(arguments)
   raw_instance_dimensions <- unlist(
     arguments$instance_dimension,
     recursive = TRUE,
@@ -219,7 +221,7 @@ run_projection <- function(source, output, dimension) {
   fromJSON(tail(output_lines, 1L), simplifyVector = FALSE)
 }
 
-expected_artifacts <- function(directory, dataset_id, dimensions) {
+expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts = FALSE) {
   prefix <- file.path(directory, as.character(dataset_id))
   common <- c(
     paste0(prefix, "_dtm.tif"),
@@ -235,19 +237,20 @@ expected_artifacts <- function(directory, dataset_id, dimensions) {
     paste0(prefix, suffix, "_segment_diagnostics.csv"),
     paste0(prefix, suffix, "_tiles.geojson")
   )))
-  c(common, dimension_files)
+  c(common, dimension_files, if (voxel_counts) unlist(voxel_count_paths(directory, dataset_id)))
 }
 
 validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
                                         memory_budget_gib, source_point_count,
-                                        point_cloud_name, sensor, country) {
+                                        point_cloud_name, sensor, country, voxel_counts = FALSE) {
   matches_label <- function(values, expected) {
     if (identical(expected, "NA")) {
       return(all(is.na(values) | as.character(values) == "NA"))
     }
     all(!is.na(values) & as.character(values) == expected)
   }
-  paths <- expected_artifacts(directory, dataset_id, dimensions)
+  paths <- expected_artifacts(directory, dataset_id, dimensions, voxel_counts)
+  if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id)
   absent <- paths[!file.exists(paths) | file.info(paths)$size <= 0]
   if (length(absent) > 0L) {
     stop(sprintf(
@@ -649,6 +652,9 @@ julia_memory_safe_main <- function() {
   # resource controls, and record-order restoration differ in this runner.
   parameters <- list(
     point_cloud = staged_point_cloud,
+    point_cloud_sha256 = input_sha256,
+    export_voxel_counts = arguments$export_voxel_counts,
+    voxel_count_chunk_points = arguments$voxel_count_chunk_points,
     dataset_id = arguments$dataset_id,
     aoi = generated_gpkg,
     output_dir = incoming_directory,
@@ -705,6 +711,8 @@ julia_memory_safe_main <- function() {
   run_provenance <- list(
     status = "candidate",
     mode = "julia-memory-safe",
+    voxel_counts = list(enabled = arguments$export_voxel_counts,
+      metadata = if (arguments$export_voxel_counts) paste0(arguments$dataset_id, "_voxel_counts.json") else NULL),
     rerun_policy = "always_recompute_then_replace_after_validation",
     source_point_cloud = normalizePath(point_cloud, mustWork = TRUE),
     source_point_cloud_sha256 = input_sha256,
@@ -811,7 +819,8 @@ julia_memory_safe_main <- function() {
     point_count_from_las_header(point_cloud),
     point_cloud_display_name,
     arguments$sensor,
-    arguments$country
+    arguments$country,
+    voxel_counts = arguments$export_voxel_counts
   )
   message("FORESTSTRUCTURE_STAGE stage=internal_validation status=completed")
   run_provenance$status <- "valid"

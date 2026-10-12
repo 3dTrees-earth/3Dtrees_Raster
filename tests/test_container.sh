@@ -11,6 +11,12 @@ trap 'rm -rf "${input_dir}" "${results_dir}"' EXIT
 if [[ "${FORESTSTRUCTURE_SKIP_BUILD:-0}" != "1" ]]; then
   docker build --tag "${image_name}" "${repo_dir}"
 fi
+# Exercise the optional observational export in the standard publish gate too.
+docker run --rm --network none "${docker_limits[@]}" \
+  --env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
+  --volume "${repo_dir}:/workspace:ro" "${image_name}" \
+  /workspace/tests/test_voxel_counts.py
+python3 "${repo_dir}/tests/test_output_artifact_validation.py"
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \

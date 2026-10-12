@@ -274,6 +274,7 @@ script_directory <- if (length(script_argument)) {
   getwd()
 }
 source(file.path(script_directory, "tile_scheduler.R"))
+source(file.path(script_directory, "voxel_counts.R"))
 
 # CLI and artifact naming ---------------------------------------------------
 
@@ -281,6 +282,7 @@ parse_parameters <- function() {
   parser <- ArgumentParser(
     description = "Compute forest-structure indices for optimized Analysis Tiles"
   )
+  add_voxel_count_arguments(parser)
   inputs <- parser$add_argument_group("Inputs")
   scientific <- parser$add_argument_group("Scientific parameters")
   runtime <- parser$add_argument_group("Runtime controls")
@@ -457,6 +459,7 @@ parse_parameters <- function() {
     help = "Minimum occupied one-metre height layers (default: 3)"
   )
   args <- parser$parse_args()
+  validate_voxel_count_parameters(args)
 
   raw_instance_dimensions <- unlist(
     args$instance_dimension,
@@ -3200,6 +3203,14 @@ run_analysis <- function(parameters) {
     temporary_directory_bytes(run_work_directory)
   )
   message("FORESTSTRUCTURE_STAGE stage=dtm status=completed")
+
+  if (isTRUE(parameter_or(parameters, "export_voxel_counts", FALSE))) {
+    message("FORESTSTRUCTURE_STAGE stage=voxel_counts status=started")
+    voxel_export <- write_voxel_counts(parameters, dtm_path, aoi, run_work_directory)
+    temporary_disk_peak_bytes <- max(temporary_disk_peak_bytes,
+      temporary_directory_bytes(run_work_directory) + voxel_export$temporary_disk_bytes)
+    message("FORESTSTRUCTURE_STAGE stage=voxel_counts status=completed")
+  }
 
   message("FORESTSTRUCTURE_STAGE stage=chm status=started")
   chm_started <- proc.time()[["elapsed"]]

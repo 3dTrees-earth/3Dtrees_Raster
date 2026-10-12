@@ -276,3 +276,72 @@ diagnostics, tile GeoJSON, DTM cells, and CHM cells.
 - `benchmarks/` — benchmark scripts and compact result data
 - `Dockerfile.julia-memory-safe` — ordered-COPC image
 - `COPC_REVIEW_GUIDE.md` — detailed implementation explanation
+
+
+## Full-resolution voxel point-count export
+
+Add `--export-voxel-counts` to either runner. The optional
+`--voxel-count-chunk-points` (default 250,000) bounds the number of source records
+per count batch; the memory-safe runner lowers it further to fit its remaining
+memory allowance. Existing index/CHM filters and output schemas are unchanged.
+
+The export reuses the generated global DTM and usable Audit AOI. Supply the
+original full-resolution LAS/LAZ or a lossless COPC with verified conversion
+provenance. Every record is read, including repeated coordinates; no point
+sampling or COPC level-of-detail restriction is applied. The original companion
+argument is still provenance evidence, not an alternative scientific input.
+
+For dataset 150 the additional artifacts are:
+
+| File | Contents |
+| --- | --- |
+| `150_voxel_counts.csv` | Occupied voxels: `x_center,y_center,height_lower_m,height_upper_m,point_count` |
+| `150_voxel_counts.tif` | UInt32 counts, 0.5 m XY pixels; band b contains heights `[(b-1)*0.5,b*0.5)` metres above DTM |
+| `150_voxel_counts_validity.tif` | 0: excluded AOI/boundary cell; 1: valid domain; 2: invalid DTM |
+| `150_voxel_counts.json` | Grid/CRS, source and DTM hashes, policies, point accounting and resource observations |
+
+The lattice is anchored at `(0,0,0)` in a verified projected metric CRS. XY and
+height bins use increasing-coordinate `[lower,upper)` ownership. Raster rows
+run north to south; CSV centres identify the same cells. Whole 0.5 m cells must
+be contained in the usable AOI, including exclusion boundaries. This deliberately
+excludes partially covered cells instead of assigning partial observations to a
+full voxel. The export does not depend on complete 20 m Analysis Tiles.
+
+Normalization subtracts the containing DTM cell from source elevation, using
+the existing terrain model. Unlike the legacy index path it does not fill DTM
+gaps with nearest neighbors or re-quantize normalized heights to LAS scale.
+A voxel column is valid only when its full XY cell has finite DTM support.
+Finite negative heights are excluded and counted, never clamped into the first
+layer. There is no 0.5 m vegetation cutoff, 70 m ceiling or automatic high-point
+outlier rejection. Review anomalous heights using the accounting metadata;
+exceeding TIFF's 65,535-band capacity fails rather than silently truncating.
+A source with no eligible points emits a headers-only CSV and one zero/NoData
+band for 0–0.5 m. Missing or non-metric CRS fails this optional export explicitly.
+
+Zero means no eligible recorded points, not absence of vegetation or proof of
+laser sampling. Invalid/excluded cells use UInt32 NoData `4294967295` in every
+band. Sparse CSV omissions can only be interpreted with the grid and validity
+mask. These counts are not GEDI PAVD/PAI. Summing ten aligned height bands gives
+a 5 m point-count interval; waveform comparison needs additional methods.
+
+### Scaling and validation
+
+Counting reuses the existing laspy/lazrs streaming stack. Record batches avoid
+the unbounded local density of spatial reads. Counts are grouped per batch and
+summed in an indexed SQLite scratch database with a fixed cache; each output
+raster block/band is written separately through GDAL. No complete cloud, DTM or
+dense 3D cube is loaded. Temporary disk and final output still scale with the
+number of occupied voxels and the requested raster volume. SQLite sorting and
+count reduction trade additional disk I/O for bounded memory. Ensure sufficient
+scratch/output disk; write failures prevent promotion in the memory-safe runner.
+
+The JSON records source/read/included/rejected point accounting, peak batch
+size, occupied voxels, scratch bytes and duration. Band height bounds and units
+are also embedded in the TIFF, so GDAL PAM sidecars are unnecessary. The
+memory-safe runner validates and promotes all four artifacts together with its
+existing outputs; the external artifact validator recognizes the optional set.
+
+Run `make test-voxel-counts` for known-count, missing-terrain, height-range,
+batch/order invariance, million-point streaming, CLI publication and unchanged
+legacy-output tests. `make test-copc-all-instance-dimensions` also compares
+voxel CSV and rasters between the original LAZ and lossless COPC.

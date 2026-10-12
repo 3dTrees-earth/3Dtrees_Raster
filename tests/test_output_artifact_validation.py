@@ -98,6 +98,24 @@ class OutputArtifactValidationTest(unittest.TestCase):
             any("unexpected artifacts" in error for error in report["errors"])
         )
 
+    def test_enabled_voxel_product_requires_all_four_files(self) -> None:
+        validator = load_validator()
+        path = self.output / "2001_julia_memory_safe_run.json"
+        provenance = json.loads(path.read_text())
+        provenance["voxel_counts"] = {"enabled": True}
+        path.write_text(json.dumps(provenance))
+        self.assertEqual(validator.validate_output_directory(2001, self.output)["status"], "invalid")
+        for suffix in (".csv", ".tif", ".json", "_validity.tif"):
+            (self.output / f"2001_voxel_counts{suffix}").write_bytes(b"non-empty")
+        self.assertEqual(validator.validate_output_directory(2001, self.output)["status"], "valid")
+
+    def test_unsegmented_source_uses_existing_unsuffixed_outputs(self) -> None:
+        names = load_validator().expected_artifact_names(2001, [], True)
+        self.assertIn("2001_results.csv", names)
+        self.assertIn("2001_tiles.geojson", names)
+        self.assertIn("2001_voxel_counts.tif", names)
+        self.assertNotIn("2001__results.csv", names)
+
 
 if __name__ == "__main__":
     unittest.main()

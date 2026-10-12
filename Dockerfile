@@ -31,6 +31,14 @@ RUN install2.r --error --skipinstalled \
 ARG VCS_REF=unknown
 ARG IMAGE_VERSION=local
 
+# Same streaming reader as the memory-safe runner; GDAL supplies block raster I/O.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends python3-pip python3-gdal \
+    && rm -rf /var/lib/apt/lists/* \
+    && python3 -m pip install --no-cache-dir --break-system-packages \
+      laspy==2.6.1 lazrs==0.7.0 pyproj==3.7.2 \
+    && python3 -c 'import laspy, lazrs, pyproj; from osgeo import gdal, ogr, osr'
+
 LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3dtrees_foreststructure" \
       org.opencontainers.image.description="Audit-aware forest-structure metrics for LAS/LAZ point clouds" \
       org.opencontainers.image.licenses="GPL-3.0" \

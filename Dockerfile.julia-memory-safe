@@ -9,6 +9,7 @@ ARG VCS_REF=unknown
 ARG IMAGE_VERSION=julia-memory-safe-local
 ARG LASPY_VERSION=2.6.1
 ARG LAZRS_VERSION=0.7.0
+ARG PYPROJ_VERSION=3.7.2
 
 # This Dockerfile builds the ordered-COPC implementation at the checked-out
 # revision. See COPC_REVIEW_GUIDE.md for the input contract and design.
@@ -16,12 +17,13 @@ ARG LAZRS_VERSION=0.7.0
 # Install no recommended system extras, remove apt metadata, and pin Python LAS
 # readers so local, CI, and production images interpret ExtraBytes identically.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends python3-pip \
+    && apt-get install --yes --no-install-recommends python3-pip python3-gdal \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m pip install --no-cache-dir --break-system-packages \
       "laspy==${LASPY_VERSION}" \
       "lazrs==${LAZRS_VERSION}" \
-    && python3 -c 'import laspy, lazrs; assert laspy.__version__ == "2.6.1"'
+      "pyproj==${PYPROJ_VERSION}" \
+    && python3 -c 'import laspy, lazrs, pyproj; from osgeo import gdal, ogr, osr; assert laspy.__version__ == "2.6.1"'
 
 # Replace only the ForestStructure runner sources; the base scientific stack is
 # intentionally inherited unchanged from v0.1.2.

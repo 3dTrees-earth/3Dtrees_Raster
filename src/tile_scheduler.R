@@ -15,7 +15,10 @@ tile_worker_plan <- function(requested_threads, tile_count, requested_workers = 
                          as.integer(tile_count)))
   list(
     process_workers = workers,
-    threads_per_worker = max(1L, requested_threads %/% workers)
+    # Native OpenMP pools inherited across fork can deadlock when restarted
+    # with multiple threads. Forked tasks must stay single-threaded, as catalog
+    # callbacks already do; a sequential process may use the full allowance.
+    threads_per_worker = if (workers > 1L) 1L else requested_threads
   )
 }
 

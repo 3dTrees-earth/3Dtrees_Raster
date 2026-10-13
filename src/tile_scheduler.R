@@ -44,9 +44,17 @@ collect_tile_rows <- function(
     tile_indices,
     calculate_row,
     tile_workers,
-    parallel_runner = parallel::mclapply) {
-  rows <- run_bounded_tasks(tile_indices, calculate_row, tile_workers,
-                            parallel_runner)
+    parallel_runner = parallel::mclapply,
+    task_windows = NULL, memory_policy = NULL) {
+  runner <- function(indices, calculate, workers) {
+    run_bounded_tasks(indices, calculate, workers, parallel_runner)
+  }
+  rows <- if (is.null(memory_policy)) {
+    runner(tile_indices, calculate_row, tile_workers)
+  } else {
+    run_memory_admitted_tasks(tile_indices, calculate_row, tile_workers,
+      task_windows, memory_policy, "tiles", runner = runner)
+  }
   validate_tile_rows(tile_indices, rows)
   if (length(rows)) {
     data.table::rbindlist(rows, use.names = TRUE, fill = TRUE)

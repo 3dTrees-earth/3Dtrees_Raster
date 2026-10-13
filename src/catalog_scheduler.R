@@ -2,13 +2,30 @@
 # dispatch changes: scanning future globals for every tiny chunk dominated the
 # sparse-cloud profile. Disk paths / compact R summaries are safe to send back
 # from the same bounded fork runner already used for tile metrics.
+catalog_task_window <- function(chunk) {
+  bounds <- as.numeric(chunk@bbbox)
+  # Include expansions caused by lidR's numeric-to-text LASlib filter bounds.
+  fields <- strsplit(trimws(chunk@filter), "[[:space:]]+")[[1L]]
+  start <- match("-inside", fields)
+  if (is.na(start) || start + 4L > length(fields)) {
+    stop("memory admission requires rectangular catalog filters")
+  }
+  actual <- suppressWarnings(as.numeric(fields[start + seq_len(4L)]))
+  if (any(!is.finite(actual))) stop("invalid catalog read bounds")
+  c(pmin(bounds[1:2], actual[1:2]), pmax(bounds[3:4], actual[3:4]))
+}
+
 apply_catalog_chunks <- function(catalog, callback, workers, phase, ...,
-                                  .options = NULL) {
+                                  .options = NULL, memory_policy = NULL,
+                                  task_windows_fn = NULL) {
   workers <- max(1L, as.integer(workers))
   # The internal engine is pinned and tested at this version. Preserve lidR's
   # public path on other versions or platforms where safe forking is disabled.
   if (utils::packageVersion("lidR") != "4.3.2" ||
       (workers > 1L && !parallelly::supportsMulticore())) {
+    if (!is.null(memory_policy)) {
+      stop("memory-admitted catalog scheduling requires pinned lidR 4.3.2 and fork support")
+    }
     return(with_catalog_workers(workers, phase,
       lidR::catalog_apply(catalog, callback, ..., .options = .options)))
   }
@@ -38,7 +55,15 @@ apply_catalog_chunks <- function(catalog, callback, workers, phase, ...,
     }
     result
   }
-  results <- run_bounded_tasks(seq_along(chunks), process, workers)
+  windows <- if (is.null(memory_policy)) {
+    NULL
+  } else if (is.null(task_windows_fn)) {
+    lapply(chunks, catalog_task_window)
+  } else {
+    lapply(chunks, task_windows_fn)
+  }
+  results <- run_memory_admitted_tasks(seq_along(chunks), process, workers,
+    windows, memory_policy, phase)
   if (length(results) != length(chunks)) stop("catalog worker results incomplete")
   assert_catalog_completed(results, phase)
   results

@@ -13,6 +13,35 @@ local({
   sf::st_crs(cloud) <- 32632
   path <- file.path(root, "edges.las")
   writeLAS(cloud, path)
+  catalog <- readLAScatalog(path)
+  opt_chunk_size(catalog) <- 60
+  opt_chunk_alignment(catalog) <- c(0, 0)
+  opt_chunk_buffer(catalog) <- 0
+  opt_select(catalog) <- "xyz"
+  opt_progress(catalog) <- FALSE
+  parent <- lidR:::engine_chunks(catalog, FALSE)[[1]]
+  children <- adaptive_chm_read_clusters(parent, 7)
+  child_bounds <- function(values) do.call(rbind, lapply(values, function(child)
+    as.numeric(sf::st_bbox(child))))
+  actual_bounds <- child_bounds(children)
+  stopifnot(length(children) == 81L,
+    identical(actual_bounds[1, ], c(1260, 2100, 1267, 2107)),
+    identical(actual_bounds[2, ], c(1267, 2100, 1274, 2107)),
+    identical(actual_bounds[10, ], c(1260, 2107, 1267, 2114)),
+    identical(actual_bounds[81, ], c(1316, 2156, 1320, 2160)),
+    all(vapply(children, function(child)
+      identical(child@select, parent@select) &&
+      identical(child@files, parent@files) &&
+      identical(child@index, parent@index), logical(1))))
+  # Entirely disjoint children are omitted, but a child starting exactly at
+  # the source maximum remains: its half-open read owns that boundary point.
+  bounded <- adaptive_chm_read_clusters(parent, 7,
+    c(xmin = 1267, ymin = 2107, xmax = 1274, ymax = 2114))
+  stopifnot(identical(child_bounds(bounded), rbind(
+    c(1267, 2107, 1274, 2114), c(1274, 2107, 1281, 2114),
+    c(1267, 2114, 1274, 2121), c(1274, 2114, 1281, 2121))))
+  stopifnot(length(adaptive_chm_read_clusters(parent, 7,
+    c(xmin = 2000, ymin = 3000, xmax = 2010, ymax = 3010))) == 0L)
   dtm <- terra::rast(xmin = 1259, xmax = 1330, ymin = 2099, ymax = 2170, res = 1)
   terra::crs(dtm) <- "EPSG:32632"
   terra::values(dtm) <- 0

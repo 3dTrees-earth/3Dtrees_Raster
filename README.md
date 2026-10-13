@@ -114,8 +114,9 @@ and reserves 15% headroom, subject to the existing 60 GiB default internal cap.
 An explicit internal budget may lower it (maximum request 70 GiB). Container
 CPU quotas also cap threads. `FORESTSTRUCTURE_THREADS` remains an operator cap;
 without a declared CPU allowance or quota, the safe default is one thread.
-`FORESTSTRUCTURE_CATALOG_WORKERS` defaults to one; the job destination can set a
-measured higher value within the CPU allowance. It is not a user-facing parameter.
+Catalog concurrency defaults to the smaller of four workers and the CPU allowance.
+Memory admission may reduce it further for each wave. The job destination can set
+`FORESTSTRUCTURE_CATALOG_WORKERS` explicitly; it is not a user-facing parameter.
 
 The output directory defaults to the Galaxy job working directory and scratch
 to `TMPDIR` (or R's private temp directory). A wrapper may supply `--output-dir`
@@ -142,7 +143,7 @@ IDs, a late order key, AOI/full-extent equivalence and mandatory voxel products.
 ### Catalog and tile concurrency
 
 `FORESTSTRUCTURE_CATALOG_WORKERS` accepts 1–10 workers within
-`FORESTSTRUCTURE_THREADS`; the memory-safe default remains one. The standard
+`FORESTSTRUCTURE_THREADS`; production automatically caps at four when unset. The standard
 CLI exposes the same upper limit through `--catalog-workers`. Tile metrics
 reuse that process count. Forked workers use one native thread each to avoid
 inherited OpenMP pool deadlocks; a sequential worker can use the full allowance.
@@ -153,16 +154,31 @@ On the pinned lidR 4.3.2 Linux runtime, bounded fork workers call lidR's existin
 chunk engine directly. This avoids repeated future-global discovery while
 retaining chunk construction, buffers, callbacks, raster writers and ordered
 results. Each child handles one task and exits, releasing its working set.
-Other lidR versions or platforms without safe fork support retain the public
-catalog scheduler. BLAS pools are limited to one thread in the image to avoid
+Memory-admitted production runs require this pinned runtime and safe fork support;
+the standard CLI retains its public-scheduler fallback. BLAS pools are limited to one thread to avoid
 multiplying native threads inside workers. Scientific algorithms and source
 point order are unchanged.
 
-The worker count bounds concurrency, not total memory. The internal budget
-and voxel admission estimates do not reserve the sum of all concurrent DTM,
-CHM and tile working sets. Keep a hard container limit with equal
-`--memory`/`--memory-swap` values, leave headroom, and retain the recorded cgroup
-peak. Dense inputs can need fewer workers than available CPUs.
+Before dispatch, production reads COPC hierarchy metadata to bound points in each
+actual spatial read, including DTM buffers. It reserves 512 bytes per estimated
+point plus 128 MiB per task, retaining another 512 MiB inside the internal budget.
+Reservations across concurrent tasks must fit the available working set. Only
+demonstrably clean inactive file cache is treated as reclaimable. Adaptive CHM
+reserves its largest sequential child read; raster footprints remain unchanged.
+An individual task that cannot fit fails before loading points. The coefficient
+is conservative planning, not a universal allocation guarantee: keep equal hard
+`--memory`/`--memory-swap` limits. A 30 GiB allocation allows a 25.5 GiB internal
+budget. Provenance records requested workers, actual waves, point bounds, memory
+snapshots and the raw container peak. Plain LAZ uses a conservative whole-file
+count fallback. COPC estimation fails explicitly above 64 MiB of hierarchy metadata
+or 100,000 read windows per phase.
+
+SAT/FM fields on the same source share one read, order restoration and terrain
+normalization. Their disk summaries and reductions remain independent. Different
+legacy projection files retain separate reads. Terrain, canopy, tile metrics and
+raw voxel counts still have distinct passes; their scientific semantics differ.
+Run `make test-parallel-production` for exact baseline parity at 1, 2 and 4 workers,
+with both full extent and an AOI.
 
 The full-resolution study benchmarks use ten workers for datasets 647/2080 and
 three for dense dataset 1805, all under 10 CPUs, a 70 GiB hard limit and a

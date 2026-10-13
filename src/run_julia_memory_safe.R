@@ -218,9 +218,27 @@ expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts =
   c(common, dimension_files, if (voxel_counts) unlist(voxel_count_paths(directory, dataset_id)))
 }
 
+validate_performance_resources <- function(performance, memory_budget_gib,
+                                           source_point_count,
+                                           memory_limit_gib = memory_budget_gib) {
+  if (nrow(performance) != 1L ||
+      performance$point_count[[1]] != source_point_count ||
+      !is.finite(performance$peak_rss_mib[[1]]) ||
+      performance$peak_rss_mib[[1]] >= memory_budget_gib * 1024 ||
+      !is.finite(performance$cgroup_memory_peak_mib[[1]]) ||
+      # Kernel usage includes reclaimable disk cache. Compare that peak with the
+      # allocation; the smaller internal budget governs working-set admission.
+      performance$cgroup_memory_peak_mib[[1]] > memory_limit_gib * 1024 ||
+      !is.finite(performance$temporary_disk_peak_mib[[1]])) {
+    stop("incoming artifact validation failed: performance/resource checks failed")
+  }
+  invisible(TRUE)
+}
+
 validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
                                         memory_budget_gib, source_point_count,
-                                        point_cloud_name, sensor, country, voxel_counts = FALSE) {
+                                        point_cloud_name, sensor, country, voxel_counts = FALSE,
+                                        memory_limit_gib = memory_budget_gib) {
   matches_label <- function(values, expected) {
     if (identical(expected, "NA")) {
       return(all(is.na(values) | as.character(values) == "NA"))
@@ -239,15 +257,8 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
   performance <- fread(
     file.path(directory, paste0(dataset_id, "_performance.csv"))
   )
-  if (nrow(performance) != 1L ||
-      performance$point_count[[1]] != source_point_count ||
-      !is.finite(performance$peak_rss_mib[[1]]) ||
-      performance$peak_rss_mib[[1]] >= memory_budget_gib * 1024 ||
-      !is.finite(performance$cgroup_memory_peak_mib[[1]]) ||
-      performance$cgroup_memory_peak_mib[[1]] >= memory_budget_gib * 1024 ||
-      !is.finite(performance$temporary_disk_peak_mib[[1]])) {
-    stop("incoming artifact validation failed: performance/resource checks failed")
-  }
+  validate_performance_resources(performance, memory_budget_gib,
+                                 source_point_count, memory_limit_gib)
   dtm <- terra::rast(file.path(directory, paste0(dataset_id, "_dtm.tif")))
   chm <- terra::rast(file.path(directory, paste0(dataset_id, "_chm.tif")))
   if (terra::inMemory(dtm) || terra::inMemory(chm) ||
@@ -468,8 +479,9 @@ julia_memory_safe_main <- function() {
   }
 
   thread_count <- arguments$resources$threads
+  worker_request <- Sys.getenv("FORESTSTRUCTURE_CATALOG_WORKERS", "")
   catalog_worker_count <- validated_catalog_worker_count(
-    Sys.getenv("FORESTSTRUCTURE_CATALOG_WORKERS", "1"),
+    if (nzchar(worker_request)) worker_request else as.character(min(4L, thread_count)),
     thread_count
   )
   message(sprintf(
@@ -612,7 +624,10 @@ julia_memory_safe_main <- function() {
     sensor = arguments$sensor,
     country = arguments$country,
     memory_budget_gib = arguments$memory_budget_gib,
-    sequential_instance_dimensions = TRUE,
+    # Original COPC hierarchy also bounds projected reads: projection preserves
+    # coordinates and records. Never estimate those from the flat LAZ header.
+    memory_policy = resource_policy(point_cloud, arguments$memory_budget_gib, job_directory),
+    sequential_instance_dimensions = FALSE,
     segment_catalog_base_selection = JULIA_MEMORY_SAFE_SEGMENT_SELECTION,
     segment_bucket_count = segment_bucket_count,
     # Per-dimension sources support legacy LAZ projection without changing COPC.
@@ -667,12 +682,18 @@ julia_memory_safe_main <- function() {
     copc_projection = copc_projection,
     requested_instance_dimensions = arguments$instance_dimension,
     processed_instance_dimensions = dimensions,
+    instance_read_groups = instance_read_groups(
+      dimensions, staged_point_cloud, dimension_sources,
+      parameters$sequential_instance_dimensions
+    ),
     missing_instance_dimensions = missing,
     extra_byte_definitions = definitions,
     source_extra_byte_definitions = source_definitions,
     selectors = selectors,
     projections = projections,
     catalog_workers = catalog_worker_count,
+    catalog_worker_policy = if (nzchar(worker_request)) "explicit_cap" else "auto_up_to_four",
+    resource_admission = resource_plan_reports(parameters$memory_policy),
     data_table_threads = DATA_TABLE_THREADS,
     scheduler_resources = arguments$resources,
     footprint_source = aoi_provenance$source,
@@ -757,7 +778,10 @@ julia_memory_safe_main <- function() {
     point_cloud_display_name,
     arguments$sensor,
     arguments$country,
-    voxel_counts = arguments$export_voxel_counts
+    voxel_counts = arguments$export_voxel_counts,
+    memory_limit_gib = if (is.null(arguments$resources$memory_limit_gib)) {
+      arguments$memory_budget_gib
+    } else arguments$resources$memory_limit_gib
   )
   message("FORESTSTRUCTURE_STAGE stage=internal_validation status=completed")
   run_provenance$status <- "valid"

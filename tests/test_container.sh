@@ -6,7 +6,16 @@ image_name="${FORESTSTRUCTURE_IMAGE:-3dtrees-foreststructure:test}"
 docker_limits=(--cpus "${FORESTSTRUCTURE_CPUS:-10}" --memory "${FORESTSTRUCTURE_MEMORY:-70g}" --memory-swap "${FORESTSTRUCTURE_MEMORY:-70g}")
 input_dir="$(mktemp -d)"
 results_dir="$(mktemp -d)"
-trap 'rm -rf "${input_dir}" "${results_dir}"' EXIT
+cleanup() {
+  local status="$?"
+  if [[ "${status}" != 0 || "${FORESTSTRUCTURE_KEEP_TEST_ROOT:-0}" == 1 ]]; then
+    echo "Container gate inputs: ${input_dir}"
+    echo "Container gate results and logs: ${results_dir} (exit ${status})"
+  else
+    rm -rf "${input_dir}" "${results_dir}"
+  fi
+}
+trap cleanup EXIT
 
 if [[ "${FORESTSTRUCTURE_SKIP_BUILD:-0}" != "1" ]]; then
   docker build --tag "${image_name}" "${repo_dir}"
@@ -17,13 +26,14 @@ docker run --rm --network none "${docker_limits[@]}" \
   --volume "${repo_dir}:/workspace:ro" "${image_name}" \
   /workspace/tests/test_voxel_counts.py
 python3 "${repo_dir}/tests/test_output_artifact_validation.py"
+python3 "${repo_dir}/tests/test_copc_task_counts.py"
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R")'
+  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R"); source("../tests/test_resource_scheduler.R"); source("../tests/test_resource_memory.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
@@ -44,7 +54,7 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_julia_memory_safe.R")'
+  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run_julia_memory_safe.R"); source("../tests/test_julia_memory_safe.R"); source("../tests/test_instance_read_groups.R"); source("../tests/test_resource_validation.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
@@ -86,7 +96,8 @@ docker run --rm --network none \
   /generated/aoi_with_exclusion.gpkg
 
 help_path="${results_dir}/help.txt"
-docker run --rm --network none "${docker_limits[@]}" --entrypoint Rscript "${image_name}" /opt/foreststructure/run.R --help > "${help_path}"
+docker run --rm --network none "${docker_limits[@]}" --user "$(id -u):$(id -g)" \
+  --entrypoint Rscript "${image_name}" /opt/foreststructure/run.R --help > "${help_path}"
 for expected_help in \
   "Optional GeoJSON or GeoPackage Audit AOI" \
   "omitted, tiles cover the complete" \
@@ -106,7 +117,10 @@ for expected_help in \
   "default: 50000000" \
   "--instance-dimension" \
   "--segment-diagnostics"; do
-  grep -q -- "${expected_help}" "${help_path}"
+  if ! grep -Fq -- "${expected_help}" "${help_path}"; then
+    echo "CLI help is missing '${expected_help}'; see ${help_path}" >&2
+    exit 1
+  fi
 done
 
 run_failure_case() {
@@ -138,7 +152,11 @@ run_failure_case() {
     echo "failure case ${name} unexpectedly succeeded" >&2
     return 1
   fi
-  grep -q -- "${expected_message}" "${log_path}"
+  if ! grep -Fq -- "${expected_message}" "${log_path}"; then
+    echo "Failure case ${name} did not report '${expected_message}'; see ${log_path}" >&2
+    tail -n 20 "${log_path}" >&2
+    return 1
+  fi
 }
 
 run_failure_case missing_point "exactly one existing LAS/LAZ file" \

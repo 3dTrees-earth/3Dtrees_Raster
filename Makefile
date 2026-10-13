@@ -40,6 +40,10 @@ test-projected-3d-crs:
 	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
 		bash tests/test_projected_3d_crs.sh
 
+.PHONY: test-parallel-production
+test-parallel-production:
+	bash tests/test_parallel_production.sh
+
 test-original-companion-crs-fallback:
 	docker run --rm --network none \
 		--entrypoint Rscript \
@@ -53,7 +57,7 @@ test-artifact-promotion:
 		--volume "$(CURDIR):/repo:ro" \
 		--workdir /repo/src \
 		"$(JULIA_MEMORY_SAFE_IMAGE)" \
-		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("/repo/src/run_julia_memory_safe.R"); source("/repo/tests/test_artifact_promotion.R"); source("/repo/tests/test_companion_bounds.R")'
+		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("/repo/src/run_julia_memory_safe.R"); source("/repo/tests/test_artifact_promotion.R"); source("/repo/tests/test_companion_bounds.R"); source("/repo/tests/test_resource_validation.R")'
 
 .PHONY: test-voxel-counts
 test-voxel-counts:

@@ -386,6 +386,9 @@ def export(config):
             grid_extent_source="usable AOI; independent of LAS header bounds",
             elapsed_seconds=time.monotonic()-started,
             artifacts={key: Path(value).name for key, value in paths.items()})
+        if config.get("dtm_denoising"):
+            metadata["dtm"]["denoising"] = config["dtm_denoising"]
+            metadata["noise_mask_applied_to_counts"] = False
         Path(paths["metadata"]).write_text(json.dumps(metadata, indent=2, allow_nan=False)+"\n", encoding="utf-8")
     return metadata
 

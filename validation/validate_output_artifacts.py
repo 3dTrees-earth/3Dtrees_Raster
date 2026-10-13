@@ -34,7 +34,8 @@ def as_list(value: Any) -> list[Any]:
     return [value]
 
 
-def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_counts: bool = False) -> set[str]:
+def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_counts: bool = False,
+                            denoising: bool = False) -> set[str]:
     """Return the exact scientific and provenance artifact contract."""
 
     names = {
@@ -56,6 +57,8 @@ def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_c
         )
     if voxel_counts:
         names.update(f"{dataset_id}_voxel_counts{suffix}" for suffix in (".csv", ".tif", ".json", "_validity.tif"))
+    if denoising:
+        names.update((f"{dataset_id}_noise_points.csv", f"{dataset_id}_denoising.json"))
     return names
 
 
@@ -103,7 +106,9 @@ def validate_output_directory(dataset_id: int | str, output: Path) -> dict[str, 
     if provenance and provenance.get("status") != "valid":
         errors.append("provenance status is not valid")
 
-    expected = expected_artifact_names(dataset_id, processed, provenance.get("voxel_counts", {}).get("enabled", False))
+    expected = expected_artifact_names(dataset_id, processed,
+        provenance.get("voxel_counts", {}).get("enabled", False),
+        provenance.get("denoising", {}).get("enabled", False))
     present = {path.name for path in output.iterdir() if path.is_file()}
     allowed_sidecars = allowed_gdal_sidecar_names(dataset_id)
     ignored_sidecars = sorted(present & allowed_sidecars)

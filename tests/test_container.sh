@@ -26,6 +26,10 @@ docker run --rm --network none "${docker_limits[@]}" \
   --volume "${repo_dir}:/workspace:ro" "${image_name}" \
   /workspace/tests/test_voxel_counts.py
 python3 "${repo_dir}/tests/test_output_artifact_validation.py"
+docker run --rm --network none "${docker_limits[@]}" \
+  --env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
+  --volume "${repo_dir}:/workspace:ro" "${image_name}" \
+  /workspace/tests/test_denoising_validation.py
 python3 "${repo_dir}/tests/test_copc_task_counts.py"
 PYTHONDONTWRITEBYTECODE=1 python3 "${repo_dir}/tests/test_galaxy_resource_request.py"
 docker run --rm --network none \
@@ -34,7 +38,7 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R"); source("../tests/test_resource_scheduler.R"); source("../tests/test_resource_memory.R")'
+  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("denoising.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R"); source("../tests/test_resource_scheduler.R"); source("../tests/test_resource_memory.R"); source("../tests/test_denoising.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
@@ -62,7 +66,7 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_adaptive_chunks.R"); source("../tests/test_chm_adaptive_edges.R")'
+  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("../tests/test_adaptive_chunks.R"); source("../tests/test_chm_adaptive_edges.R"); source("../tests/test_segment_catalog_boundaries.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \

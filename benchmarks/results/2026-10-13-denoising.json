@@ -1,0 +1,254 @@
+{
+  "additional_regressions": {
+    "test_adaptive_chunks.R": "Passed on the final sources in the pinned offline 2 CPU / 4 GiB runtime.",
+    "test_artifact_promotion.R": "Passed, including removal of stale denoising artifacts when disabled and restoration on failed promotion.",
+    "test_chm_adaptive_edges.R": "Passed existing adaptive canopy edge regressions on the final sources in the same runtime.",
+    "test_copc_task_counts.py": "17 tests passed; conservative bounds include prequantized header minima/maxima and reject invalid scales.",
+    "test_denoising.R": "Passed: optional settings, native SOR, supported 80 m crown retention, existing classification preservation, sparse context, mask validation, fixed ownership and worker invariance.",
+    "test_denoising_validation.py": "5 accounting/duplicate/malformed-mask tests passed.",
+    "test_segment_catalog_boundaries.R": "Passed: 10 source points, exact segment and CHM parity across 60/23 m windows and 1/2 workers; includes maxima on catalog edges and rounded-header queries without admitting the preceding coordinate lattice."
+  },
+  "additional_source_points_flagged": 34,
+  "comparison": "Exact CSV bytes, complete parsed GeoJSON, raster grids/CRS/cells/bands/masks/metadata; no numeric tolerance",
+  "denoising_parameters": {
+    "algorithm": "lidR::sor",
+    "buffer_m": 20,
+    "k": 10,
+    "lidR_version": "4.3.2",
+    "m": 6,
+    "method": "fixed_window_local_sor",
+    "origin": [
+      0,
+      0
+    ],
+    "window_size_m": 60
+  },
+  "disabled_scientific_products_compared": 14,
+  "elapsed_seconds": {
+    "baseline": 64,
+    "none": 71,
+    "sor-w1": 93,
+    "sor-w2": 134
+  },
+  "execution_invariance_products_compared": 14,
+  "fixture": {
+    "disabled_baseline_boundary_policy": "One neutral synthetic ground point extends maximum XY by one stored-coordinate tick; exact terminal edges are tested separately because their correction intentionally differs from the historical baseline.",
+    "generator": "tests/generate_denoising_fixture.py",
+    "indexed_input_sha256": "7c90184437914839cdfd75544d4f1e433cd19b5ad3df63f2f86a75eab822d82d",
+    "original_source_sha256": "f062aee46f5195c97f10491019551cdd8e8f5255d8eeba1afcc681b0d21cd510",
+    "preserved_source_index_and_instance_dimensions": true
+  },
+  "injected_outliers_rejected": 2,
+  "input_points": 56057,
+  "kind": "synthetic scientific acceptance; not a production-scale performance benchmark",
+  "limitations": [
+    "This is a small synthetic fixture. No ALS/UAV/TLS reference-data classification accuracy or production-scale denoising runtime/memory has been established.",
+    "SOR flagged 34 ordinary fixture observations in addition to the two injected outliers. Dense supported crowns were retained, but these defaults are not a universal noise classifier.",
+    "Raw voxel counts retain flagged observations using a DTM estimated from accepted points; accepted-point voxel counts are not a product of this patch.",
+    "Exact terminal-boundary/header corrections can intentionally change coverage and tree metrics even with denoising disabled.",
+    "Earlier real-data PR speed/parity benchmarks predate this denoising/boundary patch and apply only to their recorded source versions.",
+    "One timing observation per case on a shared host; worker count and adaptive execution target both differ, so timings are not an isolated parallel speedup comparison.",
+    "Memory peaks come from runner provenance at the end of analysis, before final validation/promotion; no separate whole-container peak sampler was used.",
+    "Legacy 70 m metric support and its index definitions are unchanged; the noise classifier and raw voxel-count height support do not impose that limit."
+  ],
+  "native_copc_acceptance": {
+    "boundary": {
+      "actual_query_lower_x": 1080.000475,
+      "correct_header_read_count": 1,
+      "corrected_ids": 42723,
+      "corrected_read_count": 1,
+      "memory_windows": [
+        [
+          1080.000475,
+          2000,
+          1140.001,
+          2060
+        ],
+        [
+          1080.000475,
+          2060,
+          1140.001,
+          2120
+        ]
+      ],
+      "previous_lattice_excluded": true,
+      "previous_lattice_x": 1080,
+      "raw_header_maximum_x": 1080.00095,
+      "stored_maximum_x": 1080.001,
+      "unadjusted_read_count": 0
+    },
+    "cpus": 2,
+    "foreststructure_image": "sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e",
+    "gpu": false,
+    "indexed_input_sha256": "7c90184437914839cdfd75544d4f1e433cd19b5ad3df63f2f86a75eab822d82d",
+    "internal_memory_gib": 3.4,
+    "memory_bytes": 4294967296,
+    "native_copc_sha256": "19cc6aaa84063935a551db81826554c85e5995d035ff1c84d6650d8cc0253c8f",
+    "native_vs_projected_noise_ids_equal": true,
+    "network": "none",
+    "noise_count": 36,
+    "original_source_sha256": "f062aee46f5195c97f10491019551cdd8e8f5255d8eeba1afcc681b0d21cd510",
+    "point_count": 56057,
+    "preparation_validation": {
+      "PredInstance": {
+        "counts_equal": true,
+        "multiset_equal": true,
+        "original_point_index_available": true,
+        "original_point_index_restores_expected_order": true,
+        "original_point_index_unique": true
+      },
+      "PredInstance_FM": {
+        "counts_equal": true,
+        "multiset_equal": true,
+        "original_point_index_available": true,
+        "original_point_index_restores_expected_order": true,
+        "original_point_index_unique": true
+      },
+      "PredInstance_SAT": {
+        "counts_equal": true,
+        "multiset_equal": true,
+        "original_point_index_available": true,
+        "original_point_index_restores_expected_order": true,
+        "original_point_index_unique": true
+      }
+    },
+    "production_high_ordinal_copc_sha256": "0d24511d62ebb72001a2e8f49d914683b9a95721d755d86f00f7f1c19b0ef7d2",
+    "projection_used": false,
+    "rounded_header_copy_sha256": "781de35527c1ed47735e2c82342d279cf389406ff5e0627dc6f1b2ee2f13395f",
+    "runtime_lidR": "4.3.2",
+    "selector": "xyz1",
+    "source_dimensions": [
+      "OriginalPointIndex",
+      "PredInstance",
+      "PredInstance_SAT",
+      "PredInstance_FM",
+      "filler_01",
+      "filler_02",
+      "filler_03",
+      "filler_04",
+      "filler_05",
+      "filler_06",
+      "filler_07",
+      "filler_08",
+      "filler_09",
+      "filler_10"
+    ],
+    "source_snapshot_matches_primary_integration": true,
+    "status": "passed",
+    "summary": {
+      "algorithm": "lidR::sor",
+      "boundary_ownership": "half-open: lower inclusive, upper exclusive",
+      "buffer_m": 20,
+      "coordinate_changes": false,
+      "enabled": true,
+      "existing_classification_policy": "preserved; not used as a rejection criterion",
+      "insufficient_context_points": 0,
+      "insufficient_context_policy": "retain points when buffered population is no larger than k",
+      "k": 10,
+      "lidR_version": "4.3.2",
+      "m": 6,
+      "method": "fixed_window_local_sor",
+      "origin": [
+        0,
+        0
+      ],
+      "partition_count": 6,
+      "point_count": 56057,
+      "point_order_dimension": "OriginalPointIndex",
+      "raw_voxel_counts_filtered": false,
+      "rejected_points": 36,
+      "retained_points": 56021,
+      "schema_version": 1,
+      "statistics_population": "all source points in each fixed buffered scientific window",
+      "window_size_m": 60
+    },
+    "untwine_image": "sha256:bdea1f0747b7f29ffb7d2f6ae041deb58b49531a952dcb6b4bb45ae6b29f7b02",
+    "workers": 2
+  },
+  "raw_export_retains_rejected_high_point": true,
+  "rejected_points": 36,
+  "reproduction": {
+    "focused_and_integration": "make test-denoising JULIA_MEMORY_SAFE_IMAGE=<recorded local runtime image>",
+    "integration": "FORESTSTRUCTURE_KEEP_TEST_ROOT=1 bash tests/test_denoising.sh",
+    "test_source_sha256": {
+      "tests/compare_denoising.py": "acccde9c7ef641350aec9a785c157487c1e6a2a630e7abd21548c2fd86c11097",
+      "tests/generate_denoising_fixture.py": "c47f595d8a1f5d54c1775fc5fc3427aa993f88a84c19b55402f371459cd81139",
+      "tests/test_denoising.R": "69111fc11ad7cd9aa933da5104364ee5f0ff1010b86314461fd940e83380d0e7",
+      "tests/test_denoising.sh": "ac491e1c707de97cc354711ad00a31494081e0d66a6d78fdf447201e0948a0f8",
+      "tests/test_denoising_validation.py": "70824bba3e2cf885acaebeb2b72325c73488d0f76962bbebc928407d64dea2c1",
+      "tests/test_segment_catalog_boundaries.R": "e74ae6c3adbb090aacadb9692bb4ce691ca9e8fcef1bc07b74a19ae239d39f70"
+    }
+  },
+  "resource_measurement_scope": "Runner-reported peaks at end of analysis, before final validation/promotion; not an independently sampled whole-container peak",
+  "resources": {
+    "baseline": {
+      "analysis_seconds": 39.842,
+      "cgroup_memory_peak_mib": 414.297,
+      "denoise_seconds": 0.0,
+      "parent_peak_rss_mib": 449.82,
+      "temporary_disk_peak_mib": 8.6966,
+      "voxel_seconds": 0.5342785650864244
+    },
+    "none": {
+      "analysis_seconds": 39.745,
+      "cgroup_memory_peak_mib": 418.641,
+      "denoise_seconds": 0.0,
+      "parent_peak_rss_mib": 455.086,
+      "temporary_disk_peak_mib": 8.697,
+      "voxel_seconds": 2.393810628214851
+    },
+    "sor-w1": {
+      "analysis_seconds": 54.666,
+      "cgroup_memory_peak_mib": 424.121,
+      "denoise_seconds": 2.33,
+      "maximum_admitted_denoise_workers": 1,
+      "parent_peak_rss_mib": 462.082,
+      "temporary_disk_peak_mib": 8.6968,
+      "voxel_seconds": 0.5732187810353935
+    },
+    "sor-w2": {
+      "analysis_seconds": 62.776,
+      "cgroup_memory_peak_mib": 883.652,
+      "denoise_seconds": 1.659,
+      "maximum_admitted_denoise_workers": 2,
+      "parent_peak_rss_mib": 457.207,
+      "temporary_disk_peak_mib": 8.8802,
+      "voxel_seconds": 2.03016340197064
+    }
+  },
+  "runtime": {
+    "baseline_image": "sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e",
+    "cpus": 2,
+    "gpu": false,
+    "internal_memory_gib": 3.4,
+    "memory_bytes": 4294967296,
+    "network": "none",
+    "source_sha256": "0d24511d62ebb72001a2e8f49d914683b9a95721d755d86f00f7f1c19b0ef7d2",
+    "source_snapshot_sha256": {
+      "aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+      "artifact_publication.R": "a7621e5d6b2f561c1613e6d699a7bfea66c292d66ef55768ff03eba9f46c02d3",
+      "catalog_scheduler.R": "f4e9e929603fc41d3e0d477528444ea1d47788c0992431dc5111d7f7d67171ac",
+      "convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+      "copc_task_counts.py": "7dab5a15b1efeccd0c06226878ec61713e5b6ba1da6f1c3524b9520b32c6dc1f",
+      "denoising.R": "caaa4a741af3d091cc39c12ef44feb32e9db3cd850ca7d8c6042c252fca49b1e",
+      "denoising_validation.py": "4c9c5c117742bd173a521873e8bd48d5ed3490792e869bd5aa8d3d61583da351",
+      "galaxy_resource_request.py": "f46ff105864c1317fe930520957136decd1735d6863a3541ee5cbe1d131f3b31",
+      "instance_read_groups.R": "a021e30c08d03ab0203310b35dade72686363b77f9a3122b9f5c331f31502eec",
+      "production_contract.R": "bac1bc47ba72e04153349fbceb74a2cca83572bc1b23524cc76e5473642424b3",
+      "project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+      "raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+      "resource_scheduler.R": "dab49b3c2abd4412ef8bef3e212dd44ac862c1e139f7da4dde753518f37f12dc",
+      "run.R": "7c0aae9df82103664ba149b00b050e81a4d802c2a4bc055ee34c83bed6f76050",
+      "run_julia_memory_safe.R": "126d457f88c79174c95c7bf388d43470a88e62ac3a993d5a3636b17885f48c84",
+      "tile_scheduler.R": "20165fca6f488c4f7cbf5e8e18f57d90d9f5fc5c24929eb36b96e8208705613f",
+      "voxel_counts.R": "50779e344012f31bc7004ae382f91e822d759e44111da12fff02630d30cb5752",
+      "voxel_counts.py": "b2c67b464c1e69733b04f66bcdd20818fa443f0f457820a8793561bca5f1d96a"
+    },
+    "untwine_image": "sha256:bdea1f0747b7f29ffb7d2f6ae041deb58b49531a952dcb6b4bb45ae6b29f7b02"
+  },
+  "source_base_commit": "d7db61f7ebdf82de306be14fca6127b627222931",
+  "source_sha256": "0d24511d62ebb72001a2e8f49d914683b9a95721d755d86f00f7f1c19b0ef7d2",
+  "status": "valid",
+  "supported_crown_points": 1331,
+  "validation_date": "2026-10-13"
+}

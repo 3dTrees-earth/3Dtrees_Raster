@@ -42,6 +42,7 @@ write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
     temp_dir = work_directory, paths = paths, chunk_points = chunk_points,
     source_name = basename(parameter_or(parameters, "voxel_point_cloud", parameters$point_cloud)),
     source_sha256 = parameter_or(parameters, "point_cloud_sha256", NULL),
+    dtm_denoising = if (is.null(parameters$denoising)) NULL else parameters$denoising$summary,
     memory_available_gib = available
   )
   config_path <- file.path(work_directory, "voxel_config.json")

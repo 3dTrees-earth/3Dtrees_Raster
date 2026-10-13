@@ -366,6 +366,73 @@ read and scratch storage. Normal low-ordinal COPCs retain their direct fast path
 The mandatory voxel-count pass always reads the full original COPC, including
 all duplicates, rather than a reduced or subsampled source.
 
+### Optional point-noise classification
+
+The production runner accepts `--denoise sor` to run native lidR 4.3.2 statistical
+outlier removal before terrain estimation. The default is `--denoise none`, which
+preserves the existing filtering defaults. Enabled denoising requires a canonical
+COPC carrying `OriginalPointIndex`; late ExtraByte positions use the existing
+projection path. Input coordinates, classifications and instance IDs are unchanged.
+
+SOR measures each point's mean distance to its nearest neighbours and rejects
+unusually large distances relative to the local window's mean and standard
+deviation. It does not impose an absolute height ceiling or trim a height
+percentile. Parameters are scientific choices and are recorded in provenance:
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--denoise-neighbors` | `10` | Neighbours used for the point-distance statistic |
+| `--denoise-sigma` | `6` | Standard deviations above the window mean |
+| `--denoise-window-size` | `60` | Fixed scientific core width in metres |
+| `--denoise-buffer` | `20` | Context around each core in metres |
+
+Scientific windows are anchored at `(0,0)` and assign each point to one half-open
+core. Their buffered populations define the SOR statistics independently of the
+adaptive execution windows and catalog worker count. Sparse windows with no more
+points than the neighbour count are retained and reported. A dense window that
+cannot fit the memory admission budget fails; it is not silently split into a
+different statistical population. The finite context is part of the method:
+this is local buffered SOR, not whole-cloud nearest-neighbour classification.
+
+The runner computes the mask once and reuses it for DTM, CHM, segment and tile
+metrics. It publishes `<dataset>_noise_points.csv`, with one rejected
+`OriginalPointIndex` per row, and `<dataset>_denoising.json`, with parameters,
+ownership rules and per-window point accounting. Existing LAS class labels are
+preserved but are not additional rejection criteria. No filtered point cloud is
+written, and the source file is never modified.
+
+The mandatory voxel-count products still count **all original eligible records**,
+including points flagged by SOR, using the DTM estimated from accepted points.
+Consequently these are raw recorded-point counts normalized against a denoised
+terrain model; they are not counts of accepted points. Negative-height and
+invalid-terrain exclusions remain documented separately. A high rejected point
+can still increase the voxel GeoTIFF's band count or trigger its explicit
+capacity limit.
+
+This optional method needs acquisition-specific validation: sparse genuine crowns
+may be flagged, and coherent noise clusters may survive. The defaults are
+conservative starting parameters, not a validated universal forest-noise rule.
+The legacy 70 m metric support and index definitions are unchanged by this option.
+Use `make test-denoising` for synthetic disabled-path parity, isolated high/low
+outliers, supported crown retention, high-ordinal IDs, raw-count semantics and
+worker/adaptive-window invariance. This small acceptance test does not replace
+validation against clean ALS, UAV or TLS reference data.
+
+The [recorded synthetic acceptance](benchmarks/results/2026-10-13-denoising.json)
+uses 56,057 points. SOR flagged both injected outliers and 34 ordinary fixture
+observations, while retaining all 1,331 points in a supported tall crown.
+All 14 scientific products match the immutable baseline with denoising disabled,
+and match across one/two workers and different adaptive windows with it enabled.
+Native COPC and the late-attribute projection produce the same 36 flagged IDs.
+Earlier real-data performance and parity benchmarks predate this patch; there
+is no production-scale denoising benchmark or acquisition-specific accuracy claim.
+
+Both modes retain canonical source points on a terminal catalog boundary.
+Earlier versions could omit such records when the source maximum lay exactly
+on a CHM or segment catalog edge, changing results with execution-window size.
+The dedicated boundary regression checks this correction; outputs for those
+previously affected inputs can change even with denoising disabled.
+
 ## Inputs and outputs
 
 The AOI is interpreted in the point cloud's local XY coordinate space and is

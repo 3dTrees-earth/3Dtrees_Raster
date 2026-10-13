@@ -48,6 +48,18 @@ test-projected-3d-crs:
 test-parallel-production:
 	bash tests/test_parallel_production.sh
 
+.PHONY: test-denoising
+test-denoising:
+	docker run --rm --network none --cpus 2 --memory 1g --memory-swap 1g \
+		--env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
+		--volume "$(CURDIR):/workspace:ro" "$(JULIA_MEMORY_SAFE_IMAGE)" \
+		/workspace/tests/test_denoising_validation.py
+	docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g \
+		--entrypoint Rscript --volume "$(CURDIR):/workspace:ro" \
+		--workdir /workspace/src "$(JULIA_MEMORY_SAFE_IMAGE)" \
+		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("denoising.R"); source("../tests/test_denoising.R"); source("../tests/test_segment_catalog_boundaries.R")'
+	bash tests/test_denoising.sh
+
 test-original-companion-crs-fallback:
 	docker run --rm --network none \
 		--entrypoint Rscript \

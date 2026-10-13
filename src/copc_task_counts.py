@@ -57,10 +57,10 @@ def _windows(value):
 class _WindowIndex:
     """Small static bounding-volume tree; no nodes-by-windows dense array."""
 
-    def __init__(self, windows, header_bounds):
+    def __init__(self, windows, query_bounds):
         self.windows = windows
         self.counts = [0] * len(windows)
-        indices = [i for i, window in enumerate(windows) if _intersects(window, header_bounds)]
+        indices = [i for i, window in enumerate(windows) if _intersects(window, query_bounds)]
         self.root = self._build(indices) if indices else None
 
     def _build(self, indices):
@@ -132,6 +132,21 @@ def _header(reader):
     mins, maxs = (min_x, min_y, min_z), (max_x, max_y, max_z)
     if not all(math.isfinite(v) for v in mins + maxs) or any(a > b for a, b in zip(mins, maxs)):
         raise MetadataError("invalid LAS coordinate bounds")
+    scales = struct.unpack_from("<3d", raw, 131)
+    if not all(math.isfinite(v) and v > 0 for v in scales):
+        raise MetadataError("invalid LAS coordinate scales")
+    # Writers may retain pre-quantization extrema in the public header. A
+    # stored point can then lie just beyond those bounds, including exactly on
+    # a catalog boundary. Use one coordinate quantum and outward rounding for
+    # conservative pruning; keep the raw header bounds as provenance only.
+    query_bounds = (
+        math.nextafter(min_x - scales[0], -math.inf),
+        math.nextafter(min_y - scales[1], -math.inf),
+        math.nextafter(max_x + scales[0], math.inf),
+        math.nextafter(max_y + scales[1], math.inf),
+    )
+    if not all(math.isfinite(v) for v in query_bounds):
+        raise MetadataError("LAS query bounds exceed supported coordinate range")
     info = None
     if vlr_count:
         if header_size + 54 > points_offset:
@@ -149,7 +164,7 @@ def _header(reader):
             # writers can retain a nonzero deprecated legacy counter; ignore it.
             point_count = extended_count
             info = reader.read(header_size + 54, 160)
-    return point_count, mins, maxs, points_offset, info
+    return point_count, mins, maxs, points_offset, info, query_bounds
 
 
 def _node_bounds(key, center, halfsize):
@@ -177,15 +192,16 @@ def estimate(input_path, windows, *, allow_header_fallback=False, max_metadata_b
     windows = _windows(windows)
     with open(input_path, "rb") as stream:
         reader = _MetadataReader(stream, max_metadata_bytes)
-        point_count, mins, maxs, points_offset, info = _header(reader)
+        point_count, mins, maxs, points_offset, info, query_bounds = _header(reader)
         header_bounds = (mins[0], mins[1], maxs[0], maxs[1])
         result = dict(schema_version=1, point_count=point_count, windows=windows,
-                      header_bounds=list(header_bounds), metadata_bytes_read=reader.bytes_read)
+                      header_bounds=list(header_bounds), query_bounds=list(query_bounds),
+                      metadata_bytes_read=reader.bytes_read)
         if info is None:
             if not allow_header_fallback:
                 raise MetadataError("COPC info VLR not found; header fallback requires explicit opt-in")
             result.update(mode="header_fallback", point_count_upper_bounds=[
-                point_count if _intersects(w, header_bounds) else 0 for w in windows])
+                point_count if _intersects(w, query_bounds) else 0 for w in windows])
             return result
         center = struct.unpack_from("<3d", info)
         halfsize, spacing = struct.unpack_from("<dd", info, 24)
@@ -204,7 +220,7 @@ def estimate(input_path, windows, *, allow_header_fallback=False, max_metadata_b
         pending = [(root_offset, root_size)]
         pages, keys, ranges = set(), set(), []
         total, entries = 0, 0
-        index = _WindowIndex(windows, header_bounds)
+        index = _WindowIndex(windows, query_bounds)
         while pending:
             offset, size = pending.pop()
             if offset in pages:

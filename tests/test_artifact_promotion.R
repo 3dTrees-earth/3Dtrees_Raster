@@ -15,6 +15,9 @@ local({
   stopifnot(all(file.create(sidecars)))
   stale_sidecar <- file.path(output, "2001_dtm.tif.aux.xml")
   stopifnot(file.create(stale_sidecar))
+  # Turning denoising off must remove quality products from the old generation.
+  stale_denoising <- file.path(output, c("2001_noise_points.csv", "2001_denoising.json"))
+  stopifnot(all(file.create(stale_denoising)))
 
   source_path <- file.path(output, "2001_original.laz")
   writeLines("preserve input", source_path)
@@ -25,6 +28,7 @@ local({
   stopifnot(all(file.exists(file.path(output, basename(expected)))))
   stopifnot(!any(file.exists(file.path(output, basename(sidecars)))))
   stopifnot(all(file.exists(sidecars)))
+  stopifnot(!any(file.exists(stale_denoising)))
 })
 
 # A failed optional export must preserve every previously published artifact.
@@ -83,7 +87,7 @@ local({
   incoming <- file.path(root, "incoming")
   dir.create(incoming, recursive=TRUE)
   on.exit(unlink(root, recursive=TRUE, force=TRUE), add=TRUE)
-  names <- c("7_dtm.tif", "7_chm.tif")
+  names <- c("7_dtm.tif", "7_chm.tif", "7_noise_points.csv", "7_denoising.json")
   for (name in names) {
     writeLines("old", file.path(root, name))
     writeLines("new", file.path(incoming, name))

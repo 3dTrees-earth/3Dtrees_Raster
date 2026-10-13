@@ -63,6 +63,7 @@ parse_julia_memory_safe_parameters <- function() {
     )
   )
   add_voxel_count_arguments(parser, mandatory = TRUE)
+  add_denoising_arguments(parser)
   # ``--point-cloud`` is the sole scientific input and may now be canonical COPC.
   parser$add_argument("--point-cloud", required = TRUE)
   # ``--original-point-cloud`` is optional identity/provenance evidence only.
@@ -94,6 +95,7 @@ parse_julia_memory_safe_parameters <- function() {
   )
   arguments <- parser$parse_args()
   validate_voxel_count_parameters(arguments)
+  validate_denoising_options(arguments)
   raw_instance_dimensions <- unlist(
     arguments$instance_dimension,
     recursive = TRUE,
@@ -121,6 +123,9 @@ parse_julia_memory_safe_parameters <- function() {
     stop("--point-cloud must be exactly one existing LAS/LAZ file")
   }
   # COPC accepts an optional non-COPC companion; computation still reads COPC.
+  if (arguments$denoise != "none" && !is_copc_point_cloud(arguments$point_cloud)) {
+    stop("--denoise requires a canonical COPC with OriginalPointIndex")
+  }
   if (is_copc_point_cloud(arguments$point_cloud)) {
     # Reject a missing, wrongly typed, or second-COPC companion before staging.
     if (!is.null(arguments$original_point_cloud) &&
@@ -199,7 +204,8 @@ run_projection <- function(source, output, dimension) {
   fromJSON(tail(output_lines, 1L), simplifyVector = FALSE)
 }
 
-expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts = FALSE) {
+expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts = FALSE,
+                               denoising = FALSE) {
   prefix <- file.path(directory, as.character(dataset_id))
   common <- c(
     paste0(prefix, "_dtm.tif"),
@@ -215,7 +221,8 @@ expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts =
     paste0(prefix, suffix, "_segment_diagnostics.csv"),
     paste0(prefix, suffix, "_tiles.geojson")
   )))
-  c(common, dimension_files, if (voxel_counts) unlist(voxel_count_paths(directory, dataset_id)))
+  c(common, dimension_files, if (voxel_counts) unlist(voxel_count_paths(directory, dataset_id)),
+    if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
 }
 
 validate_performance_resources <- function(performance, memory_budget_gib,
@@ -238,14 +245,15 @@ validate_performance_resources <- function(performance, memory_budget_gib,
 validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
                                         memory_budget_gib, source_point_count,
                                         point_cloud_name, sensor, country, voxel_counts = FALSE,
-                                        memory_limit_gib = memory_budget_gib) {
+                                        memory_limit_gib = memory_budget_gib,
+                                        denoising = FALSE) {
   matches_label <- function(values, expected) {
     if (identical(expected, "NA")) {
       return(all(is.na(values) | as.character(values) == "NA"))
     }
     all(!is.na(values) & as.character(values) == expected)
   }
-  paths <- expected_artifacts(directory, dataset_id, dimensions, voxel_counts)
+  paths <- expected_artifacts(directory, dataset_id, dimensions, voxel_counts, denoising)
   if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id)
   absent <- paths[!file.exists(paths) | file.info(paths)$size <= 0]
   if (length(absent) > 0L) {
@@ -253,6 +261,15 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
       "incoming artifact validation failed; missing/empty: %s",
       paste(basename(absent), collapse = ", ")
     ))
+  }
+  if (denoising) {
+    status <- system2("python3", c(
+      shQuote(file.path(script_directory, "denoising_validation.py")),
+      shQuote(file.path(directory, paste0(dataset_id, "_denoising.json"))),
+      shQuote(file.path(directory, paste0(dataset_id, "_noise_points.csv"))),
+      "--point-count", format(source_point_count, scientific = FALSE, trim = TRUE)
+    ))
+    if (status != 0L) stop("incoming denoising accounting validation failed")
   }
   performance <- fread(
     file.path(directory, paste0(dataset_id, "_performance.csv"))
@@ -639,6 +656,33 @@ julia_memory_safe_main <- function() {
     # Header-only fallback preserves output CRS without reading companion points.
     source_crs = resolved_crs$wkt
   )
+  denoise_started <- proc.time()[["elapsed"]]
+  parameters$denoising <- prepare_denoising_mask(
+    staged_point_cloud, point_order_dimension, arguments,
+    file.path(job_directory, "denoising"), catalog_worker_count,
+    parameters$memory_policy
+  )
+  denoise_seconds <- if (is.null(parameters$denoising)) 0 else elapsed_seconds(denoise_started)
+  denoise_provenance <- list(enabled = FALSE, method = "none")
+  if (!is.null(parameters$denoising)) {
+    parameters$denoising$summary$source_sha256 <- input_sha256
+    parameters$denoising$summary$source_name <- basename(requested_point_cloud)
+    parameters$denoising$summary$elapsed_seconds <- denoise_seconds
+    parameters$denoising$summary$voxel_policy <- paste(
+      "original source records; noise mask is not applied to voxel counts;",
+      "normalization uses the DTM fitted after denoising"
+    )
+    denoise_provenance <- parameters$denoising$summary
+    assert_memory_budget(parameters$denoising$lookup_reserve_bytes,
+                         parameters, "denoising quality artifact export")
+    write_denoising_artifacts(parameters$denoising,
+      file.path(incoming_directory, as.character(arguments$dataset_id)))
+    # A small adaptive read can intersect a large classification partition.
+    # Reserve the largest complete mask partition for every downstream worker;
+    # lookup releases each partition before opening the next one.
+    parameters$memory_policy$task_fixed_bytes <-
+      parameters$memory_policy$task_fixed_bytes + parameters$denoising$lookup_reserve_bytes
+  }
   message("FORESTSTRUCTURE_STAGE stage=analysis status=started")
   run_analysis(parameters)
   message("FORESTSTRUCTURE_STAGE stage=analysis status=completed")
@@ -646,6 +690,12 @@ julia_memory_safe_main <- function() {
     incoming_directory,
     paste0(arguments$dataset_id, "_performance.csv")
   ))
+  if (!is.null(parameters$denoising)) {
+    performance[, denoise_seconds := denoise_seconds]
+    performance[, total_seconds := total_seconds + denoise_seconds]
+    fwrite(performance, file.path(incoming_directory,
+      paste0(arguments$dataset_id, "_performance.csv")), na = "NA")
+  }
   temporary_disk_peak_mib <- performance$temporary_disk_peak_mib[[1]] +
     temporary_directory_bytes(job_directory) / 1024^2
 
@@ -653,7 +703,8 @@ julia_memory_safe_main <- function() {
   # restored original order, and optionally validated the original companion.
   run_provenance <- list(
     status = "candidate",
-    mode = "julia-memory-safe",
+    mode = if (is.null(parameters$denoising)) "julia-memory-safe" else "julia-memory-safe-local-sor",
+    denoising = denoise_provenance,
     voxel_counts = list(enabled = arguments$export_voxel_counts,
       metadata = if (arguments$export_voxel_counts) paste0(arguments$dataset_id, "_voxel_counts.json") else NULL),
     rerun_policy = "always_recompute_then_replace_after_validation",
@@ -781,7 +832,8 @@ julia_memory_safe_main <- function() {
     voxel_counts = arguments$export_voxel_counts,
     memory_limit_gib = if (is.null(arguments$resources$memory_limit_gib)) {
       arguments$memory_budget_gib
-    } else arguments$resources$memory_limit_gib
+    } else arguments$resources$memory_limit_gib,
+    denoising = !is.null(parameters$denoising)
   )
   message("FORESTSTRUCTURE_STAGE stage=internal_validation status=completed")
   run_provenance$status <- "valid"

@@ -30,6 +30,7 @@ def fixture(path, *, pages=None, point_count=18, legacy_point_count=0, copc=True
     raw[104] = 0x86 if copc else 0x83
     struct.pack_into("<H", raw, 105, 30 if copc else 34)
     struct.pack_into("<I", raw, 107, legacy_point_count)
+    struct.pack_into("<3d", raw, 131, .001, .001, .001)
     struct.pack_into("<6d", raw, 179, 8, 0, 8, 0, 8, 0)
     struct.pack_into("<Q", raw, 247, point_count)
     if copc:
@@ -81,6 +82,32 @@ class CopcTaskCounts(unittest.TestCase):
         result = counts.estimate(self.path, [[0, 0, 1, 1], [10, 10, 11, 11]], allow_header_fallback=True)
         self.assertEqual(result["mode"], "header_fallback")
         self.assertEqual(result["point_count_upper_bounds"], [18, 0])
+
+    def test_prequantization_header_keeps_terminal_windows(self):
+        # Stored lattice points at 0 and 8 remain valid despite these rounded
+        # header extrema; admission must never prune their boundary windows.
+        windows = [[8, 4, 8.5, 4.5], [-.5, 0, 0, .5], [9, 9, 10, 10]]
+        for copc in (True, False):
+            with self.subTest(copc=copc):
+                fixture(self.path, copc=copc)
+                raw = bytearray(self.path.read_bytes())
+                struct.pack_into("<6d", raw, 179, 7.99995, .00005, 7.99995, .00005, 8, 0)
+                self.path.write_bytes(raw)
+                result = counts.estimate(self.path, windows, allow_header_fallback=True)
+                self.assertEqual(result["point_count_upper_bounds"],
+                                 [10, 11, 0] if copc else [18, 18, 0])
+                self.assertLess(result["query_bounds"][0], 0)
+                self.assertGreater(result["query_bounds"][2], 8)
+
+    def test_invalid_coordinate_scales_fail_closed(self):
+        for value in (0, -1, float("nan"), float("inf")):
+            with self.subTest(scale=value):
+                fixture(self.path)
+                raw = bytearray(self.path.read_bytes())
+                struct.pack_into("<d", raw, 131, value)
+                self.path.write_bytes(raw)
+                with self.assertRaisesRegex(counts.MetadataError, "scales"):
+                    counts.estimate(self.path, [[0, 0, 8, 8]])
 
     def test_las14_legacy_count_fallback(self):
         fixture(self.path, copc=False, point_count=0, legacy_point_count=18)

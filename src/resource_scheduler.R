@@ -64,7 +64,8 @@ resource_policy <- function(source, budget_gib, work_directory,
        # or segment tables. Its separate coefficient preserves admission of
        # known dense terrain windows; see the historical 1805 regression.
        # Estimates include temporary allocations but are not allocator bounds.
-       bytes_per_point = c(DTM = 256, CHM = 512, segment = 512, tiles = 512),
+       bytes_per_point = c(DTM = 256, CHM = 512, segment = 512, tiles = 512,
+                           denoise = 768),
        task_fixed_bytes = 128 * 1024^2)
 }
 

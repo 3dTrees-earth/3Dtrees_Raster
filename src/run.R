@@ -279,6 +279,7 @@ source(file.path(script_directory, "catalog_scheduler.R"))
 source(file.path(script_directory, "instance_read_groups.R"))
 source(file.path(script_directory, "voxel_counts.R"))
 source(file.path(script_directory, "artifact_publication.R"))
+source(file.path(script_directory, "denoising.R"))
 
 # CLI and artifact naming ---------------------------------------------------
 
@@ -717,6 +718,60 @@ point_cloud_xy_bounds <- function(path) {
   bounds
 }
 
+# The pinned catalog index requires positive-area overlap. A source point at
+# the maximum XY exactly on a chunk boundary otherwise has no scheduled owner.
+# Enlarge only in-memory file lookup bounds; source coordinates, scientific
+# chunk origins and the half-open read filters are unchanged.
+catalog_with_source_boundaries <- function(catalog, point_cloud) {
+  bounds <- point_cloud_xyz_bounds(point_cloud)[c("xmin", "ymin", "xmax", "ymax")]
+  epsilon <- pmax(1e-9, abs(bounds[3:4]) * .Machine$double.eps * 16)
+  catalog@data$Min.X <- bounds[[1L]]
+  catalog@data$Min.Y <- bounds[[2L]]
+  catalog@data$Max.X <- bounds[[3L]] + epsilon[[1L]]
+  catalog@data$Max.Y <- bounds[[4L]] + epsilon[[2L]]
+  catalog
+}
+
+# LASlib checks a file's raw header bounds before opening its spatial index.
+# When a rounded-down header maximum precedes the last stored coordinate, an
+# exact terminal query is skipped. Widen that query within the final lattice
+# interval only, so no preceding source coordinate can be read twice.
+catalog_boundary_read_adjustment <- function(point_cloud) {
+  raw <- point_cloud_xy_bounds(point_cloud)
+  stored <- point_cloud_xyz_bounds(point_cloud)
+  header <- readLASheader(point_cloud)
+  axes <- lapply(c("x", "y"), function(axis) {
+    maximum <- paste0(axis, "max")
+    if (raw[[maximum]] >= stored[[maximum]]) return(NULL)
+    scale <- as.numeric(header@PHB[[paste(toupper(axis), "scale factor")]])
+    previous <- stored[[maximum]] - scale
+    lower <- previous + (raw[[maximum]] - previous) / 2
+    if (!is.finite(lower) || !(lower > previous && lower < raw[[maximum]])) {
+      stop("unsupported source lattice: cannot safely query rounded header maximum")
+    }
+    list(raw_maximum = raw[[maximum]], stored_maximum = stored[[maximum]], lower = lower)
+  })
+  if (all(vapply(axes, is.null, logical(1)))) NULL else axes
+}
+
+adjust_catalog_boundary_read <- function(chunk, adjustment = NULL) {
+  if (is.null(adjustment)) return(chunk)
+  fields <- strsplit(trimws(chunk@filter), "[[:space:]]+")[[1L]]
+  start <- match("-inside", fields)
+  if (is.na(start) || start + 4L > length(fields)) stop("boundary adjustment requires a rectangular catalog read")
+  bounds <- suppressWarnings(as.numeric(fields[start + seq_len(4L)]))
+  if (any(!is.finite(bounds))) stop("invalid catalog boundary query")
+  for (axis in seq_len(2L)) {
+    value <- adjustment[[axis]]
+    if (!is.null(value) && bounds[[axis]] >= value$raw_maximum &&
+        bounds[[axis]] <= value$stored_maximum) {
+      fields[[start + axis]] <- format(value$lower, scientific = FALSE, trim = TRUE, digits = 17)
+    }
+  }
+  chunk@filter <- paste(fields, collapse = " ")
+  chunk
+}
+
 read_point_cloud_extent <- function(path) {
   # Use stored-coordinate extrema for the fallback AOI too: a pre-quantization
   # header must not invalidate a complete boundary voxel.
@@ -994,7 +1049,7 @@ release_point_order_dimension <- function(las, point_order_dimension = NULL) {
 # Process one DTM catalog chunk.  The optional order field is selected by the
 # catalog caller and restored immediately after reading.
 dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
-                      point_order_dimension = NULL) {
+                      point_order_dimension = NULL, denoising = NULL) {
   configure_catalog_worker()
   las <- readLAS(chunk)
   if (is.empty(las)) return(empty_chunk_raster(chunk, dtm_resolution))
@@ -1006,6 +1061,7 @@ dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
   )
   # Match the record sequence seen by Julia's original LAZ-based workflow.
   las <- restore_original_point_order(las, point_order_dimension, "DTM")
+  las <- apply_denoising_mask(las, denoising)
   # The order is now encoded by the rows themselves; do not retain a redundant
   # eight-byte ordinal per point through the memory-intensive PTD/TIN stages.
   las <- release_point_order_dimension(las, point_order_dimension)
@@ -1504,14 +1560,27 @@ raster_extent_covers_point_bounds <- function(raster_extent, point_bounds,
 
 cover_virtual_raster <- function(result, point_cloud, resolution,
                                  work_directory, label,
-                                 extent_mode = c("point_bounds", "lidr")) {
+                                 extent_mode = c("point_bounds", "lidr"),
+                                 voxel_resolution = NULL) {
   extent_mode <- match.arg(extent_mode)
   source_path <- virtual_raster_source(result, label)
-  point_bounds <- point_cloud_xy_bounds(point_cloud)
+  point_bounds <- if (is.null(voxel_resolution)) {
+    point_cloud_xy_bounds(point_cloud)
+  } else {
+    point_cloud_xyz_bounds(point_cloud)[c("xmin", "ymin", "xmax", "ymax")]
+  }
   target_bounds <- if (identical(extent_mode, "lidr")) {
     lidr_catalog_grid_bounds(point_cloud, resolution)
   } else {
     covering_grid_bounds(point_bounds, resolution)
+  }
+  if (!is.null(voxel_resolution)) {
+    # Reuse pinned voxelize_points' exact XY center arithmetic. Extend only to
+    # cells needed for source extrema, never to empty catalog-chunk rasters.
+    # Strict upper coverage retains a voxel center exactly on a raster edge.
+    centers <- lidR:::f_grid(point_bounds, voxel_resolution, 0)
+    target_bounds[1:2] <- pmin(target_bounds[1:2], floor(centers[1:2] / resolution) * resolution)
+    target_bounds[3:4] <- pmax(target_bounds[3:4], (floor(centers[3:4] / resolution) + 1) * resolution)
   }
   if (identical(extent_mode, "lidr") &&
       !raster_extent_covers_point_bounds(
@@ -1579,7 +1648,8 @@ cover_virtual_raster <- function(result, point_cloud, resolution,
 write_global_dtm <- function(point_cloud, output_path, work_directory,
                              chunk_size, dtm_buffer, dtm_resolution,
                              ptd_resolution, workers, source_crs = NULL,
-                             point_order_dimension = NULL, memory_policy = NULL) {
+                             point_order_dimension = NULL, memory_policy = NULL,
+                             denoising = NULL) {
   prepare_raster_work_directory(work_directory, "DTM")
   on.exit(unlink(work_directory, recursive = TRUE, force = TRUE), add = TRUE)
 
@@ -1604,6 +1674,7 @@ write_global_dtm <- function(point_cloud, output_path, work_directory,
       ptd_resolution = ptd_resolution,
       # Every worker restores source record order before ground/TIN operations.
       point_order_dimension = point_order_dimension,
+      denoising = denoising,
       .options = list(
         automerge = FALSE,
         drop_null = FALSE,
@@ -1753,9 +1824,10 @@ combine_chunk_observations <- function(summaries) {
 chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
                       chm_resolution, point_order_dimension = NULL,
                       observation_directory = NULL,
-                      target_chunk_points = 0) {
+                      target_chunk_points = 0, denoising = NULL,
+                      boundary_read_adjustment = NULL) {
   configure_catalog_worker()
-  las <- readLAS(chunk)
+  las <- readLAS(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
   record_chunk_observation(
     observation_directory,
     "chm",
@@ -1765,6 +1837,8 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
   if (is.empty(las)) return(empty_chunk_raster(chunk, chm_resolution))
   # Sort before normalization, filtering, voxelization, or canopy rasterization.
   las <- restore_original_point_order(las, point_order_dimension, "CHM")
+  las <- apply_denoising_mask(las, denoising)
+  if (is.empty(las)) return(empty_chunk_raster(chunk, chm_resolution))
   las <- normalize_height(las, terra::rast(dtm_path))
   las <- filter_poi(las, is.finite(Z) & Z >= 0 & Z <= maximum_height)
   if (is.empty(las)) return(empty_chunk_raster(chunk, chm_resolution))
@@ -1837,7 +1911,8 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
                                point_order_dimension = NULL,
                                observation_directory = NULL,
                                target_chunk_points = 0, read_size,
-                               source_bounds = NULL) {
+                               source_bounds = NULL, denoising = NULL,
+                               boundary_read_adjustment = NULL) {
   # Bound both lidR and data.table scratch allocations inside this worker.
   configure_catalog_worker()
   bounds <- sf::st_bbox(chunk)
@@ -1846,11 +1921,13 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
   maxima <- data.table(X = numeric(), Y = numeric(), Z = numeric())
   header <- NULL
   for (child in children) {
-    las <- readLAS(child)
+    las <- readLAS(adjust_catalog_boundary_read(child, boundary_read_adjustment))
     record_chunk_observation(observation_directory, "chm", nrow(las@data),
                              target_chunk_points)
     if (is.empty(las)) next
     las <- restore_original_point_order(las, point_order_dimension, "CHM")
+    las <- apply_denoising_mask(las, denoising)
+    if (is.empty(las)) next
     las <- normalize_height(las, terra::rast(dtm_path))
     las <- filter_poi(las, is.finite(Z) & Z >= 0 & Z <= maximum_height)
     if (is.empty(las)) next
@@ -1879,13 +1956,17 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
                              chm_resolution, workers, source_crs = NULL,
                              point_order_dimension = NULL,
                              target_chunk_points = 0,
-                             raster_chunk_size = chunk_size, memory_policy = NULL) {
+                             raster_chunk_size = chunk_size, memory_policy = NULL,
+                             denoising = NULL) {
   prepare_raster_work_directory(work_directory, "CHM")
   on.exit(unlink(work_directory, recursive = TRUE, force = TRUE), add = TRUE)
   observation_directory <- file.path(work_directory, "observations")
   dir.create(observation_directory)
 
   catalog <- readLAScatalog(point_cloud)
+  if (!is.null(point_order_dimension)) {
+    catalog <- catalog_with_source_boundaries(catalog, point_cloud)
+  }
   opt_chunk_size(catalog) <- raster_chunk_size
   opt_chunk_alignment(catalog) <- c(0, 0)
   opt_chunk_buffer(catalog) <- 0
@@ -1901,7 +1982,13 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
 
   # Fixed-size runs keep the original callback unchanged. Adaptive runs share
   # its normalization, voxelization and p2r semantics but bound the raw reads.
-  source_bounds <- point_cloud_xy_bounds(point_cloud)
+  source_bounds <- if (is.null(point_order_dimension)) {
+    point_cloud_xy_bounds(point_cloud)
+  } else {
+    point_cloud_xyz_bounds(point_cloud)[c("xmin", "ymin", "xmax", "ymax")]
+  }
+  boundary_read_adjustment <- if (is.null(point_order_dimension)) NULL else
+    catalog_boundary_read_adjustment(point_cloud)
   callback <- if (chunk_size < raster_chunk_size) {
     function(chunk, ...) adaptive_chm_chunk(
       chunk, ..., read_size = chunk_size, source_bounds = source_bounds
@@ -1914,8 +2001,10 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
   task_windows_fn <- if (chunk_size < raster_chunk_size) {
     function(chunk) lapply(
       adaptive_chm_read_clusters(chunk, chunk_size, source_bounds),
-      catalog_task_window
+      function(child) catalog_task_window(adjust_catalog_boundary_read(child, boundary_read_adjustment))
     )
+  } else if (!is.null(boundary_read_adjustment)) {
+    function(chunk) catalog_task_window(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
   } else {
     NULL
   }
@@ -1931,6 +2020,8 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
       point_order_dimension = point_order_dimension,
       observation_directory = observation_directory,
       target_chunk_points = target_chunk_points,
+      denoising = denoising,
+      boundary_read_adjustment = boundary_read_adjustment,
       .options = list(
         automerge = FALSE,
         drop_null = FALSE,
@@ -1948,7 +2039,8 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
     point_cloud,
     chm_resolution,
     work_directory,
-    "CHM"
+    "CHM",
+    voxel_resolution = if (is.null(point_order_dimension)) NULL else voxel_resolution
   )
   stream_virtual_raster(covering, output_path, "CHM", source_crs)
   summarize_chunk_observations(observation_directory)
@@ -2086,9 +2178,10 @@ segment_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
                           strict_dimensions = FALSE,
                           point_order_dimension = NULL,
                           observation_directory = NULL,
-                          target_chunk_points = 0) {
+                          target_chunk_points = 0, denoising = NULL,
+                          boundary_read_adjustment = NULL) {
   configure_catalog_worker()
-  las <- readLAS(chunk)
+  las <- readLAS(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
   record_chunk_observation(
     observation_directory,
     "segment",
@@ -2118,6 +2211,8 @@ segment_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
   }
   selected <- instance_dimensions[instance_dimensions %in% names(las@data)]
   if (length(selected) == 0) return(list(paths = NULL))
+  las <- apply_denoising_mask(las, denoising)
+  if (is.empty(las)) return(list(paths = NULL))
   dtm <- terra::rast(dtm_path)
   las <- normalize_height(las, dtm)
   las_data <- as.data.table(las@data)
@@ -2212,11 +2307,15 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
                                 bucket_count = SEGMENT_BUCKET_COUNT,
                                 base_selection = SEGMENT_CATALOG_BASE_SELECTION,
                                 point_order_dimension = NULL,
-                                target_chunk_points = 0, memory_policy = NULL) {
+                                target_chunk_points = 0, memory_policy = NULL,
+                                denoising = NULL) {
   prepare_raster_work_directory(work_directory, "segment")
   observation_directory <- file.path(work_directory, "observations")
   dir.create(observation_directory)
   catalog <- readLAScatalog(point_cloud)
+  if (!is.null(point_order_dimension)) {
+    catalog <- catalog_with_source_boundaries(catalog, point_cloud)
+  }
   opt_chunk_size(catalog) <- chunk_size
   opt_chunk_alignment(catalog) <- c(0, 0)
   opt_chunk_buffer(catalog) <- 0
@@ -2228,6 +2327,10 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
   )
   opt_select(catalog) <- selection
   opt_progress(catalog) <- FALSE
+  boundary_read_adjustment <- if (is.null(point_order_dimension)) NULL else
+    catalog_boundary_read_adjustment(point_cloud)
+  task_windows_fn <- if (is.null(boundary_read_adjustment)) NULL else function(chunk)
+    catalog_task_window(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
   message(sprintf(
     "Reading segment dimensions with LAS selection %s",
     selection
@@ -2235,6 +2338,7 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
   chunks <- apply_catalog_chunks(
       catalog, segment_chunk, workers, "segment",
       memory_policy = memory_policy,
+      task_windows_fn = task_windows_fn,
       dtm_path = dtm_path,
       voxel_resolution = voxel_resolution,
       maximum_height = maximum_height,
@@ -2249,6 +2353,8 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
       point_order_dimension = point_order_dimension,
       observation_directory = observation_directory,
       target_chunk_points = target_chunk_points,
+      denoising = denoising,
+      boundary_read_adjustment = boundary_read_adjustment,
       .options = list(automerge = FALSE, drop_null = FALSE)
   )
   assert_catalog_completed(chunks, "segment")
@@ -2714,6 +2820,8 @@ calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters) {
     parameters$point_order_dimension,
     "tile"
   )
+  las <- apply_denoising_mask(las, parameters$denoising)
+  if (is.empty(las)) return(empty)
 
   las <- normalize_height(las, dtm)
   las <- filter_poi(las, is.finite(Z) & Z >= 0 & Z <= parameters$maximum_height)
@@ -3261,7 +3369,8 @@ run_analysis <- function(parameters) {
     source_crs,
     # Propagate the key through DTM catalog selection and per-chunk restoration.
     parameters$point_order_dimension,
-    memory_policy = parameters$memory_policy
+    memory_policy = parameters$memory_policy,
+    denoising = parameters$denoising
   )
   dtm <- terra::rast(dtm_path)
   if (terra::inMemory(dtm)) {
@@ -3304,7 +3413,8 @@ run_analysis <- function(parameters) {
       0
     },
     raster_chunk_size = parameters$chunk_size,
-    memory_policy = parameters$memory_policy
+    memory_policy = parameters$memory_policy,
+    denoising = parameters$denoising
   )
   chm_seconds <- elapsed_seconds(chm_started)
   temporary_disk_peak_bytes <- max(
@@ -3360,7 +3470,8 @@ run_analysis <- function(parameters) {
         } else {
           0
         },
-        memory_policy = parameters$memory_policy
+        memory_policy = parameters$memory_policy,
+        denoising = parameters$denoising
       )
       # Count each physical read once, even when it supplies several dimensions.
       segment_observation_summaries[[group_index]] <- accumulated$observations

@@ -103,6 +103,11 @@ An AOI restricts the analysis domain. Without it, the runner reuses the existing
 coordinate-lattice-snapped full-extent footprint. Neither mode subsamples points.
 DTM generation and the established scientific defaults remain unchanged.
 
+Raster georeferencing uses the horizontal two-dimensional CRS, embedded in each
+GeoTIFF. Projected 3D and compound source CRSs are retained in provenance;
+coordinates and elevations are not transformed. Voxel band heights remain
+metres above the DTM. Publication does not depend on GDAL PAM sidecars.
+
 `GALAXY_SLOTS` supplies the CPU allowance; `GALAXY_MEMORY_MB` supplies the job RAM
 allocation in MiB. The runner uses the smaller declared/container memory limit
 and reserves 15% headroom, subject to the existing 60 GiB default internal cap.

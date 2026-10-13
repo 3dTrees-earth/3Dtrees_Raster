@@ -35,6 +35,11 @@ test-production-contract:
 	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
 		bash tests/test_production_contract.sh
 
+.PHONY: test-projected-3d-crs
+test-projected-3d-crs:
+	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
+		bash tests/test_projected_3d_crs.sh
+
 test-original-companion-crs-fallback:
 	docker run --rm --network none \
 		--entrypoint Rscript \

@@ -5,6 +5,9 @@ import json
 from pathlib import Path
 import tempfile
 import struct
+import shutil
+import subprocess
+import sys
 import unittest
 
 import laspy
@@ -12,6 +15,7 @@ import numpy as np
 from osgeo import gdal, ogr, osr
 
 ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 spec = importlib.util.spec_from_file_location("voxel_counts", ROOT / "src/voxel_counts.py")
 voxel = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(voxel)
@@ -118,6 +122,45 @@ class VoxelCountsTest(unittest.TestCase):
         dtm = None
         with self.assertRaisesRegex((ValueError, RuntimeError), "CRS|WKT"):
             self.run_export()
+
+    def projected_3d_dtm(self):
+        projected = self.srs.Clone()
+        projected.PromoteTo3D()
+        wkt = projected.ExportToWkt(["FORMAT=WKT2_2019"])
+        ds = gdal.Open(str(self.root / "dtm.tif"), gdal.GA_Update)
+        ds.SetProjection(wkt)
+        ds = None
+        return wkt
+
+    def test_projected_3d_voxels_survive_publication_without_sidecars(self):
+        source_wkt = self.projected_3d_dtm()
+        result, rows, paths = self.run_export()
+        published = self.root / "published"
+        published.mkdir()
+        for name in ("raster", "mask"):
+            target = published / Path(paths[name]).name
+            shutil.copyfile(paths[name], target)
+            raster = gdal.Open(str(target))
+            self.assertTrue(raster.GetProjection(), "CRS must be embedded in the TIFF")
+            self.assertTrue(raster.GetSpatialRef().IsSame(self.srs))
+            self.assertEqual(raster.GetSpatialRef().GetAxesCount(), 2)
+        self.assertEqual(result["dtm"]["source_crs_wkt"], source_wkt)
+        self.assertEqual(sum(int(row["point_count"]) for row in rows), 7)
+
+    def test_global_raster_crs_alignment_survives_publication_without_sidecars(self):
+        source_wkt = self.projected_3d_dtm()
+        definition = self.root / "source.wkt"
+        definition.write_text(source_wkt + "\n")
+        subprocess.run(["Rscript", "-e",
+            'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY="1"); source("run.R"); '
+            'a <- commandArgs(TRUE); align_raster_file_crs(a[[1]], readLines(a[[2]]), "DTM")',
+            str(self.root / "dtm.tif"), str(definition)], cwd=ROOT / "src", check=True)
+        target = self.root / "published_dtm.tif"
+        shutil.copyfile(self.root / "dtm.tif", target)
+        raster = gdal.Open(str(target))
+        self.assertTrue(raster.GetProjection(), "DTM/CHM CRS must be embedded")
+        self.assertTrue(raster.GetSpatialRef().IsSame(self.srs))
+        self.assertEqual(raster.GetSpatialRef().GetAxesCount(), 2)
 
     def test_all_negative_keeps_valid_zero_domain(self):
         cloud = laspy.read(self.root / "source.laz")

@@ -64,6 +64,9 @@ validate_voxel_count_artifacts <- function(directory, dataset_id) {
   metadata <- jsonlite::read_json(paths$metadata, simplifyVector = TRUE)
   cube <- terra::rast(paths$raster)
   mask <- terra::rast(paths$mask)
+  if (!nzchar(terra::crs(cube)) || !nzchar(terra::crs(mask))) {
+    stop("voxel-count GeoTIFF CRS is missing; it must persist without sidecars")
+  }
   if (terra::nlyr(cube) != metadata$band_count ||
       any(abs(terra::res(cube) - 0.5) > 1e-9) ||
       !terra::compareGeom(cube[[1]], mask, stopOnError = FALSE) ||

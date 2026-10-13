@@ -1,0 +1,49 @@
+{
+  "date": "2026-10-13",
+  "status": "fix_validated_on_small_fixtures_real_cohort_stopped",
+  "failed_dataset": {
+    "dataset_id": 2546,
+    "source_points": 26187700,
+    "image": "sha256:27deaa36e6a1badcbf8bcadec8e9ec22d7ab0bfd6c2bbaac9647ea528b86fb73",
+    "container_elapsed_seconds": 447.5188801288605,
+    "peak_cgroup_bytes": 4568281088,
+    "oom_events": 0,
+    "exit_code": 1,
+    "published_artifacts": 0,
+    "failure": "voxel-count grid or provenance validation failed",
+    "cause": "Projected 3D CRS stored in GDAL PAM sidecars; artifact publication discarded them, losing GeoTIFF CRS."
+  },
+  "not_started": [
+    2549,
+    2551,
+    1996,
+    1998
+  ],
+  "fix": "Embed the horizontal 2D CRS in raster files; preserve source CRS in provenance; do not transform point coordinates, elevations or counts. Verify DTM/CHM CRS with PAM disabled.",
+  "candidate_image": "sha256:3bb86542fda4dfc189a88f6611c8da962b7f524edb4e1a473afe2684d5baf1e4",
+  "validation": {
+    "before_fix": "Two regression tests fail for missing CRS after copying only the TIFF. Ten-point reproducer using the actual 2546 CRS fails after artifact promotion.",
+    "voxel_tests": 13,
+    "voxel_tests_status": "passed",
+    "actual_crs_ten_point_publication": "passed",
+    "full_pipeline_2d_vs_3d": "passed; scientific CSV bytes, GeoJSON features and raster cells identical; all four TIFFs have embedded horizontal CRS with PAM disabled."
+  },
+  "limitations": [
+    "Real five-dataset batch remains stopped after first failure; no claim of five completed outputs.",
+    "Candidate overlays final sources on the existing pinned scientific runtime; no fresh dependency resolution."
+  ],
+  "source_sha256": {
+    "src/aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+    "src/artifact_publication.R": "a32f2ab3b6ea57549f96119012c7a88da1be2fa04a43a2f188d3df7f57b8c2b2",
+    "src/catalog_scheduler.R": "c0c81023150c4499c3a299d8336032daef2fc4dd311c0685f73ff3bc11b84cd7",
+    "src/convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+    "src/production_contract.R": "8a6375ec27d172da40e45d4fc6c6358923ab126acde26d6854fb62b66be9ef2a",
+    "src/project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+    "src/raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+    "src/run.R": "a659bbaa53cf8862d37fd178bf875ede1aec152bffcb1051d7bb5433f8892a2b",
+    "src/run_julia_memory_safe.R": "56ed8d00215aa371178bc58996045a67aaef273cea957ab47c35b072a60953dc",
+    "src/tile_scheduler.R": "779dc4d47b741167c0905cc7037400edfbd1dec757472eb28e3229f77b77f715",
+    "src/voxel_counts.R": "1fe0d8782f21e513ce7f595e6b8143043c7af1a6a0348171cb007f6228991021",
+    "src/voxel_counts.py": "00cad0efddf323ce0b5130cc3c5354443eeffcec73602e6bdaf1280180118000"
+  }
+}

@@ -22,6 +22,7 @@ import time
 import laspy
 import numpy as np
 from osgeo import gdal, ogr, osr
+from raster_crs import horizontal_crs_wkt
 
 RESOLUTION = 0.5
 BLOCK = 128
@@ -332,7 +333,7 @@ def export(config):
         grid = dict(width=int(round((xmax-xmin)/RESOLUTION)),
                     height=int(round((ymax-ymin)/RESOLUTION)),
                     transform=[xmin, RESOLUTION, 0, ymax, 0, -RESOLUTION],
-                    crs_wkt=dtm_ds.GetProjection(), lattice_origin=[0, 0, 0])
+                    crs_wkt=horizontal_crs_wkt(dtm_ds.GetProjection()), lattice_origin=[0, 0, 0])
         block_count = ((grid["width"] + BLOCK - 1) // BLOCK) * ((grid["height"] + BLOCK - 1) // BLOCK)
         if block_count > np.iinfo(np.int64).max // (MAX_BANDS * BLOCK * BLOCK):
             raise ValueError("grid exceeds integer voxel-address capacity")
@@ -360,6 +361,7 @@ def export(config):
                 if write_counts(connection, paths, grid, bands, mask_ds) != counters["included"]:
                     raise ValueError("CSV/raster export lost counts")
                 disk_bytes = sum(p.stat().st_size for p in Path(scratch).iterdir())
+        source_crs = source.header.parse_crs()
         metadata = dict(
             schema_version=1, metric="point_count", units="count", voxel_size_m=[0.5]*3,
             grid=grid, band_count=bands, height_reference="metres above DTM",
@@ -373,8 +375,10 @@ def export(config):
             source=dict(name=config.get("source_name", Path(config["point_cloud"]).name),
                         sha256=config.get("source_sha256") or sha256_file(config["point_cloud"]),
                         point_count=int(source.header.point_count),
+                        crs_wkt=source_crs.to_wkt() if source_crs else None,
                         read_mode="all source records; no subsampling, LOD restriction or coordinate deduplication"),
             dtm=dict(name=Path(config["dtm"]).name, sha256=sha256_file(config["dtm"]),
+                     source_crs_wkt=dtm_ds.GetProjection(),
                      resolution_m=[transform[1], -transform[5]]),
             point_accounting=counters, domain_cells=domain, occupied_voxels=occupied,
             chunk_points=chunk_points, peak_batch_points=peak, temporary_disk_bytes=disk_bytes,

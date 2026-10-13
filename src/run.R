@@ -1345,7 +1345,7 @@ build_chunk_virtual_raster <- function(results, work_directory, label,
 gdal_raster_has_crs <- function(path) {
   info <- system2(
     "gdalinfo",
-    c("-json", shQuote(path)),
+    c("--config", "GDAL_PAM_ENABLED", "NO", "-json", shQuote(path)),
     stdout = TRUE,
     stderr = TRUE
   )
@@ -1361,6 +1361,16 @@ align_raster_file_crs <- function(path, source_crs, label) {
 
   source_has_crs <- !is.na(source_crs) && nzchar(source_crs)
   definition <- if (source_has_crs) source_crs else "None"
+  if (source_has_crs) {
+    horizontal <- system2("python3", c(
+      shQuote(file.path(script_directory, "raster_crs.py")), shQuote(source_crs)),
+      stdout = TRUE)
+    status <- attr(horizontal, "status")
+    if ((!is.null(status) && status != 0L) || !length(horizontal)) {
+      stop(sprintf("could not resolve the horizontal %s raster CRS", label))
+    }
+    definition <- paste(horizontal, collapse = "\n")
+  }
   status <- system2(
     "gdal_edit.py",
     c("-a_srs", shQuote(definition), shQuote(path))

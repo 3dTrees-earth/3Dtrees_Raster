@@ -656,6 +656,10 @@ julia_memory_safe_main <- function() {
     ),
     original_point_cloud = original_point_cloud,
     output_crs_source = resolved_crs$source,
+    source_crs_wkt = resolved_crs$wkt,
+    raster_crs_wkt = terra::crs(terra::rast(file.path(
+      incoming_directory, paste0(arguments$dataset_id, "_dtm.tif")))),
+    raster_crs_policy = "horizontal CRS embedded in GeoTIFF; no coordinate or height transformation",
     # These fields make order restoration and streaming mode machine-auditable.
     point_order_dimension = point_order_dimension,
     catalog_spatial_streaming = if (!is.null(copc_projection)) "indexed LAZ projection" else

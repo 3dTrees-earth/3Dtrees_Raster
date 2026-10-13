@@ -28,5 +28,27 @@ stopifnot(production_resources(2, fake_env, root)$memory_budget_gib == 2)
 fails(production_resources(-1, fake_env, root), "must be positive")
 bad_env <- function(name, default) if (name == "GALAXY_SLOTS") "2.5" else default
 fails(production_resources(env = bad_env, cgroup_root = root), "integral")
+writeLines("max", file.path(root, "memory.max"))
+writeLines("max 100000", file.path(root, "cpu.max"))
+large_env <- function(name, default) {
+  values <- c(GALAXY_SLOTS = "32", GALAXY_MEMORY_MB = "95367")
+  if (name %in% names(values)) unname(values[[name]]) else default
+}
+large <- production_resources(env = large_env, cgroup_root = root)
+stopifnot(large$threads == 10L,
+          large$memory_budget_gib == 95367 / 1024 * 0.85,
+          large$memory_budget_gib > 70,
+          production_resources(65, large_env, root)$memory_budget_gib == 65)
+unlimited_env <- function(name, default) default
+unallocated <- production_resources(env = unlimited_env, cgroup_root = root)
+stopifnot(unallocated$threads == 1L, unallocated$memory_budget_gib == 60,
+          is.null(unallocated$memory_limit_gib))
+oversized_env <- function(name, default) {
+  if (name == "GALAXY_MEMORY_MB") "204800" else default
+}
+capped <- production_resources(env = oversized_env, cgroup_root = root)
+stopifnot(capped$memory_limit_gib * 1024^3 == 100e9,
+          capped$memory_budget_gib == 100e9 / 1024^3 * 0.85)
+fails(production_resources(100, large_env, root), "must not exceed 100 GB")
 unlink(root, recursive = TRUE)
 cat("production contract unit checks passed\n")

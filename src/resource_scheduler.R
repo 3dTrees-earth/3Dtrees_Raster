@@ -60,9 +60,11 @@ resource_policy <- function(source, budget_gib, work_directory,
   dir.create(directory, recursive = TRUE, showWarnings = FALSE)
   list(source = source, budget_bytes = budget_gib * 1024^3,
        reserve_bytes = 512 * 1024^2, directory = directory, helper = helper,
-       # Includes decoded coordinates/IDs, sorting and temporary scientific
-       # tables. Conservative estimates, not guaranteed allocator bounds.
-       bytes_per_point = c(DTM = 512, CHM = 512, segment = 512, tiles = 512),
+       # DTM releases its source ordinal before PTD/TIN and retains no voxel
+       # or segment tables. Its separate coefficient preserves admission of
+       # known dense terrain windows; see the historical 1805 regression.
+       # Estimates include temporary allocations but are not allocator bounds.
+       bytes_per_point = c(DTM = 256, CHM = 512, segment = 512, tiles = 512),
        task_fixed_bytes = 128 * 1024^2)
 }
 
@@ -150,6 +152,8 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
   }
   jsonlite::write_json(list(phase = phase, requested_workers = workers,
     budget_bytes = policy$budget_bytes, reserve_bytes = policy$reserve_bytes,
+    bytes_per_point = unname(policy$bytes_per_point[[phase]]),
+    task_fixed_bytes = policy$task_fixed_bytes,
     estimate_mode = estimates$mode, point_count_upper_bounds = estimates$counts,
     task_reservations_bytes = estimates$bytes, waves = waves),
     paste0(estimates$prefix, "_admission.json"), auto_unbox = TRUE, pretty = TRUE, digits = NA)

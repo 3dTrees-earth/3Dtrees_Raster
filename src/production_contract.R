@@ -32,15 +32,24 @@ production_resources <- function(memory_budget = NULL, env = Sys.getenv,
     }
   }
   if (!is.finite(threads)) threads <- 1
+  threads <- min(10, threads)
   memory_limit <- min(declared("GALAXY_MEMORY_MB") / 1024,
                       read_limit("memory.max") / 1024^3,
                       read_limit("memory/memory.limit_in_bytes") / 1024^3)
-  requested <- if (is.null(memory_budget)) 60 else
+  # Galaxy chooses a size-dependent allocation. Use its available headroom
+  # rather than retaining the former 60 GiB cap on larger job destinations.
+  # The deployment ceiling is 100 decimal GB; CLI values remain binary GiB.
+  maximum_memory_gib <- 100e9 / 1024^3
+  requested <- if (is.null(memory_budget)) {
+    if (is.finite(memory_limit)) Inf else 60
+  } else
     positive_resource(memory_budget, "--memory-budget-gib")
-  if (requested > 70) stop("--memory-budget-gib must be at most 70")
+  if (!is.null(memory_budget) && requested > maximum_memory_gib) {
+    stop("--memory-budget-gib must not exceed 100 GB (93.132 GiB)")
+  }
   list(threads = as.integer(threads),
-       memory_budget_gib = min(requested, memory_limit * 0.85),
-       memory_limit_gib = if (is.finite(memory_limit)) memory_limit else NULL)
+       memory_budget_gib = min(requested, min(memory_limit, maximum_memory_gib) * 0.85),
+       memory_limit_gib = if (is.finite(memory_limit)) min(memory_limit, maximum_memory_gib) else NULL)
 }
 
 # Auto mode discovers supported SmartTile attributes. Explicit requests are

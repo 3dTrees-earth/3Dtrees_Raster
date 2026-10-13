@@ -21,14 +21,15 @@ def entry(key, offset, size, count):
     return counts.ENTRY.pack(*key, offset, size, count)
 
 
-def fixture(path, *, pages=None, point_count=18, copc=True):
+def fixture(path, *, pages=None, point_count=18, legacy_point_count=0, copc=True):
     """Write header/hierarchy and deliberately undecodable fake point chunks."""
     raw = bytearray(1500)
     raw[:4] = b"LASF"
     raw[24:26] = bytes((1, 4))
     struct.pack_into("<HII", raw, 94, 375, 589, int(copc))
-    raw[104] = 0x86
-    struct.pack_into("<H", raw, 105, 30)
+    raw[104] = 0x86 if copc else 0x83
+    struct.pack_into("<H", raw, 105, 30 if copc else 34)
+    struct.pack_into("<I", raw, 107, legacy_point_count)
     struct.pack_into("<6d", raw, 179, 8, 0, 8, 0, 8, 0)
     struct.pack_into("<Q", raw, 247, point_count)
     if copc:
@@ -80,6 +81,29 @@ class CopcTaskCounts(unittest.TestCase):
         result = counts.estimate(self.path, [[0, 0, 1, 1], [10, 10, 11, 11]], allow_header_fallback=True)
         self.assertEqual(result["mode"], "header_fallback")
         self.assertEqual(result["point_count_upper_bounds"], [18, 0])
+
+    def test_las14_legacy_count_fallback(self):
+        fixture(self.path, copc=False, point_count=0, legacy_point_count=18)
+        result = counts.estimate(self.path, [[0, 0, 1, 1], [10, 10, 11, 11]], allow_header_fallback=True)
+        self.assertEqual(result["point_count"], 18)
+        self.assertEqual(result["point_count_upper_bounds"], [18, 0])
+
+    def test_las14_conflicting_counts_reserve_larger_count(self):
+        for legacy, extended in ((18, 12), (12, 18)):
+            with self.subTest(legacy=legacy, extended=extended):
+                fixture(self.path, copc=False, point_count=extended, legacy_point_count=legacy)
+                result = counts.estimate(self.path, [[0, 0, 1, 1]], allow_header_fallback=True)
+                self.assertEqual(result["point_count_upper_bounds"], [18])
+
+    def test_copc_never_uses_legacy_count(self):
+        for legacy, extended in ((18, 0), (18, 12), (12, 18), (18, 18)):
+            with self.subTest(legacy=legacy, extended=extended):
+                fixture(self.path, point_count=extended, legacy_point_count=legacy)
+                with self.assertRaisesRegex(counts.MetadataError, "zero legacy"):
+                    counts.estimate(self.path, [[0, 0, 8, 8]], allow_header_fallback=True)
+        fixture(self.path, point_count=0)
+        with self.assertRaisesRegex(counts.MetadataError, "exceeds LAS header"):
+            counts.estimate(self.path, [[0, 0, 8, 8]], allow_header_fallback=True)
 
     def test_invalid_windows(self):
         for windows in (None, [[1, 0, 0, 1]], [[0, 0, float("nan"), 1]], [[0, 0, 1]], [[False, 0, 1, 1]], [["0", 0, 1, 1]], [[0, 0, 10 ** 400, 1]]):

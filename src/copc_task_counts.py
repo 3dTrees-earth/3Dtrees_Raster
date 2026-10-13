@@ -123,7 +123,11 @@ def _header(reader):
     header_size, points_offset, vlr_count = struct.unpack_from("<HII", raw, 94)
     if header_size < required_size or not header_size <= points_offset <= reader.size:
         raise MetadataError("invalid LAS header size or point data offset")
-    point_count = struct.unpack_from("<Q" if minor == 4 else "<I", raw, 247 if minor == 4 else 107)[0]
+    legacy_count = struct.unpack_from("<I", raw, 107)[0]
+    extended_count = struct.unpack_from("<Q", raw, 247)[0] if minor == 4 else 0
+    # Plain LAS 1.4 readers can use the legacy count when the extended field is
+    # zero. Conflicting nonzero fields must never lower a memory reservation.
+    point_count = max(legacy_count, extended_count)
     max_x, min_x, max_y, min_y, max_z, min_z = struct.unpack_from("<6d", raw, 179)
     mins, maxs = (min_x, min_y, min_z), (max_x, max_y, max_z)
     if not all(math.isfinite(v) for v in mins + maxs) or any(a > b for a, b in zip(mins, maxs)):
@@ -140,6 +144,11 @@ def _header(reader):
         if user_id == b"copc" and record_id == 1:
             if minor != 4 or header_size != 375 or length != 160 or (raw[104] & 0x3f) not in (6, 7, 8) or not raw[104] & 0x80:
                 raise MetadataError("invalid COPC 1.0 header, info VLR or point format")
+            if legacy_count != 0:
+                raise MetadataError("COPC point formats require a zero legacy point count")
+            # COPC always uses the extended count; the hierarchy must reconcile
+            # against that field, including when it is zero.
+            point_count = extended_count
             info = reader.read(header_size + 54, 160)
     return point_count, mins, maxs, points_offset, info
 

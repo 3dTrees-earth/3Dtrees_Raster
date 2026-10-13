@@ -50,5 +50,15 @@ capped <- production_resources(env = oversized_env, cgroup_root = root)
 stopifnot(capped$memory_limit_gib * 1024^3 == 100e9,
           capped$memory_budget_gib == 100e9 / 1024^3 * 0.85)
 fails(production_resources(100, large_env, root), "must not exceed 100 GB")
+dir.create(file.path(root, "memory"))
+v1_limit <- file.path(root, "memory/memory.limit_in_bytes")
+writeLines("9223372036854771712", v1_limit)
+v1_unlimited <- production_resources(env = unlimited_env, cgroup_root = root)
+stopifnot(v1_unlimited$memory_budget_gib == 60,
+          is.null(v1_unlimited$memory_limit_gib))
+writeLines("21474836480", v1_limit)
+v1_limited <- production_resources(env = large_env, cgroup_root = root)
+stopifnot(v1_limited$memory_limit_gib == 20,
+          v1_limited$memory_budget_gib == 17)
 unlink(root, recursive = TRUE)
 cat("production contract unit checks passed\n")

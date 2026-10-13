@@ -20,6 +20,10 @@ production_resources <- function(memory_budget = NULL, env = Sys.getenv,
     path <- file.path(cgroup_root, name)
     if (!file.exists(path)) return(Inf)
     value <- suppressWarnings(as.numeric(readLines(path, warn = FALSE, n = 1L)))
+    # cgroup v1 exposes its page-rounded signed-long maximum for unlimited
+    # memory, unlike v2's literal "max". It is not a scheduler allocation.
+    if (grepl("memory.limit_in_bytes$", name) && length(value) == 1L &&
+        is.finite(value) && value >= 2^60) return(Inf)
     if (length(value) == 1L && is.finite(value) && value > 0) value else Inf
   }
   threads <- min(declared("GALAXY_SLOTS", TRUE), declared("FORESTSTRUCTURE_THREADS", TRUE))

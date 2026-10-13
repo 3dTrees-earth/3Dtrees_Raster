@@ -22,13 +22,13 @@ def main() -> None:
     args = parser.parse_args()
     source = laspy.read(args.patch)
     labels = ("PredInstance", "PredInstance_SAT", "PredInstance_FM")
-    # A coherent crown is deliberately above the original fixture's canopy.
+    # A coherent crown is deliberately above the former 70 m metric ceiling.
     crown = np.array(np.meshgrid(
         np.arange(1010, 1012.01, 0.2),
         np.arange(2010, 2012.01, 0.2),
-        np.arange(144, 146.01, 0.2), indexing="ij"
+        np.arange(184, 186.01, 0.2), indexing="ij"
     )).reshape(3, -1).T
-    outliers = np.array([[1017.25, 2017.25, 160], [1030.25, 2030.25, 30]])
+    outliers = np.array([[1017.25, 2017.25, 350], [1030.25, 2030.25, -50]])
     ordinary_count = 4 * len(source.points)
     count = ordinary_count + len(crown) + len(outliers)
     result = laspy.LasData(copy.deepcopy(source.header))
@@ -42,10 +42,9 @@ def main() -> None:
             values = np.asarray(source[dimension]).copy()
             values[values > 0] += 1000 * i
             result[dimension][block] = values
-    # The historical baseline omits terminal-boundary source records when the
-    # file maximum is exactly on its 60 m catalog grid. Dedicated boundary
-    # tests cover the corrected path; move one neutral synthetic ground point
-    # by one stored tick so this fixture can test unchanged disabled science.
+    # Preserve the earlier fixture geometry: one neutral ground point extends
+    # max XY by one stored tick. Exact terminal catalog boundaries are exercised
+    # separately by test_segment_catalog_boundaries.R.
     edge_index = 3 * len(source.points) + np.flatnonzero(source["PredInstance"] == 0)[-1]
     result.X[edge_index] += 1
     result.Y[edge_index] += 1
@@ -62,11 +61,14 @@ def main() -> None:
     result.write(args.output)
     # add_original_point_index uses zero-based source-row indices.
     manifest = dict(
+        fixture_version=2,
         points=count,
         high_outlier=dict(original_point_index=count - 2, xyz=outliers[0].tolist()),
         low_outlier=dict(original_point_index=count - 1, xyz=outliers[1].tolist()),
         supported_crown_indices=list(range(ordinary_count, ordinary_count + len(crown))),
         supported_instance_ids=dict(zip(labels, (11, 101, 301))),
+        expected_supported_height_m=[80, 90],
+        expected_high_outlier_minimum_height_m=200,
         boundary_fixture_policy="one neutral ground point extends max XY by one stored-coordinate tick; exact edges have a separate regression",
     )
     args.manifest.write_text(json.dumps(manifest, indent=2) + "\n")

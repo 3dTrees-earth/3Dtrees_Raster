@@ -1,0 +1,446 @@
+{
+  "status": "valid",
+  "source_sha256": "5a735917a4c6d4325bd5774cd97741c1d62ae5c46bbc5d4792b893c4f77f3b2c",
+  "input_points": 56057,
+  "rejected_points": 2,
+  "supported_crown_points": 1331,
+  "injected_outliers_rejected": 2,
+  "additional_source_points_flagged": 0,
+  "denoising_parameters": {
+    "algorithm": "lidR::sor",
+    "method": "fixed_window_local_sor",
+    "lidR_version": "4.3.2",
+    "k": 10,
+    "m": 12,
+    "window_size_m": 60,
+    "buffer_m": 20,
+    "origin": [
+      0,
+      0
+    ]
+  },
+  "default_cli_enables_sor": true,
+  "metric_height_policy": "observed_voxel_height_v1",
+  "metric_height_upper_m": {
+    "none": 250,
+    "sor-w1": 86,
+    "sor-w2": 86
+  },
+  "observed_maximum_voxel_height_m": {
+    "none": 249.6,
+    "sor-w1": 85.8,
+    "sor-w2": 85.8
+  },
+  "supported_crown_height_interval_m": [
+    80,
+    90
+  ],
+  "execution_invariance_products_compared": 14,
+  "raw_export_retains_rejected_high_point": true,
+  "elapsed_seconds": {
+    "none": 52,
+    "sor-w1": 55,
+    "sor-w2": 66
+  },
+  "resources": {
+    "none": {
+      "parent_peak_rss_mib": 455.98,
+      "cgroup_memory_peak_mib": 417.996,
+      "temporary_disk_peak_mib": 8.7093,
+      "analysis_seconds": 38.463,
+      "denoise_seconds": 0.0,
+      "voxel_seconds": 1.6817406238988042
+    },
+    "sor-w1": {
+      "parent_peak_rss_mib": 461.805,
+      "cgroup_memory_peak_mib": 423.523,
+      "temporary_disk_peak_mib": 8.7148,
+      "analysis_seconds": 45.747,
+      "denoise_seconds": 2.452,
+      "voxel_seconds": 1.043954793130979,
+      "maximum_admitted_denoise_workers": 1
+    },
+    "sor-w2": {
+      "parent_peak_rss_mib": 453.559,
+      "cgroup_memory_peak_mib": 985.469,
+      "temporary_disk_peak_mib": 8.9012,
+      "analysis_seconds": 54.702,
+      "denoise_seconds": 1.66,
+      "voxel_seconds": 1.3372091981582344,
+      "maximum_admitted_denoise_workers": 2
+    }
+  },
+  "resource_measurement_scope": "Runner-reported peaks at end of analysis, before final validation/promotion; not an independently sampled whole-container peak",
+  "runtime": {
+    "runtime_image": "sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e",
+    "untwine_image": "sha256:bdea1f0747b7f29ffb7d2f6ae041deb58b49531a952dcb6b4bb45ae6b29f7b02",
+    "source_sha256": "5a735917a4c6d4325bd5774cd97741c1d62ae5c46bbc5d4792b893c4f77f3b2c",
+    "source_snapshot_sha256": {
+      "aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+      "artifact_publication.R": "a7621e5d6b2f561c1613e6d699a7bfea66c292d66ef55768ff03eba9f46c02d3",
+      "catalog_scheduler.R": "f4e9e929603fc41d3e0d477528444ea1d47788c0992431dc5111d7f7d67171ac",
+      "convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+      "copc_task_counts.py": "7dab5a15b1efeccd0c06226878ec61713e5b6ba1da6f1c3524b9520b32c6dc1f",
+      "denoising.R": "5fb318b1c8b2f4e2bd14589dc808a1b72b60f9b7e5c85c363defef8246a235b1",
+      "denoising_validation.py": "4c9c5c117742bd173a521873e8bd48d5ed3490792e869bd5aa8d3d61583da351",
+      "galaxy_resource_request.py": "f46ff105864c1317fe930520957136decd1735d6863a3541ee5cbe1d131f3b31",
+      "instance_read_groups.R": "a021e30c08d03ab0203310b35dade72686363b77f9a3122b9f5c331f31502eec",
+      "production_contract.R": "bac1bc47ba72e04153349fbceb74a2cca83572bc1b23524cc76e5473642424b3",
+      "project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+      "raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+      "resource_scheduler.R": "dab49b3c2abd4412ef8bef3e212dd44ac862c1e139f7da4dde753518f37f12dc",
+      "run.R": "79a4c54c59c5ee4bbf3afb1c09482966823142a420fee8f13a06b13cc7cad29f",
+      "run_julia_memory_safe.R": "aefd0712818dbcd0fb8708dee35b3fff317eb910d94801478e9c9c190184f940",
+      "tile_scheduler.R": "20165fca6f488c4f7cbf5e8e18f57d90d9f5fc5c24929eb36b96e8208705613f",
+      "voxel_counts.R": "50779e344012f31bc7004ae382f91e822d759e44111da12fff02630d30cb5752",
+      "voxel_counts.py": "b2c67b464c1e69733b04f66bcdd20818fa443f0f457820a8793561bca5f1d96a"
+    },
+    "cpus": 2,
+    "memory_bytes": 4294967296,
+    "internal_memory_gib": 3.4,
+    "network": "none",
+    "gpu": false,
+    "additional_swap_bytes": 0
+  },
+  "recorded_date": "2026-10-14",
+  "base_commit": "8f1f0be6ec31bca485e1a3819faec993b20b6cbe",
+  "fixture_version": 2,
+  "source_snapshot_matches_final_sources": true,
+  "cases": [
+    {
+      "name": "none",
+      "workers": 1,
+      "target_chunk_points": 50000,
+      "denoise_option": "none"
+    },
+    {
+      "name": "sor-w1",
+      "workers": 1,
+      "target_chunk_points": 50000,
+      "denoise_option": "omitted; production default"
+    },
+    {
+      "name": "sor-w2",
+      "workers": 2,
+      "target_chunk_points": 5000,
+      "denoise_option": "sor"
+    }
+  ],
+  "artifact_validation": {
+    "none": "valid",
+    "sor-w1": "valid",
+    "sor-w2": "valid"
+  },
+  "reproduction": "FORESTSTRUCTURE_KEEP_TEST_ROOT=1 bash tests/test_denoising.sh",
+  "default_selection": {
+    "status": "passed",
+    "algorithm": "lidR::sor",
+    "lidR_version": "4.3.2",
+    "method": "fixed_window_local_sor",
+    "k": 10,
+    "selected_sigma": 12,
+    "scientific_window_m": 60,
+    "halo_m": 20,
+    "runtime_image": "sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e",
+    "baseline_commit": "8f1f0be6ec31bca485e1a3819faec993b20b6cbe",
+    "cpus": 2,
+    "memory_bytes": 4294967296,
+    "internal_memory_gib": 3.4,
+    "network": "none",
+    "gpu": false,
+    "sha256": {
+      "native_fixture": "19cc6aaa84063935a551db81826554c85e5995d035ff1c84d6650d8cc0253c8f",
+      "focused_fixture": "d8c4651811c2712175011cbe66fc64163aed6479c388dac40613caf9dabc3a24",
+      "sweep_script": "9333af4633de7dd66d8961a3705b4e66c840f4a26037b45f717ef774f8d814a1",
+      "denoising_module": "5fb318b1c8b2f4e2bd14589dc808a1b72b60f9b7e5c85c363defef8246a235b1",
+      "focused_regression": "85aaf28a87bed5e2948ced8d30fb9d5bcf21e69fb6f0bea514b3ae32305327cb"
+    },
+    "sweep": [
+      {
+        "fixture": "native",
+        "sigma": 6,
+        "points": 56057,
+        "total_rejected": 36,
+        "ordinary_rejected": 34,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 0
+      },
+      {
+        "fixture": "native",
+        "sigma": 8,
+        "points": 56057,
+        "total_rejected": 4,
+        "ordinary_rejected": 2,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 0
+      },
+      {
+        "fixture": "native",
+        "sigma": 10,
+        "points": 56057,
+        "total_rejected": 2,
+        "ordinary_rejected": 0,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 0
+      },
+      {
+        "fixture": "native",
+        "sigma": 12,
+        "points": 56057,
+        "total_rejected": 2,
+        "ordinary_rejected": 0,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 0
+      },
+      {
+        "fixture": "native",
+        "sigma": 15,
+        "points": 56057,
+        "total_rejected": 2,
+        "ordinary_rejected": 0,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 0
+      },
+      {
+        "fixture": "focused",
+        "sigma": 6,
+        "points": 568,
+        "total_rejected": 2,
+        "ordinary_rejected": 0,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 2
+      },
+      {
+        "fixture": "focused",
+        "sigma": 8,
+        "points": 568,
+        "total_rejected": 2,
+        "ordinary_rejected": 0,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 2
+      },
+      {
+        "fixture": "focused",
+        "sigma": 10,
+        "points": 568,
+        "total_rejected": 2,
+        "ordinary_rejected": 0,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 2
+      },
+      {
+        "fixture": "focused",
+        "sigma": 12,
+        "points": 568,
+        "total_rejected": 2,
+        "ordinary_rejected": 0,
+        "crown_rejected": 0,
+        "high_rejected": true,
+        "low_rejected": true,
+        "insufficient_context_points": 2
+      },
+      {
+        "fixture": "focused",
+        "sigma": 15,
+        "points": 568,
+        "total_rejected": 1,
+        "ordinary_rejected": 0,
+        "crown_rejected": 0,
+        "high_rejected": false,
+        "low_rejected": true,
+        "insufficient_context_points": 2
+      }
+    ],
+    "selection_reason": "12 is the largest tested sigma that rejected both known extremes on both fixtures; zero ordinary or supported crown points were rejected at 12.",
+    "limits": [
+      "Synthetic acceptance evidence; no production datasets were rerun.",
+      "SOR measures spatial isolation, not physical plausibility; coherent noise clusters can remain and valid unusually isolated points can be flagged.",
+      "A fixed scientific window and halo define local statistics; changing these is a scientific configuration change."
+    ]
+  },
+  "native_copc_qualification": {
+    "status": "passed",
+    "native_copc_rejected_ids": [
+      56055,
+      56056
+    ],
+    "projected_path_rejected_ids": [
+      56055,
+      56056
+    ],
+    "masks_identical": true,
+    "selector": "xyz1",
+    "projection_used": false,
+    "runtime_image": "sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e",
+    "untwine_image": "sha256:bdea1f0747b7f29ffb7d2f6ae041deb58b49531a952dcb6b4bb45ae6b29f7b02",
+    "cpus": 2,
+    "memory_bytes": 4294967296,
+    "internal_memory_gib": 3.4,
+    "network": "none",
+    "gpu": false,
+    "original_source_sha256": "96bebc772bf96a2d9ff20f41d902b38978b5afffa98182c4941b084fab400a47",
+    "indexed_source_sha256": "e0b226b4951a93eddf7609f6ed47bb1a28dd68ffbbc916322855d7da8b495993",
+    "native_copc_sha256": "28e606c3a179c7a454e63eebba8e22143148039c8e9ad9dca42c8880123191da",
+    "projected_path_copc_sha256": "5a735917a4c6d4325bd5774cd97741c1d62ae5c46bbc5d4792b893c4f77f3b2c",
+    "fixture_version": 2,
+    "native_noise_csv_sha256": "de3493fe516970f188cc5c6de4b273d2c74496230d125f67faba4c983aacbcc3",
+    "projected_noise_csv_sha256": "de3493fe516970f188cc5c6de4b273d2c74496230d125f67faba4c983aacbcc3",
+    "source_identity_validations": {
+      "PredInstance": {
+        "status": "reordered_only",
+        "counts_equal": true,
+        "multiset_equal": true,
+        "original_point_index_unique": true,
+        "original_point_index_restores_expected_order": true,
+        "expected_sorted_sha256": "281eef4d33ddfe86a443fd06fb289f6fddd7f21b869e6a961d9b0b076e4befa1",
+        "candidate_sorted_sha256": "281eef4d33ddfe86a443fd06fb289f6fddd7f21b869e6a961d9b0b076e4befa1"
+      },
+      "PredInstance_SAT": {
+        "status": "reordered_only",
+        "counts_equal": true,
+        "multiset_equal": true,
+        "original_point_index_unique": true,
+        "original_point_index_restores_expected_order": true,
+        "expected_sorted_sha256": "6bdd8548a9e6500cc6e3098289220ff7c47d4f0ab611079edcad1dbf23a2efa2",
+        "candidate_sorted_sha256": "6bdd8548a9e6500cc6e3098289220ff7c47d4f0ab611079edcad1dbf23a2efa2"
+      },
+      "PredInstance_FM": {
+        "status": "reordered_only",
+        "counts_equal": true,
+        "multiset_equal": true,
+        "original_point_index_unique": true,
+        "original_point_index_restores_expected_order": true,
+        "expected_sorted_sha256": "60caf1bec12fbaa3581d9814da698244ed576a32725a1481ea465a1865e1535c",
+        "candidate_sorted_sha256": "60caf1bec12fbaa3581d9814da698244ed576a32725a1481ea465a1865e1535c"
+      }
+    },
+    "source_snapshot_sha256": {
+      "aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+      "artifact_publication.R": "a7621e5d6b2f561c1613e6d699a7bfea66c292d66ef55768ff03eba9f46c02d3",
+      "catalog_scheduler.R": "f4e9e929603fc41d3e0d477528444ea1d47788c0992431dc5111d7f7d67171ac",
+      "convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+      "copc_task_counts.py": "7dab5a15b1efeccd0c06226878ec61713e5b6ba1da6f1c3524b9520b32c6dc1f",
+      "denoising.R": "5fb318b1c8b2f4e2bd14589dc808a1b72b60f9b7e5c85c363defef8246a235b1",
+      "denoising_validation.py": "4c9c5c117742bd173a521873e8bd48d5ed3490792e869bd5aa8d3d61583da351",
+      "galaxy_resource_request.py": "f46ff105864c1317fe930520957136decd1735d6863a3541ee5cbe1d131f3b31",
+      "instance_read_groups.R": "a021e30c08d03ab0203310b35dade72686363b77f9a3122b9f5c331f31502eec",
+      "production_contract.R": "bac1bc47ba72e04153349fbceb74a2cca83572bc1b23524cc76e5473642424b3",
+      "project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+      "raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+      "resource_scheduler.R": "dab49b3c2abd4412ef8bef3e212dd44ac862c1e139f7da4dde753518f37f12dc",
+      "run.R": "1d2a2bbcaa7bfc8542240df4992b54508bad059d962252076da07093504f1aaf",
+      "run_julia_memory_safe.R": "3d44e6dae6525da12064de8fd3f48e782fefbc34c0be7a79d34ccbd6e7746bb1",
+      "tile_scheduler.R": "20165fca6f488c4f7cbf5e8e18f57d90d9f5fc5c24929eb36b96e8208705613f",
+      "voxel_counts.R": "50779e344012f31bc7004ae382f91e822d759e44111da12fff02630d30cb5752",
+      "voxel_counts.py": "b2c67b464c1e69733b04f66bcdd20818fa443f0f457820a8793561bca5f1d96a"
+    },
+    "source_snapshot_matches_current_integration": false,
+    "denoising_module_matches_current_integration": true,
+    "scope": "Native COPC mask qualification predates the final exact voxel-height metric/provenance patch; denoising module and input points are unchanged. No final-source native full-pipeline parity claim.",
+    "current_integration_noise_csv_sha256": "de3493fe516970f188cc5c6de4b273d2c74496230d125f67faba4c983aacbcc3"
+  },
+  "production_contract": {
+    "status": "valid",
+    "scientific_comparisons": 28,
+    "source_policy": "identical current sources; explicit --denoise none",
+    "cases": [
+      "low-ordinal reference with AOI",
+      "high-ordinal full extent with adaptive target 500",
+      "low-ordinal AOI",
+      "high-ordinal narrow AOI with zero complete analysis tiles",
+      "missing requested dimension failure",
+      "no supported dimensions failure"
+    ],
+    "log_sha256": "172ba6ae8b4861b78f8db12651b652771433876692f099e54e5d794fa5f4c47a",
+    "source_snapshot_matches_current_integration": true,
+    "source_snapshot_sha256": {
+      "aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+      "artifact_publication.R": "a7621e5d6b2f561c1613e6d699a7bfea66c292d66ef55768ff03eba9f46c02d3",
+      "catalog_scheduler.R": "f4e9e929603fc41d3e0d477528444ea1d47788c0992431dc5111d7f7d67171ac",
+      "convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+      "copc_task_counts.py": "7dab5a15b1efeccd0c06226878ec61713e5b6ba1da6f1c3524b9520b32c6dc1f",
+      "denoising.R": "5fb318b1c8b2f4e2bd14589dc808a1b72b60f9b7e5c85c363defef8246a235b1",
+      "denoising_validation.py": "4c9c5c117742bd173a521873e8bd48d5ed3490792e869bd5aa8d3d61583da351",
+      "galaxy_resource_request.py": "f46ff105864c1317fe930520957136decd1735d6863a3541ee5cbe1d131f3b31",
+      "instance_read_groups.R": "a021e30c08d03ab0203310b35dade72686363b77f9a3122b9f5c331f31502eec",
+      "production_contract.R": "bac1bc47ba72e04153349fbceb74a2cca83572bc1b23524cc76e5473642424b3",
+      "project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+      "raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+      "resource_scheduler.R": "dab49b3c2abd4412ef8bef3e212dd44ac862c1e139f7da4dde753518f37f12dc",
+      "run.R": "79a4c54c59c5ee4bbf3afb1c09482966823142a420fee8f13a06b13cc7cad29f",
+      "run_julia_memory_safe.R": "aefd0712818dbcd0fb8708dee35b3fff317eb910d94801478e9c9c190184f940",
+      "tile_scheduler.R": "20165fca6f488c4f7cbf5e8e18f57d90d9f5fc5c24929eb36b96e8208705613f",
+      "voxel_counts.R": "50779e344012f31bc7004ae382f91e822d759e44111da12fff02630d30cb5752",
+      "voxel_counts.py": "b2c67b464c1e69733b04f66bcdd20818fa443f0f457820a8793561bca5f1d96a"
+    }
+  },
+  "output_schema_regression": {
+    "status": "valid",
+    "cases": {
+      "whole_cloud": {
+        "expected_tiles": 9,
+        "performance_policy": "observed_voxel_height_v1"
+      },
+      "zero_tiles": {
+        "expected_tiles": 0
+      }
+    },
+    "checker_sha256": "ba8f63590609f04672b72f69baa466d71562360dc3a5e8b954bcc6e10c60614b",
+    "command": "bash /tmp/foreststructure-verify-height-schema.sh (fresh generate_fixture.R inputs, current src mounted; tests/verify_container_output.py on both outputs)",
+    "runtime_image": "sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e",
+    "cpus": 2,
+    "memory_bytes": 4294967296,
+    "network": "none",
+    "exact_height_string_reconstructs_domain": true
+  },
+  "height_precision_regression": {
+    "status": "valid",
+    "test": "tests/test_height_policy.R",
+    "test_sha256": "b70157bdee8df6f6b311df5e1351c6a352b79c60e6a171ce0732c863a8e06a16",
+    "log_sha256": "3d64f766e67669c9529f3421daf7cea159ed1c36780b7e90434b755070265ed8",
+    "cases": [
+      "Exact normalized voxel maximum collected before native CHM rasterization rounds Z",
+      "Baseline and adaptive CHM reductions produce the same exact maximum",
+      "25.000000000000004 m voxel remains represented by metric H=26 m",
+      "17-digit maximum string survives performance CSV and provenance JSON serialization",
+      "Sparse vertical complexity handles a 1e12 m domain without a dense allocation"
+    ]
+  },
+  "height_reference_measurement": "Maximum exact normalized 0.2 m voxel height from existing CHM read observations; no extra source scan. Reported 17-digit exact string reproduces ceiling H; convenience numeric field may round in serialization.",
+  "limitations": [
+    "Synthetic validation only; no production datasets were rerun under this changed denoising or height policy.",
+    "Earlier real-data performance and scientific-parity benchmarks predate these changes.",
+    "The worker cases also change adaptive window size and ran on a shared host; elapsed times do not isolate parallel speedup.",
+    "SOR can flag valid isolated returns and retain coherent noise clusters; acquisition-specific validation is still required.",
+    "Raw voxel products retain SOR-rejected records and use the accepted-point DTM; an extreme raw point can increase band count or trigger an explicit capacity error.",
+    "The observed_voxel_height_v1 height denominator changes density and vertical-complexity values from the historical 70 m domain; recorded domains must be considered in comparisons."
+  ],
+  "test_source_sha256": {
+    "tests/compare_denoising.py": "908d75ef02a761b40e05918b4ccd160340725cf2846bab81d7e4588ceade4b63",
+    "tests/generate_denoising_fixture.py": "9ba1d825051030c439ee94ceeb17d4f935ec7bb7d9e161ae67dac38ae55cce83",
+    "tests/test_denoising.sh": "899c4fa8506b5e1eb83bff27cd0eff6c9351f2cc96e391949c2f6b7ae7f9933c",
+    "tests/test_production_contract.sh": "2c794a5a704a869eb961262797dbb405fff0dc71914e820fe4742945eca7b364",
+    "tests/verify_container_output.py": "ba8f63590609f04672b72f69baa466d71562360dc3a5e8b954bcc6e10c60614b"
+  },
+  "observed_maximum_voxel_height_m_exact": {
+    "none": "249.59999999999999",
+    "sor-w1": "85.799999999999997",
+    "sor-w2": "85.799999999999997"
+  }
+}

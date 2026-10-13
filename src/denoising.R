@@ -1,22 +1,27 @@
-# Optional local SOR decisions are computed once in fixed scientific windows.
+# Conservative local SOR decisions are computed once in fixed scientific windows.
 # Adaptive analysis windows and worker counts never define the SOR population.
 # Only source ordinals are persisted; original coordinates and classes stay intact.
+denoising_defaults <- function() {
+  list(denoise = "sor", denoise_neighbors = 10L, denoise_sigma = 12,
+       denoise_window_size = 60, denoise_buffer = 20)
+}
+
 add_denoising_arguments <- function(parser) {
-  parser$add_argument("--denoise", choices = c("none", "sor"), default = "none",
-    help = "Optional local lidR SOR before terrain/metrics; raw voxel counts remain unfiltered")
-  parser$add_argument("--denoise-neighbors", type = "integer", default = 10L,
-    help = "SOR nearest-neighbor count (default: 10)")
-  parser$add_argument("--denoise-sigma", type = "double", default = 6,
-    help = "SOR distance mean plus this many standard deviations (default: 6)")
-  parser$add_argument("--denoise-window-size", type = "double", default = 60,
-    help = "Fixed scientific SOR core width in metres (default: 60)")
-  parser$add_argument("--denoise-buffer", type = "double", default = 20,
-    help = "Fixed scientific SOR context beyond each core in metres (default: 20)")
+  defaults <- denoising_defaults()
+  parser$add_argument("--denoise", choices = c("none", "sor"), default = defaults$denoise,
+    help = "Conservative local lidR SOR before terrain/metrics (default: sor); raw voxel counts remain unfiltered")
+  parser$add_argument("--denoise-neighbors", type = "integer", default = defaults$denoise_neighbors,
+    help = sprintf("SOR nearest-neighbor count (default: %s)", defaults$denoise_neighbors))
+  parser$add_argument("--denoise-sigma", type = "double", default = defaults$denoise_sigma,
+    help = sprintf("SOR distance mean plus this many standard deviations (default: %s)", defaults$denoise_sigma))
+  parser$add_argument("--denoise-window-size", type = "double", default = defaults$denoise_window_size,
+    help = sprintf("Fixed scientific SOR core width in metres (default: %s)", defaults$denoise_window_size))
+  parser$add_argument("--denoise-buffer", type = "double", default = defaults$denoise_buffer,
+    help = sprintf("Fixed scientific SOR context beyond each core in metres (default: %s)", defaults$denoise_buffer))
 }
 
 validate_denoising_options <- function(arguments) {
-  defaults <- list(denoise = "none", denoise_neighbors = 10L, denoise_sigma = 6,
-                   denoise_window_size = 60, denoise_buffer = 20)
+  defaults <- denoising_defaults()
   settings <- lapply(names(defaults), function(name) parameter_or(arguments, name, defaults[[name]]))
   names(settings) <- names(defaults)
   if (length(settings$denoise) != 1L || is.na(settings$denoise) ||

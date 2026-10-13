@@ -13,6 +13,17 @@ cleanup() {
 }
 trap cleanup EXIT
 mkdir -p "${root}/input" "${root}/oracle" "${root}/full" "${root}/aoi" "${root}/narrow" "${root}/failure" "${root}/work"
+# Freeze sources before any analysis so concurrent edits cannot mix policies.
+mkdir -p "${root}/sources"
+cp -a "${repo_dir}/src/." "${root}/sources/"
+python3 - "${root}" <<'PYCODE'
+import hashlib, json, pathlib, sys
+root = pathlib.Path(sys.argv[1])
+(root / 'source_snapshot_sha256.json').write_text(json.dumps({
+    str(p.relative_to(root / 'sources')): hashlib.sha256(p.read_bytes()).hexdigest()
+    for p in sorted((root / 'sources').rglob('*')) if p.is_file()
+}, indent=2) + '\n')
+PYCODE
 limits=(--rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)")
 docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
   --entrypoint Rscript -v "${repo_dir}/tests:/tests:ro" -v "${root}/input:/generated" \
@@ -27,8 +38,8 @@ for layout in low high; do
 done
 run() {
   local name="$1" cloud="$2"; shift 2
-  local source_mount=()
-  if [[ "${name}" != oracle ]]; then source_mount=(-v "${repo_dir}/src:/opt/foreststructure:ro"); fi
+  local source_mount=(-v "${root}/sources:/opt/foreststructure:ro")
+  # Reference and candidates share the current scientific height policy.
   local paths=(--output-dir /out --temp-dir /work)
   if [[ "${name}" == full ]]; then paths=(); fi
   docker run "${limits[@]}" "${source_mount[@]}" \
@@ -36,7 +47,7 @@ run() {
     --env GALAXY_SLOTS=2 --env GALAXY_MEMORY_MB=4096 --env FORESTSTRUCTURE_THREADS=2 \
     --env FORESTSTRUCTURE_CATALOG_WORKERS=1 \
     -v "${root}/input:/in:ro" -v "${root}/${name}:/out" -v "${root}/work:/work" \
-    "${image}" --point-cloud "/in/${cloud}" --original-point-cloud /in/source.laz \
+    "${image}" --denoise none --point-cloud "/in/${cloud}" --original-point-cloud /in/source.laz \
     "${paths[@]}" "$@" > "${root}/${name}.log" 2>&1
 }
 run oracle low.copc.laz --dataset-id 150 --aoi-geojson /in/aoi.geojson --export-voxel-counts --memory-budget-gib 3
@@ -57,9 +68,9 @@ fi
 for cloud in sat_only no_instances; do
   request=()
   if [[ "${cloud}" == sat_only ]]; then request=(--instance-dimension PredInstance_FM); fi
-  if docker run "${limits[@]}" -v "${repo_dir}/src:/opt/foreststructure:ro" \
+  if docker run "${limits[@]}" -v "${root}/sources:/opt/foreststructure:ro" \
     -v "${root}/input:/in:ro" -v "${root}/failure:/out" -v "${root}/work:/work" \
-    "${image}" --point-cloud "/in/${cloud}.laz" --output-dir /out --temp-dir /work \
+    "${image}" --denoise none --point-cloud "/in/${cloud}.laz" --output-dir /out --temp-dir /work \
     "${request[@]}" > "${root}/${cloud}.log" 2>&1; then
     echo "${cloud} unexpectedly succeeded" >&2; exit 1
   fi

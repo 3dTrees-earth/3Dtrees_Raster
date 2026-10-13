@@ -57,7 +57,7 @@ test-denoising:
 	docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g \
 		--entrypoint Rscript --volume "$(CURDIR):/workspace:ro" \
 		--workdir /workspace/src "$(JULIA_MEMORY_SAFE_IMAGE)" \
-		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("denoising.R"); source("../tests/test_denoising.R"); source("../tests/test_segment_catalog_boundaries.R")'
+		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("denoising.R"); source("../tests/test_denoising.R"); source("../tests/test_height_policy.R"); source("../tests/test_segment_catalog_boundaries.R")'
 	bash tests/test_denoising.sh
 
 test-original-companion-crs-fallback:
@@ -94,6 +94,9 @@ test-copc-all-instance-dimensions:
 	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
 	bash tests/test_copc_all_instance_dimensions.sh
 
+# Historical 70 m-policy replays below need their recorded image/source version;
+# set FORESTSTRUCTURE_SKIP_BUILD=1 where supported. Current acceptance is covered
+# by test-production-contract, test-parallel-production and test-denoising.
 test-dataset150:
 	bash tests/test_dataset150.sh "$(DATASET150_LAZ)"
 
@@ -111,7 +114,7 @@ test-julia-memory-safe-dataset150-operational-aoi:
 		"$(DATASET150_OPERATIONAL_AOI)" \
 		"$(JULIA_ORIGINAL_SCRIPT)"
 
-# Dataset acceptance: run canonical COPC, prove COPC provenance, then compare all
+# Historical dataset acceptance: run canonical COPC, prove COPC provenance, then compare all
 # scientific tables/vectors/rasters against the supplied Julia-faithful oracle.
 test-valid-updated-copc-alignment:
 	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \

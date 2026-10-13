@@ -1,4 +1,7 @@
 #!/usr/bin/env bash
+# Historical 70 m-policy oracle replay only: select the matching pinned image
+# (and historical source override, if any); do not rebuild it from current sources.
+# The current observed_voxel_height_v1 policy intentionally changes metric values/schema.
 # Abort on command errors/unset variables and propagate failures through ``tee``.
 set -euo pipefail
 

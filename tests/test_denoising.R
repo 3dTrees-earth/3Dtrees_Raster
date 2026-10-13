@@ -3,10 +3,15 @@ local({
   directory <- tempfile("denoising-test-")
   dir.create(directory)
   on.exit(unlink(directory, recursive = TRUE), add = TRUE)
-  settings <- list(denoise = "sor", denoise_neighbors = 10L, denoise_sigma = 6,
+  settings <- list(denoise = "sor", denoise_neighbors = 10L, denoise_sigma = 12,
                    denoise_window_size = 60, denoise_buffer = 20)
+  parser <- argparse::ArgumentParser(add_help = FALSE)
+  add_denoising_arguments(parser)
+  stopifnot(identical(validate_denoising_options(list()), settings),
+            isTRUE(all.equal(validate_denoising_options(parser$parse_args(character())), settings)))
   rejects <- function(expression) inherits(tryCatch(force(expression), error = identity), "error")
-  stopifnot(is.null(prepare_denoising_mask("unused", NULL, list(), directory, 1L)))
+  stopifnot(is.null(prepare_denoising_mask("unused", NULL, list(denoise = "none"), directory, 1L)),
+            rejects(prepare_denoising_mask("unused", NULL, list(), directory, 1L)))
   for (field in names(settings)[-1L]) {
     for (value in list(NA_real_, Inf, 0, -1, "bad", numeric())) {
       invalid <- settings
@@ -36,23 +41,27 @@ local({
                                   "OriginalPointIndex", "source order")
   source <- lidR::add_lasattribute(source, rep(17, nrow(points)), "PredInstance", "tree ID")
   before <- data.table::copy(source@data)
-  direct <- denoising_sor_decisions(source, 10L, 6)
+  direct <- denoising_sor_decisions(source, settings$denoise_neighbors, settings$denoise_sigma)
   stopifnot(identical(source@data, before),
             all(tail(direct$rejected, 2)),
+            sum(direct$rejected) == 2,
             !any(direct$rejected[nrow(ordinary) + seq_len(nrow(crown))]))
   tiny <- lidR::filter_poi(source, OriginalPointIndex < 5)
-  sparse <- denoising_sor_decisions(tiny, 10L, 6)
+  sparse <- denoising_sor_decisions(tiny, settings$denoise_neighbors, settings$denoise_sigma)
   stopifnot(sparse$insufficient_context, !any(sparse$rejected))
 
   path <- file.path(directory, "source.las")
   lidR::writeLAS(source, path)
-  first <- prepare_denoising_mask(path, "OriginalPointIndex", settings,
+  # Omitted options must invoke the same conservative classifier as explicit
+  # options; only the two injected extremes may be removed from this fixture.
+  first <- prepare_denoising_mask(path, "OriginalPointIndex", list(),
                                   file.path(directory, "one"), 1L)
   second <- prepare_denoising_mask(path, "OriginalPointIndex", settings,
                                    file.path(directory, "two"), 2L)
   stopifnot(identical(first$summary, second$summary),
             identical(first$partitions, second$partitions),
             first$summary$point_count == nrow(points),
+            first$summary$rejected_points == 2,
             first$summary$retained_points + first$summary$rejected_points == nrow(points),
             first$summary$insufficient_context_points > 0,
             first$lookup_reserve_bytes >= 128 * first$max_partition_points)
@@ -63,6 +72,7 @@ local({
   filtered <- apply_denoising_mask(source, first)
   high_low <- tail(source@data$OriginalPointIndex, 2)
   stopifnot(!any(high_low %in% filtered@data$OriginalPointIndex),
+            identical(filtered@data$OriginalPointIndex, head(source@data$OriginalPointIndex, -2L)),
             all(filtered@data$PredInstance == 17),
             all(filtered@data$Classification == 18L),
             identical(source@data, before),

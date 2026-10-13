@@ -17,7 +17,7 @@ run() {
     --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 \
     --volume "${root}/input:/in:ro" --volume "${root}/${output}:/out" \
     --volume "${root}/work:/work" "${image}" \
-    --point-cloud /in/source.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 \
+    --denoise none --point-cloud /in/source.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 \
     --output-dir /out --temp-dir /work --memory-budget-gib 3 "$@"
 }
 run baseline

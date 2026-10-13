@@ -58,7 +58,7 @@ source(file.path(script_directory, "production_contract.R"))
 parse_julia_memory_safe_parameters <- function() {
   parser <- ArgumentParser(
     description = paste(
-      "Julia-faithful ForestStructure analysis with selective ExtraBytes",
+      "ForestStructure analysis with uncapped heights, selective ExtraBytes",
       "and disk-backed memory guards"
     )
   )
@@ -603,8 +603,8 @@ julia_memory_safe_main <- function() {
       segment_bucket_count > 65536L) {
     stop("FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT must be an integer from 1 to 65536")
   }
-  # Preserve Julia's scientific constants exactly.  Only storage, selection,
-  # resource controls, and record-order restoration differ in this runner.
+  # Preserve Julia's other scientific constants; accepted normalized heights
+  # have no ceiling. Metric denominators use the exact CHM-pass voxel maxima.
   parameters <- list(
     point_cloud = staged_point_cloud,
     point_cloud_sha256 = input_sha256,
@@ -620,7 +620,7 @@ julia_memory_safe_main <- function() {
     grid_search_step = 0.5,
     ptd_resolution = 20,
     dtm_resolution = 1,
-    maximum_height = 70,
+    maximum_height = Inf,
     voxel_resolution = 0.2,
     vegetation_minimum_height = 0.5,
     chm_resolution = 0.5,
@@ -689,7 +689,7 @@ julia_memory_safe_main <- function() {
   performance <- fread(file.path(
     incoming_directory,
     paste0(arguments$dataset_id, "_performance.csv")
-  ))
+  ), colClasses = c(observed_maximum_voxel_height_m_exact = "character"))
   if (!is.null(parameters$denoising)) {
     performance[, denoise_seconds := denoise_seconds]
     performance[, total_seconds := total_seconds + denoise_seconds]
@@ -796,7 +796,12 @@ julia_memory_safe_main <- function() {
       dtm_buffer = 20,
       segment_chunk_size = performance$adaptive_chunk_size_m[[1]],
       voxel_resolution = 0.2,
-      maximum_height = 70,
+      maximum_height = NULL,
+      normalized_height_policy = "finite_nonnegative_without_upper_cutoff",
+      metric_height_policy = performance$metric_height_policy[[1]],
+      metric_height_upper_m = performance$metric_height_upper_m[[1]],
+      observed_maximum_voxel_height_m = performance$observed_maximum_voxel_height_m[[1]],
+      observed_maximum_voxel_height_m_exact = performance$observed_maximum_voxel_height_m_exact[[1]],
       vegetation_minimum_height = 0.5,
       chm_resolution = 0.5,
       gap_height_threshold = 3,

@@ -345,8 +345,8 @@ parse_parameters <- function() {
   scientific$add_argument(
     "--maximum-height", "--maximum_height",
     type = "double",
-    default = 70,
-    help = "Maximum normalized height retained in metres (default: 70)"
+    default = NULL,
+    help = "Optional legacy height ceiling in metres (default: no ceiling)"
   )
   scientific$add_argument(
     "--voxel-resolution", "--voxel_resolution",
@@ -464,6 +464,8 @@ parse_parameters <- function() {
     help = "Minimum occupied one-metre height layers (default: 3)"
   )
   args <- parser$parse_args()
+  # argparse generates Python code; an R Inf default is not valid Python.
+  if (is.null(args$maximum_height)) args$maximum_height <- Inf
   validate_voxel_count_parameters(args)
 
   raw_instance_dimensions <- unlist(
@@ -514,13 +516,16 @@ parse_parameters <- function() {
 
   positive <- c(
     "tile_size", "grid_search_step", "ptd_resolution", "dtm_resolution",
-    "maximum_height", "voxel_resolution", "chm_resolution", "dtm_chunk_size",
+    "voxel_resolution", "chm_resolution", "dtm_chunk_size",
     "chunk_size", "dtm_buffer"
   )
   for (name in positive) {
     if (!is.finite(args[[name]]) || args[[name]] <= 0) {
       stop(sprintf("--%s must be greater than zero", gsub("_", "-", name)))
     }
+  }
+  if (is.na(args$maximum_height) || args$maximum_height <= 0) {
+    stop("--maximum-height must be positive or Inf (no ceiling)")
   }
   if (!is.finite(args$target_chunk_points) || args$target_chunk_points < 0) {
     stop("--target-chunk-points must be zero or greater")
@@ -1780,11 +1785,26 @@ record_chunk_observation <- function(directory, phase, point_count,
     fileext = ".rds"
   )
   saveRDS(
-    list(point_count = point_count, oversized = oversized),
+    list(point_count = point_count, oversized = oversized, maximum_voxel_height = NA_real_),
     path,
     compress = FALSE
   )
   invisible(path)
+}
+
+record_chunk_height <- function(path, heights) {
+  if (is.null(path)) return(invisible(NULL))
+  observation <- readRDS(path)
+  observation$maximum_voxel_height <- max(heights)
+  saveRDS(observation, path, compress = FALSE)
+  invisible(path)
+}
+
+maximum_observed_height <- function(observations) {
+  heights <- vapply(observations, function(value)
+    parameter_or(value, "maximum_voxel_height", NA_real_), numeric(1))
+  heights <- heights[is.finite(heights)]
+  if (length(heights)) max(heights) else NA_real_
 }
 
 summarize_chunk_observations <- function(directory) {
@@ -1795,7 +1815,7 @@ summarize_chunk_observations <- function(directory) {
   }
   if (length(paths) == 0L) {
     return(list(count = 0L, minimum_points = NA_real_, maximum_points = NA_real_,
-                oversized_count = 0L))
+                oversized_count = 0L, maximum_voxel_height = NA_real_))
   }
   observations <- lapply(paths, readRDS)
   points <- vapply(observations, `[[`, numeric(1), "point_count")
@@ -1804,7 +1824,8 @@ summarize_chunk_observations <- function(directory) {
     count = length(paths),
     minimum_points = min(points),
     maximum_points = max(points),
-    oversized_count = sum(oversized)
+    oversized_count = sum(oversized),
+    maximum_voxel_height = maximum_observed_height(observations)
   )
 }
 
@@ -1815,7 +1836,8 @@ combine_chunk_observations <- function(summaries) {
     count = sum(vapply(summaries, `[[`, integer(1), "count")),
     minimum_points = min(vapply(summaries, `[[`, numeric(1), "minimum_points")),
     maximum_points = max(vapply(summaries, `[[`, numeric(1), "maximum_points")),
-    oversized_count = sum(vapply(summaries, `[[`, integer(1), "oversized_count"))
+    oversized_count = sum(vapply(summaries, `[[`, integer(1), "oversized_count")),
+    maximum_voxel_height = maximum_observed_height(summaries)
   )
 }
 
@@ -1828,7 +1850,7 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
                       boundary_read_adjustment = NULL) {
   configure_catalog_worker()
   las <- readLAS(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
-  record_chunk_observation(
+  observation_path <- record_chunk_observation(
     observation_directory,
     "chm",
     nrow(las@data),
@@ -1844,6 +1866,7 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
   if (is.empty(las)) return(empty_chunk_raster(chunk, chm_resolution))
   voxels <- voxelize_points(las, res = voxel_resolution)
   if (is.empty(voxels)) return(empty_chunk_raster(chunk, chm_resolution))
+  record_chunk_height(observation_path, voxels@data$Z)
   # Preserve the baseline lidR rasterization semantics.  Passing the numeric
   # resolution lets lidR derive the local extent from the chunk's populated
   # voxels; a fixed core template changes NA/value ownership for points lying
@@ -1922,7 +1945,7 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
   header <- NULL
   for (child in children) {
     las <- readLAS(adjust_catalog_boundary_read(child, boundary_read_adjustment))
-    record_chunk_observation(observation_directory, "chm", nrow(las@data),
+    observation_path <- record_chunk_observation(observation_directory, "chm", nrow(las@data),
                              target_chunk_points)
     if (is.empty(las)) next
     las <- restore_original_point_order(las, point_order_dimension, "CHM")
@@ -1933,6 +1956,7 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
     if (is.empty(las)) next
     voxels <- voxelize_points(las, res = voxel_resolution)
     if (is.empty(voxels)) next
+    record_chunk_height(observation_path, voxels@data$Z)
     # Preserve the LAS header to avoid re-quantizing floating voxel centers
     # when reconstructing the compact cloud for the unchanged p2r() call.
     header <- voxels@header
@@ -2758,10 +2782,11 @@ write_segment_diagnostics <- function(segments, point_cloud, path,
   write_upstream_csv(diagnostics, path)
 }
 
-empty_metric_values <- function(voxel_total) {
+empty_metric_values <- function(voxel_total, metric_height_upper_m) {
   list(
     vox_filled = 0L,
     vox_total = voxel_total,
+    metric_height_upper_m = metric_height_upper_m,
     veg_density = NA_real_,
     zsd = NA_real_,
     zskew = NA_real_,
@@ -2783,16 +2808,67 @@ safe_round <- function(value, digits = 4) {
   round(as.numeric(value[[1]]), digits)
 }
 
+# A shared finite reference keeps density and VCI comparable between tiles.
+# This is a metric denominator, never a point filter. Reuse the exact scalar
+# maxima from the CHM pass before lidR rounds its raster to three decimals.
+# No extra cloud read, raster scan or dense vertical histogram is required.
+metric_height_reference <- function(observed, maximum_height = Inf,
+                                    vegetation_minimum_height = 0.5) {
+  if (is.finite(maximum_height)) return(maximum_height)
+  if (!is.finite(observed)) {
+    stop("Cannot derive the metric height reference without finite accepted voxel heights")
+  }
+  reference <- max(1, ceiling(observed), floor(vegetation_minimum_height) + 1)
+  if (!is.finite(reference) || reference > 2^53 - 1) {
+    stop("Observed canopy height exceeds exact numeric layer-index support")
+  }
+  reference
+}
+
+# Preserve the four used lidR::stdmetrics_z formulas without its unused dense
+# entropy histogram (whose memory grows with the largest retained height).
+tile_height_statistics <- function(z) {
+  n <- length(z)
+  centered <- z - mean(z)
+  sum_squared <- sum(centered^2)
+  list(
+    zsd = stats::sd(z),
+    zskew = (sum(centered^3) / n) / (sum_squared / n)^(3 / 2),
+    zkurt = n * sum(centered^4) / sum_squared^2,
+    # Reuse lidR's constructed probability, including its floating rounding.
+    zq90 = unname(stats::quantile(z, seq(0.05, 0.95, 0.05)[[18L]]))
+  )
+}
+
+vertical_complexity <- function(z, height_upper_m) {
+  # Julia used cut(..., seq(0, upper, 1), include.lowest=TRUE), i.e.
+  # right-closed one-metre layers. Count occupied layers only; empty layers
+  # contribute zero entropy, but remain in the normalization denominator.
+  layer_count <- floor(height_upper_m)
+  if (!is.finite(layer_count) || layer_count > 2^53 - 1 || layer_count < 1) {
+    stop("Metric height reference cannot represent one-metre layers exactly")
+  }
+  eligible <- z[is.finite(z) & z >= 0 & z <= layer_count]
+  if (!length(eligible) || layer_count == 1) return(NA_real_)
+  counts <- data.table(layer = pmax(1, ceiling(eligible)))[, .N, by = layer]$N
+  proportions <- counts / sum(counts)
+  -sum(proportions * log(proportions)) / log(layer_count)
+}
+
 # Calculate Julia-compatible tile metrics from a spatial window.  COPC still
 # supplies only the requested window; order restoration occurs after that read.
 calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters) {
   bounds <- st_bbox(tile)
+  height_reference <- parameter_or(parameters, "metric_height_upper_m", parameters$maximum_height)
   voxel_total <- round(
     (parameters$tile_size / parameters$voxel_resolution)^2 *
-      ((parameters$maximum_height - parameters$vegetation_minimum_height) /
+      ((height_reference - parameters$vegetation_minimum_height) /
          parameters$voxel_resolution)
   )
-  empty <- empty_metric_values(voxel_total)
+  if (!is.finite(voxel_total) || voxel_total <= 0 || voxel_total > 2^53 - 1) {
+    stop("Metric voxel volume exceeds exact numeric support or is not positive")
+  }
+  empty <- empty_metric_values(voxel_total, height_reference)
 
   las <- readLAS(
     point_cloud,
@@ -2831,6 +2907,9 @@ calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters) {
   if (is.empty(voxels)) return(empty)
 
   height_max <- max(voxels@data$Z, na.rm = TRUE)
+  if (!is.finite(parameters$maximum_height) && height_max > height_reference) {
+    stop("Observed tile voxel height exceeds the shared metric height reference")
+  }
   height_mean <- mean(voxels@data$Z, na.rm = TRUE)
   chm <- rasterize_canopy(
     voxels,
@@ -2861,7 +2940,7 @@ calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters) {
 
   vegetation_data <- as.data.table(vegetation@data)
   filled <- nrow(vegetation_data)
-  z_metrics <- cloud_metrics(vegetation, .stdmetrics_z)
+  z_metrics <- tile_height_statistics(vegetation_data$Z)
 
   voxel_indices <- unique(vegetation_data[, .(
     vx = floor(X / parameters$voxel_resolution),
@@ -2887,20 +2966,12 @@ calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters) {
     NA_real_
   }
 
-  layer_breaks <- seq(0, parameters$maximum_height, by = 1)
-  layers <- cut(vegetation_data$Z, breaks = layer_breaks, include.lowest = TRUE)
-  layer_counts <- table(factor(layers, levels = levels(layers)))
-  proportions <- layer_counts / sum(layer_counts)
-  nonzero <- proportions[proportions > 0]
-  vci <- if (length(layer_counts) > 1) {
-    -sum(nonzero * log(nonzero)) / log(length(layer_counts))
-  } else {
-    NA_real_
-  }
+  vci <- vertical_complexity(vegetation_data$Z, height_reference)
 
   list(
     vox_filled = filled,
     vox_total = voxel_total,
+    metric_height_upper_m = height_reference,
     veg_density = safe_round(filled / voxel_total),
     zsd = safe_round(z_metrics$zsd),
     zskew = safe_round(z_metrics$zskew),
@@ -2944,7 +3015,8 @@ empty_result_table <- function() {
     edge_tile = logical(),
     n_tiles_plot = integer(),
     vox_filled = integer(),
-    vox_total = integer(),
+    vox_total = numeric(),
+    metric_height_upper_m = numeric(),
     veg_density = numeric(),
     zsd = numeric(),
     zskew = numeric(),
@@ -3159,6 +3231,10 @@ write_performance_report <- function(parameters, footprint_source, point_count, 
     ptd_resolution = parameters$ptd_resolution,
     dtm_resolution = parameters$dtm_resolution,
     maximum_height = parameters$maximum_height,
+    metric_height_policy = if (is.finite(parameters$maximum_height)) "explicit_legacy_ceiling" else "observed_voxel_height_v1",
+    metric_height_upper_m = parameters$metric_height_upper_m,
+    observed_maximum_voxel_height_m = parameters$observed_maximum_voxel_height_m,
+    observed_maximum_voxel_height_m_exact = sprintf("%.17g", parameters$observed_maximum_voxel_height_m),
     voxel_resolution = parameters$voxel_resolution,
     vegetation_minimum_height = parameters$vegetation_minimum_height,
     chm_resolution = parameters$chm_resolution,
@@ -3422,6 +3498,15 @@ run_analysis <- function(parameters) {
     temporary_directory_bytes(run_work_directory)
   )
   message("FORESTSTRUCTURE_STAGE stage=chm status=completed")
+
+  parameters$observed_maximum_voxel_height_m <- chm_observations$maximum_voxel_height
+  parameters$metric_height_upper_m <- metric_height_reference(
+    parameters$observed_maximum_voxel_height_m,
+    parameters$maximum_height, parameters$vegetation_minimum_height
+  )
+  message(sprintf("Metric height reference: %.10g m; normalized height ceiling: %s",
+    parameters$metric_height_upper_m,
+    if (is.finite(parameters$maximum_height)) as.character(parameters$maximum_height) else "none"))
 
   message("FORESTSTRUCTURE_STAGE stage=segmentation status=started")
   segment_started <- proc.time()[["elapsed"]]

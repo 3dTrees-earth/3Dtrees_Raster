@@ -1,15 +1,17 @@
 # 3Dtrees ForestStructure
 
-ForestStructure calculates fixed-tile forest metrics from one LAS/LAZ point
-cloud and an optional audited area of interest. It produces tile metrics,
-segment diagnostics, vector tiles, a DTM, a CHM, and a tile overview.
+ForestStructure calculates fixed-tile forest metrics from one canonical COPC
+point cloud and an optional audited area of interest. It produces tile metrics,
+segment diagnostics, vector tiles, a DTM, a CHM, a tile overview, raw voxel-count
+products, and point-noise quality-control records.
 
-The recommended workflow uses a canonical COPC for spatial streaming while
-preserving the scientific behavior of the ordered source LAZ. See
+The production workflow uses a canonical COPC for spatial streaming and source
+record-order preservation. Native lidR denoising is enabled by default, and
+normalized heights have no upper cutoff; these change the historical metric policy. See
 [`COPC_REVIEW_GUIDE.md`](COPC_REVIEW_GUIDE.md) for the design, failure fixes,
 and validation evidence.
 
-The unchanged scientific reference is
+The preserved historical scientific reference is
 [`reference/Indices_Final_run.R`](reference/Indices_Final_run.R), SHA-256
 `746d57b4c937001af31e4ccd1b9f14edb5cebb15d46154ad9e20d0ce39f78226`.
 
@@ -92,7 +94,8 @@ header compatibility and provenance checks; scientific point reads still use COP
 Extrema are compared on each header's coordinate lattice because original writers
 can retain pre-quantization bounds. This lightweight check is not identity proof: the
 preparation validator must still verify complete point indices and fingerprints.
-Plain LAS/LAZ input is also supported directly.
+Plain LAS/LAZ input is supported with `--denoise none`; default denoising requires
+a canonical COPC carrying `OriginalPointIndex`.
 
 ### Galaxy production contract
 
@@ -101,7 +104,8 @@ COPC's metric XY coordinate system. The COPC must retain `OriginalPointIndex`
 and at least one supported instance dimension; SmartTile supplies global IDs.
 An AOI restricts the analysis domain. Without it, the runner reuses the existing
 coordinate-lattice-snapped full-extent footprint. Neither mode subsamples points.
-DTM generation and the established scientific defaults remain unchanged.
+The existing DTM algorithm runs on SOR-accepted points. CHM, segment and tile
+metrics use the same accepted-point mask and retain finite heights above 70 m.
 
 Raster georeferencing uses the horizontal two-dimensional CRS, embedded in each
 GeoTIFF. Projected 3D and compound source CRSs are retained in provenance;
@@ -138,9 +142,11 @@ Rscript /opt/foreststructure/run_julia_memory_safe.R \
 The container entry point already invokes that script. Both Dockerfiles now use the production runner as their default entry point.
 The production container and Galaxy wrapper still need to be released/installed
 together; these source changes do not deploy a server tool. Validate integration with
-`make test-production-contract JULIA_MEMORY_SAFE_IMAGE=<validated-baseline-image>`.
-This compares candidate sources against the pinned baseline, including 15th-field
-IDs, a late order key, AOI/full-extent equivalence and mandatory voxel products.
+`make test-production-contract JULIA_MEMORY_SAFE_IMAGE=<validated-runtime-image>`.
+This compares input layouts and AOI/full-extent behavior using identical current
+sources with denoising explicitly disabled, including 15th-field IDs, a late
+order key and mandatory voxel products. `make test-denoising` exercises the default
+SOR path and uncapped metric policy.
 
 ### Galaxy allocation from merged COPC size
 
@@ -234,7 +240,7 @@ SAT/FM fields on the same source share one read, order restoration and terrain
 normalization. Their disk summaries and reductions remain independent. Different
 legacy projection files retain separate reads. Terrain, canopy, tile metrics and
 raw voxel counts still have distinct passes; their scientific semantics differ.
-Run `make test-parallel-production` for exact baseline parity at 1, 2 and 4 workers,
+Run `make test-parallel-production` for exact current-policy parity at 1, 2 and 4 workers,
 with both full extent and an AOI.
 
 ### Measured parallel qualification
@@ -366,13 +372,13 @@ read and scratch storage. Normal low-ordinal COPCs retain their direct fast path
 The mandatory voxel-count pass always reads the full original COPC, including
 all duplicates, rather than a reduced or subsampled source.
 
-### Optional point-noise classification
+### Point-noise classification and uncapped heights
 
-The production runner accepts `--denoise sor` to run native lidR 4.3.2 statistical
-outlier removal before terrain estimation. The default is `--denoise none`, which
-preserves the existing filtering defaults. Enabled denoising requires a canonical
-COPC carrying `OriginalPointIndex`; late ExtraByte positions use the existing
-projection path. Input coordinates, classifications and instance IDs are unchanged.
+The production runner defaults to `--denoise sor`, using native lidR 4.3.2
+statistical outlier removal before terrain estimation. Use `--denoise none` to
+disable it. Enabled denoising requires a canonical COPC carrying
+`OriginalPointIndex`; late ExtraByte positions use the existing projection path.
+Input coordinates, classifications and instance IDs are unchanged.
 
 SOR measures each point's mean distance to its nearest neighbours and rejects
 unusually large distances relative to the local window's mean and standard
@@ -382,7 +388,7 @@ percentile. Parameters are scientific choices and are recorded in provenance:
 | Option | Default | Meaning |
 | --- | --- | --- |
 | `--denoise-neighbors` | `10` | Neighbours used for the point-distance statistic |
-| `--denoise-sigma` | `6` | Standard deviations above the window mean |
+| `--denoise-sigma` | `12` | Standard deviations above the window mean |
 | `--denoise-window-size` | `60` | Fixed scientific core width in metres |
 | `--denoise-buffer` | `20` | Context around each core in metres |
 
@@ -409,23 +415,52 @@ invalid-terrain exclusions remain documented separately. A high rejected point
 can still increase the voxel GeoTIFF's band count or trigger its explicit
 capacity limit.
 
-This optional method needs acquisition-specific validation: sparse genuine crowns
-may be flagged, and coherent noise clusters may survive. The defaults are
-conservative starting parameters, not a validated universal forest-noise rule.
-The legacy 70 m metric support and index definitions are unchanged by this option.
-Use `make test-denoising` for synthetic disabled-path parity, isolated high/low
-outliers, supported crown retention, high-ordinal IDs, raw-count semantics and
-worker/adaptive-window invariance. This small acceptance test does not replace
-validation against clean ALS, UAV or TLS reference data.
+The conservative 12-sigma default targets extreme spatial outliers. It needs
+acquisition-specific validation: sparse genuine crowns may be flagged, and
+coherent noise clusters may survive. It is not a universal forest-noise rule.
+A synthetic sensitivity check at sigma 6/8/10/12/15 rejected 36/4/2/2/2 points
+from the earlier 56,057-point fixture. Sigma 12 retained every ordinary return;
+sigma 15 missed a high outlier in the separate 568-point fixture. These checks
+justify the chosen starting value, not an accuracy claim for real surveys.
 
-The [recorded synthetic acceptance](benchmarks/results/2026-10-13-denoising.json)
-uses 56,057 points. SOR flagged both injected outliers and 34 ordinary fixture
-observations, while retaining all 1,331 points in a supported tall crown.
-All 14 scientific products match the immutable baseline with denoising disabled,
-and match across one/two workers and different adaptive windows with it enabled.
-Native COPC and the late-attribute projection produce the same 36 flagged IDs.
-Earlier real-data performance and parity benchmarks predate this patch; there
-is no production-scale denoising benchmark or acquisition-specific accuracy claim.
+CHM, segment and tile processing retain all accepted points with finite,
+nonnegative normalized heights, including heights above 70 m. The 0.5 m
+vegetation threshold remains part of the existing tile indices; the raw voxel
+export still includes the 0–0.5 m layer. Point retention has no upper height
+cutoff. Metric denominators and vertical-complexity normalization use one shared
+height domain: `H = max(1, ceiling(maximum accepted normalized voxel height))` metres over the
+full source cloud, even when an AOI restricts reported tiles. The value is recorded
+as `metric_height_upper_m` in each tile row, performance CSV and provenance;
+`metric_height_policy` is `observed_voxel_height_v1`. The exact maximum is gathered
+during existing CHM point reads, before canopy rasterization rounds heights,
+and recorded as `observed_maximum_voxel_height_m` in performance and provenance.
+The companion `observed_maximum_voxel_height_m_exact` string preserves 17-digit
+precision for reconstructing the domain at integer-metre boundaries.
+This denominator is not a point filter.
+Sparse vertical-bin accounting avoids allocating a dense array proportional to
+an extreme retained height. Density and complexity values can differ from older
+70 m-domain results even with `--denoise none`; cross-survey comparisons must
+account for the recorded height domain.
+
+Use `make test-denoising` for the default CLI, an explicit unfiltered control,
+isolated high/low outliers, an 80–90 m supported crown, high-ordinal IDs, raw-count
+semantics, the shared height domain and worker/adaptive-window invariance.
+The [current synthetic acceptance](benchmarks/results/2026-10-14-denoising-height-policy.json)
+retains all 1,331 supported crown points, flags only the two injected extremes
+out of 56,057 records, and matches all 14 scientific artifacts exactly across
+one/two workers and 60/23 m adaptive read windows. The shared height domain is
+86 m after SOR and 250 m in the explicit unfiltered control. The rejected high
+point is still present in the raw voxel export.
+The [earlier synthetic acceptance](benchmarks/results/2026-10-13-denoising.json)
+records the superseded opt-in sigma-6 policy and its 34 additional ordinary
+observations flagged. Earlier real-data performance and parity benchmarks also
+predate the current denoising and height-policy changes; there is no
+production-scale denoising benchmark or acquisition-specific accuracy claim.
+Historical Julia-oracle scripts require a pinned runtime and any source override
+from their recorded scientific policy. Set `FORESTSTRUCTURE_SKIP_BUILD=1` where
+the replay script supports building; do not rebuild that runtime from current
+sources. These scripts keep their strict comparators and are not exact-parity
+gates for the changed density/index definitions.
 
 Both modes retain canonical source points on a terminal catalog boundary.
 Earlier versions could omit such records when the source maximum lay exactly

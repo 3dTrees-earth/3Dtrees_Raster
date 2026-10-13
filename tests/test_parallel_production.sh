@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Differential acceptance: same scientific runtime, independent output/scratch
-# directories, original sources at one worker, candidate sources at 1/2/4.
+# directories, current sources at one reference worker and at 1/2/4 workers.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${FORESTSTRUCTURE_SOURCE_DIR:-${repo}/src}"
@@ -31,7 +31,7 @@ root = pathlib.Path(root)
 hashes = {str(p.relative_to(root / 'sources')): hashlib.sha256(p.read_bytes()).hexdigest()
           for p in sorted((root / 'sources').rglob('*')) if p.is_file()}
 (root / 'runtime.json').write_text(json.dumps(dict(
-    baseline_image=baseline, untwine_image=untwine, candidate_source=source,
+    runtime_image=baseline, reference_policy="current_source_one_worker", untwine_image=untwine, candidate_source=source,
     candidate_source_sha256=hashes, cpus=4, memory_bytes=4 * 1024**3,
     internal_memory_gib=3.4, network='none', gpu=False,
     target_chunk_points=5000, voxel_batch_points=250000,
@@ -106,10 +106,8 @@ run_case() {
   local name="${scope}-${kind}-w${workers}"
   local case_dir="${root}/${name}"
   mkdir -p "${case_dir}/output" "${case_dir}/scratch"
-  local mount=() aoi=()
-  if [[ "${kind}" == candidate ]]; then
-    mount=(-v "${root}/sources:/opt/foreststructure:ro")
-  fi
+  # Compare worker counts under one current scientific policy/source snapshot.
+  local mount=(-v "${root}/sources:/opt/foreststructure:ro") aoi=()
   if [[ "${scope}" == aoi ]]; then aoi=(--aoi-geojson /input/aoi.geojson); fi
   local command=(docker run "${limits[@]}" "${mount[@]}" \
     --entrypoint bash --workdir /output --env TMPDIR=/scratch \
@@ -120,7 +118,7 @@ run_case() {
     -v "${root}/record_resources.py:/record_resources.py:ro" "${baseline}" -c \
     '"$@"; status=$?; python3 /record_resources.py "$status" || exit 99; exit "$status"' \
     bash Rscript /opt/foreststructure/run_julia_memory_safe.R \
-    --point-cloud /input/input.copc.laz --memory-budget-gib 3.4 \
+    --denoise none --point-cloud /input/input.copc.laz --memory-budget-gib 3.4 \
     --target-chunk-points 5000 --voxel-count-chunk-points 250000 "${aoi[@]}")
   python3 - "${case_dir}/command.json" "${command[@]}" <<'PY'
 import json, pathlib, sys
@@ -141,4 +139,4 @@ done
 docker run "${limits[@]}" --entrypoint python3 \
   -v "${repo}/tests:/tests:ro" -v "${root}:/data" "${baseline}" \
   /tests/compare_parallel_production.py /data
-echo 'Parallel production acceptance passed: baseline versus 1/2/4 workers, full extent and AOI'
+echo 'Parallel production acceptance passed: current-source reference versus 1/2/4 workers, full extent and AOI'

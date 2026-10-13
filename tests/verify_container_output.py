@@ -6,12 +6,13 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import math
 from pathlib import Path
 
 
 TILE_COLUMNS = [
     "file", "sensor", "country", "tile_id", "tile_xmin", "tile_ymin",
-    "edge_tile", "n_tiles_plot", "vox_filled", "vox_total", "veg_density",
+    "edge_tile", "n_tiles_plot", "vox_filled", "vox_total", "metric_height_upper_m", "veg_density",
     "zsd", "zskew", "zkurt", "zq90", "box_dim_fixed", "vci", "rumple",
     "gap_fraction", "chm_sd", "chm_cv", "height_max", "height_mean",
     "n_seg_total", "n_trees", "tree_height_max", "tree_height_mean",
@@ -84,11 +85,20 @@ def verify_dimension(
 
     fields, rows = read_csv(result_path)
     if fields != TILE_COLUMNS:
-        raise SystemExit(f"tile CSV schema differs from upstream: {result_path}")
+        raise SystemExit(f"tile CSV schema differs from current contract: {result_path}")
     if len(rows) != expected_tiles:
         raise SystemExit(
             f"{result_path}: expected {expected_tiles} rows, got {len(rows)}"
         )
+    if rows:
+        height_domains = {float(row["metric_height_upper_m"]) for row in rows}
+        if len(height_domains) != 1:
+            raise SystemExit(f"{result_path}: tiles do not share one height domain")
+        height_domain = next(iter(height_domains))
+        if not math.isfinite(height_domain) or height_domain < 1:
+            raise SystemExit(f"{result_path}: invalid metric height domain")
+        if any(float(row["height_max"]) > height_domain for row in rows if row["height_max"] != "NA"):
+            raise SystemExit(f"{result_path}: metric height domain is below observed canopy")
     expected_ids = [str(index) for index in range(1, expected_tiles + 1)]
     if [row["tile_id"] for row in rows] != expected_ids:
         raise SystemExit(f"{result_path}: tile IDs are not deterministic")
@@ -155,10 +165,19 @@ def verify_performance(
         "segment_seconds", "tile_seconds", "output_seconds", "total_seconds",
         "threads_requested", "threads_effective", "catalog_workers",
         "dtm_chunk_size", "chunk_size", "dtm_buffer", "dtm_storage_mode",
-        "chm_storage_mode",
+        "chm_storage_mode", "metric_height_upper_m", "metric_height_policy", "maximum_height", "observed_maximum_voxel_height_m", "observed_maximum_voxel_height_m_exact",
     }
     if required.difference(performance):
         raise SystemExit("performance report is missing required measurements")
+    if performance["metric_height_policy"] != "observed_voxel_height_v1" or float(performance["maximum_height"]) != math.inf:
+        raise SystemExit("performance report has the wrong normalized-height policy")
+    exact_maximum = float(performance["observed_maximum_voxel_height_m_exact"])
+    if float(performance["metric_height_upper_m"]) != max(1, math.ceil(exact_maximum)):
+        raise SystemExit("performance height domain differs from the exact observed maximum")
+    for result_path in output_dir.glob(f"{dataset_id}*_results.csv"):
+        _, tile_rows = read_csv(result_path)
+        if any(float(row["metric_height_upper_m"]) != float(performance["metric_height_upper_m"]) for row in tile_rows):
+            raise SystemExit("performance and tile height domains differ")
     expected_dimensions = "NA" if not dimensions else "|".join(dimensions)
     if performance["instance_dimension"] != expected_dimensions:
         raise SystemExit("performance report has the wrong dimensions")

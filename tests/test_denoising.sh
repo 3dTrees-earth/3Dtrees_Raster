@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local synthetic acceptance: disabled parity, reusable noise masks, and
+# Local synthetic acceptance: default conservative SOR, uncapped heights, and
 # invariant science across scheduler/adaptive execution choices.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -23,16 +23,14 @@ cp -a "${source_dir}/." "${root}/sources/"
 limits=(--rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)")
 reuse="${FORESTSTRUCTURE_DENOISING_REUSE_ROOT:-}"
 if [[ -n "${reuse}" ]]; then
-  # Reuse only immutable baseline evidence while iterating candidate sources.
-  # The final comparator verifies source hashes and preparation reports again.
-  python3 - "${reuse}" "${baseline}" <<'PY'
+  # Reuse only prepared synthetic inputs while iterating candidate sources.
+  # Every scientific case is recomputed under the current metric policy.
+  python3 - "${reuse}" <<'PY'
 import json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
-assert json.loads((root / 'runtime.json').read_text())['baseline_image'] == sys.argv[2]
-assert json.loads((root / 'baseline/artifact_validation.json').read_text())['status'] == 'valid'
+assert json.loads((root / 'input/fixture.json').read_text())['fixture_version'] == 2
 PY
   cp -a "${reuse}/input/." "${root}/input/"
-  cp -a "${reuse}/baseline" "${root}/baseline"
 else
 docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
   --entrypoint Rscript -v "${repo}/tests:/tests:ro" -v "${root}/input:/data" \
@@ -59,7 +57,7 @@ fi
 python3 - "${root}" "${baseline}" "${untwine}" <<'PY'
 import hashlib, json, pathlib, sys
 root = pathlib.Path(sys.argv[1])
-manifest = dict(baseline_image=sys.argv[2], untwine_image=sys.argv[3],
+manifest = dict(runtime_image=sys.argv[2], untwine_image=sys.argv[3],
     source_sha256=hashlib.sha256((root / 'input/input.copc.laz').read_bytes()).hexdigest(),
     source_snapshot_sha256={str(p.relative_to(root / 'sources')): hashlib.sha256(p.read_bytes()).hexdigest()
         for p in sorted((root / 'sources').rglob('*')) if p.is_file()},
@@ -69,12 +67,10 @@ PY
 run_case() {
   local name="$1" workers="$2" target="$3"; shift 3
   local case_dir="${root}/${name}"
-  local mount=()
   mkdir -p "${case_dir}/output" "${case_dir}/scratch"
-  if [[ "${name}" != baseline ]]; then mount=(-v "${root}/sources:/opt/foreststructure:ro"); fi
   echo "Running denoising acceptance: ${name}"
   local started="${SECONDS}"
-  docker run "${limits[@]}" "${mount[@]}" --entrypoint Rscript \
+  docker run "${limits[@]}" -v "${root}/sources:/opt/foreststructure:ro" --entrypoint Rscript \
     --workdir /output --env TMPDIR=/scratch --env PYTHONDONTWRITEBYTECODE=1 \
     --env GALAXY_SLOTS=2 --env GALAXY_MEMORY_MB=4096 --env FORESTSTRUCTURE_THREADS=2 \
     --env "FORESTSTRUCTURE_CATALOG_WORKERS=${workers}" \
@@ -88,10 +84,10 @@ run_case() {
     "${case_dir}/output" --report "${case_dir}/artifact_validation.json"
   test -z "$(find "${case_dir}/scratch" -mindepth 1 -print -quit)"
 }
-if [[ -z "${reuse}" ]]; then run_case baseline 1 50000; fi
 run_case none 1 50000 --denoise none
-run_case sor-w1 1 50000 --denoise sor
+# The ordinary production invocation must enable SOR without a denoise flag.
+run_case sor-w1 1 50000
 run_case sor-w2 2 5000 --denoise sor
 docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
   -v "${root}:/data" "${baseline}" /tests/compare_denoising.py /data
-echo 'Denoising acceptance passed: disabled parity, mask application, raw counts and execution invariance'
+echo 'Denoising acceptance passed: default SOR, uncapped heights, raw counts and execution invariance'

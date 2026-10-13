@@ -72,7 +72,7 @@ run_foreststructure() {
     --volume "${output_dir}:/out" \
     --volume "${work_dir}:/work" \
     "${image_name}" \
-    --point-cloud "/in/${point_cloud_name}" \
+    --denoise none --point-cloud "/in/${point_cloud_name}" \
     "$@" \
     --aoi-geojson /in/aoi.geojson \
     --dataset-id 150 \

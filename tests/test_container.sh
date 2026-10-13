@@ -38,7 +38,7 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("denoising.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R"); source("../tests/test_resource_scheduler.R"); source("../tests/test_resource_memory.R"); source("../tests/test_denoising.R")'
+  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("denoising.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R"); source("../tests/test_resource_scheduler.R"); source("../tests/test_resource_memory.R"); source("../tests/test_denoising.R"); source("../tests/test_height_policy.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \

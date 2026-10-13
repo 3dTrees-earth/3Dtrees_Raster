@@ -96,14 +96,17 @@ class CopcTaskCounts(unittest.TestCase):
                 self.assertEqual(result["point_count_upper_bounds"], [18])
 
     def test_copc_never_uses_legacy_count(self):
-        for legacy, extended in ((18, 0), (18, 12), (12, 18), (18, 18)):
-            with self.subTest(legacy=legacy, extended=extended):
-                fixture(self.path, point_count=extended, legacy_point_count=legacy)
-                with self.assertRaisesRegex(counts.MetadataError, "zero legacy"):
+        for legacy in (12, 18, 24):
+            with self.subTest(legacy=legacy):
+                fixture(self.path, point_count=18, legacy_point_count=legacy)
+                result = counts.estimate(self.path, [[0, 0, 8, 8]], allow_header_fallback=True)
+                self.assertEqual(result["point_count"], 18)
+                self.assertEqual(result["point_count_upper_bounds"], [18])
+        for extended in (0, 12, 24):
+            with self.subTest(extended=extended):
+                fixture(self.path, point_count=extended, legacy_point_count=18)
+                with self.assertRaisesRegex(counts.MetadataError, "exceeds LAS header|differs from LAS header"):
                     counts.estimate(self.path, [[0, 0, 8, 8]], allow_header_fallback=True)
-        fixture(self.path, point_count=0)
-        with self.assertRaisesRegex(counts.MetadataError, "exceeds LAS header"):
-            counts.estimate(self.path, [[0, 0, 8, 8]], allow_header_fallback=True)
 
     def test_invalid_windows(self):
         for windows in (None, [[1, 0, 0, 1]], [[0, 0, float("nan"), 1]], [[0, 0, 1]], [[False, 0, 1, 1]], [["0", 0, 1, 1]], [[0, 0, 10 ** 400, 1]]):

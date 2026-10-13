@@ -144,10 +144,9 @@ def _header(reader):
         if user_id == b"copc" and record_id == 1:
             if minor != 4 or header_size != 375 or length != 160 or (raw[104] & 0x3f) not in (6, 7, 8) or not raw[104] & 0x80:
                 raise MetadataError("invalid COPC 1.0 header, info VLR or point format")
-            if legacy_count != 0:
-                raise MetadataError("COPC point formats require a zero legacy point count")
             # COPC always uses the extended count; the hierarchy must reconcile
-            # against that field, including when it is zero.
+            # against that field, including when it is zero. Existing canonical
+            # writers can retain a nonzero deprecated legacy counter; ignore it.
             point_count = extended_count
             info = reader.read(header_size + 54, 160)
     return point_count, mins, maxs, points_offset, info

@@ -237,6 +237,43 @@ raw voxel counts still have distinct passes; their scientific semantics differ.
 Run `make test-parallel-production` for exact baseline parity at 1, 2 and 4 workers,
 with both full extent and an AOI.
 
+### Measured parallel qualification
+
+The labelled COPCs contain 34.19 million points / 1.094 decimal GB (2551) and
+147.96 million points / 3.910 decimal GB (1998). All candidate runs used 10 CPUs,
+a 30 GiB hard limit, a 25.5 GiB internal budget and no additional swap, GPU or
+network. Inputs and Audit AOIs match their saved baselines by SHA-256.
+
+| Dataset | Worker cap | Processing minutes | Peak GiB | Average CPU cores |
+| --- | ---: | ---: | ---: | ---: |
+| 2551 | 1 | 10.18 | 5.60 | 1.07 |
+| 2551 | 4 | 6.75 | 6.97 | 1.36 |
+| 1998 | 1 | 67.90 | 3.67 | 1.13 |
+| 1998 | 4 | 30.82 | 9.24 | 2.26 |
+| 1998 | 10 | 18.38 | 11.41 | 3.74 |
+
+Every scientific CSV, complete tile vector, raster cell and validity mask matches
+its baseline exactly. SAT/FM callback point records fell from 295,922,732 to
+147,961,366 for 1998. Shared summaries increase its sampled scratch peak from
+1.93 GiB to 3.59 GiB. The ten-worker profile reduces processing time by about 40%
+from the four-worker profile, while keeping its observed peak below 12 GiB.
+
+These are single observations on a shared host. The baseline had 70 GiB allocated;
+its 1998 run overlapped 1996. The four-worker candidate used the initial 512-byte
+DTM coefficient, while the ten-worker candidate uses 256 bytes. This comparison
+therefore measures the combined profile changes, not isolated worker scaling.
+Times include analysis-container launch/teardown, but exclude preflight and the
+external acceptance comparisons; pipeline-stage timings are recorded separately.
+The smaller dataset has four terrain/canopy tasks and only one analysis tile,
+so it offers less parallelism.
+
+The [complete benchmark evidence](benchmarks/results/2026-10-13-parallel-memory.json)
+records source/runtime identifiers, phase timings, CPU and kernel memory counters,
+worker distributions, scratch observations, exact comparisons and test coverage.
+The final synthetic full-extent/AOI tests also exercise automatic ten-worker
+selection and high-ordinal instance fields. Galaxy allocation tiers remain initial
+policy: the real benchmark's 30 GiB limit differs from the 30 decimal GB tier.
+
 The full-resolution study benchmarks use ten workers for datasets 647/2080 and
 three for dense dataset 1805, all under 10 CPUs, a 70 GiB hard limit and a
 60 GiB internal budget. See the [measured profiles and exact-parity evidence](

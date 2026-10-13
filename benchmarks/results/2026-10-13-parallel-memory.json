@@ -1,0 +1,3139 @@
+{
+  "baseline_1996_1998_container_overlap_seconds": 2142.408649,
+  "benchmark_date": "2026-10-13",
+  "final_local_image": {
+    "base_image_id": "sha256:3bb86542fda4dfc189a88f6611c8da962b7f524edb4e1a473afe2684d5baf1e4",
+    "fresh_dependency_resolution": false,
+    "image_id": "sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e",
+    "published": false,
+    "source_revision": "efbd031",
+    "source_sha256": {
+      "aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+      "artifact_publication.R": "a32f2ab3b6ea57549f96119012c7a88da1be2fa04a43a2f188d3df7f57b8c2b2",
+      "catalog_scheduler.R": "f4e9e929603fc41d3e0d477528444ea1d47788c0992431dc5111d7f7d67171ac",
+      "convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+      "copc_task_counts.py": "ac002b2f4ff513252b88a06d01d74521ef1a7fc68cfa78d4ec2f91c2ec4ff0f3",
+      "galaxy_resource_request.py": "f46ff105864c1317fe930520957136decd1735d6863a3541ee5cbe1d131f3b31",
+      "instance_read_groups.R": "a021e30c08d03ab0203310b35dade72686363b77f9a3122b9f5c331f31502eec",
+      "production_contract.R": "bac1bc47ba72e04153349fbceb74a2cca83572bc1b23524cc76e5473642424b3",
+      "project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+      "raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+      "resource_scheduler.R": "4c6e9aee5c9aef6445e3fa4bf319f3c88cd707172f9919bed0c5d9a66dbd636e",
+      "run.R": "2deeaeda00e9b10e295383ec0310129c673d2475338ed08e5286262a52da5ab1",
+      "run_julia_memory_safe.R": "88c08c5e5c3f5988d11373341c035d6574932f5a914423b149f1b763f393ced0",
+      "tile_scheduler.R": "20165fca6f488c4f7cbf5e8e18f57d90d9f5fc5c24929eb36b96e8208705613f",
+      "voxel_counts.R": "1fe0d8782f21e513ce7f595e6b8143043c7af1a6a0348171cb007f6228991021",
+      "voxel_counts.py": "00cad0efddf323ce0b5130cc3c5354443eeffcec73602e6bdaf1280180118000"
+    },
+    "validation": "Final source resource-contract, scheduler, memory and publication tests passed; final labelled image non-root entrypoint help passed. Labels are the only difference between those two built images."
+  },
+  "followups_after_real_benchmark_snapshot": [
+    {
+      "change": "Recognize unlimited cgroup-v1 sentinel; benchmark uses cgroup v2 and its allocation behavior is unchanged",
+      "commit": "29de5d8",
+      "validation": "focused R tests and independent review passed"
+    },
+    {
+      "change": "Image allocation metadata labels only",
+      "commit": "efbd031",
+      "validation": "built and inspected locally"
+    }
+  ],
+  "limitations": [
+    "Shared host load and filesystem/cache state were not controlled; no repeated trials or uncertainty estimates.",
+    "Baseline dataset 1998 overlapped baseline dataset 1996. Candidate datasets ran sequentially.",
+    "Baseline uses a 70 GiB hard limit and one worker; candidates use 30 GiB and bounded concurrent workers.",
+    "Worker-cap profiles may use different memory-model coefficients; compare their recorded source hashes and coefficients.",
+    "Point callback counters measure records delivered to scientific callbacks, not disk bytes, COPC decompression work, or all terrain reads.",
+    "Sampled scratch peaks may miss brief peaks. Additional swap is disabled; unrecorded actual swap counters remain null.",
+    "Labelled prepared COPC and AOI identity are proven here. This benchmark does not newly establish original-upload fidelity.",
+    "Pipeline stage timers, container lifecycle, and supervisor wall time have different boundaries; voxel export has a separate timer."
+  ],
+  "method": "One observational trial per recorded dataset/profile; exact scientific parity validation.",
+  "observed_comparisons": [
+    {
+      "basis": "Single supervisor elapsed-time observations; not an isolated worker-count speedup.",
+      "dataset_id": 1998,
+      "from_profile": "baseline",
+      "observed_wall_ratio": 2.2030736260412445,
+      "observed_wall_reduction_percent": 54.608870616960544,
+      "same_input_and_aoi_sha256": true,
+      "to_profile": "workers4"
+    },
+    {
+      "basis": "Single supervisor elapsed-time observations; not an isolated worker-count speedup.",
+      "dataset_id": 2551,
+      "from_profile": "baseline",
+      "observed_wall_ratio": 1.507381701076676,
+      "observed_wall_reduction_percent": 33.65980233900072,
+      "same_input_and_aoi_sha256": true,
+      "to_profile": "workers4"
+    },
+    {
+      "basis": "Single supervisor elapsed-time observations; not an isolated worker-count speedup.",
+      "dataset_id": 1998,
+      "from_profile": "baseline",
+      "observed_wall_ratio": 3.694375461680327,
+      "observed_wall_reduction_percent": 72.9318254093977,
+      "same_input_and_aoi_sha256": true,
+      "to_profile": "workers10"
+    },
+    {
+      "basis": "Single supervisor elapsed-time observations; not an isolated worker-count speedup.",
+      "dataset_id": 1998,
+      "from_profile": "workers4",
+      "observed_wall_ratio": 1.6769187457065782,
+      "observed_wall_reduction_percent": 40.36681845436435,
+      "same_input_and_aoi_sha256": true,
+      "to_profile": "workers10"
+    }
+  ],
+  "pending": [],
+  "profiles": {
+    "baseline": {
+      "datasets": {
+        "1998": {
+          "dataset_id": 1998,
+          "evidence_sha256": {
+            "logs/analysis.log": "01b740703b8282d65cb91093ee6e9ac42ad3802cfca104a9760e37aecabf4356",
+            "output/foreststructure_julia_memory_safe_run.json": "9ddc7e9e6a747cb8ce973b267bd5375d7d7600334685c93df554f6b4778ed138",
+            "output/foreststructure_performance.csv": "dfc5d24655b06ca779b8ba67fa8e3f5c0908f94c96acfecc08b03b757c983526",
+            "output/foreststructure_voxel_counts.json": "88188d5e50ce01d708bbd7803677834ba47191082937021895122d1bacf8fd1c",
+            "reports/analysis_resources.json": "7504b14f5382445cdfaad9e030f6b4ba4d862e0af3f592235d8623ae421e8af3",
+            "reports/artifact_validation.json": "f484d02228f59b23a3e71148e5712d7906c7a340a486d063b846267372365bec",
+            "reports/preflight.json": "97f03305362c3fdd5f3f7876b4ee34e90bb38e40a1ebe7785011481fbf4c631a",
+            "reports/science_comparison.json": "b92d5e9f4415fc343028415539daab2eea0b739aaf6ae2660ab83234fe170629",
+            "reports/voxel_validation.json": "db1f4ea539ff926872a96932f7b6e8b5594e4f446b58245c919ef8c4689d6470"
+          },
+          "input": {
+            "aoi_sha256": "3971dbd93e9d5bc3d1a19070efcd43fa1c0549344b01e3ae7292f40c7e172d9d",
+            "input_bytes": 3910169162,
+            "input_sha256": "8dd0b73aba27f17d235c7bb7dd79d710e151f359870fd725b0b28429b0d977e8",
+            "instance_dimensions": [
+              "PredInstance_SAT",
+              "PredInstance_FM"
+            ],
+            "order_validation_sha256": "02d1e39fa946b6e2ece87914416a53ee8c3fa4e2f992c1470d990243c2eecca8",
+            "point_count": 147961366,
+            "point_order_validation": {
+              "duplicate_indexes": 0,
+              "maximum": 147961365,
+              "minimum": 0,
+              "missing_indexes": 0,
+              "out_of_range_indexes": 0,
+              "read_count": 147961366,
+              "unique_complete_range": true
+            }
+          },
+          "pipeline_stage_minutes": {
+            "chm": 9.315166666666666,
+            "dtm": 18.78761666666667,
+            "grid": 0.04415,
+            "output": 0.0105,
+            "segment": 21.9674,
+            "tile": 14.94995,
+            "total": 67.59128333333334,
+            "voxel_export": 2.509398657382311
+          },
+          "pipeline_stage_seconds": {
+            "chm": 558.91,
+            "dtm": 1127.257,
+            "grid": 2.649,
+            "output": 0.63,
+            "segment": 1318.044,
+            "tile": 896.997,
+            "total": 4055.477,
+            "voxel_export": 150.56391944293864
+          },
+          "point_callback_reads": {
+            "chm": {
+              "callback_events": 73,
+              "nonempty_callbacks": 51,
+              "point_records_in_callbacks": 147961366
+            },
+            "segment": {
+              "callback_events": 146,
+              "nonempty_callbacks": 102,
+              "point_records_in_callbacks": 295922732
+            }
+          },
+          "process_peak_rss_mib": 2222.594,
+          "self_reported_scratch_peak_mib": 1971.858,
+          "shared_instance_read_groups": [],
+          "stages": {
+            "analysis": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 1.1282389037918492,
+              "cgroup_peak_bytes": 3939115008,
+              "cgroup_peak_gib": 3.6685867309570312,
+              "cgroup_swap_limit_bytes": null,
+              "container_elapsed_minutes": 67.79862865,
+              "container_elapsed_seconds": 4067.917719,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T13:46:26.259400542Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T12:38:38.34168192Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 40679,
+                "nr_throttled": 41,
+                "system_usec": 132162738,
+                "throttled_usec": 29379,
+                "usage_usec": 4589583028,
+                "user_usec": 4457420289
+              },
+              "cpu_seconds": 4589.583028,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 75161927680,
+                "MemorySwap": 75161927680,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 2067741195,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 67.89664223591487,
+              "supervisor_elapsed_seconds": 4073.798534154892,
+              "swap_usage_bytes": null
+            },
+            "artifact_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.24615665100624082,
+              "cgroup_peak_bytes": 7942144,
+              "cgroup_peak_gib": 0.007396697998046875,
+              "cgroup_swap_limit_bytes": null,
+              "container_elapsed_minutes": 0.005942083333333333,
+              "container_elapsed_seconds": 0.356525,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T13:46:31.551170328Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T13:46:31.194645052Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 3,
+                "nr_throttled": 0,
+                "system_usec": 37323,
+                "throttled_usec": 0,
+                "usage_usec": 87761,
+                "user_usec": 50437
+              },
+              "cpu_seconds": 0.087761,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 75161927680,
+                "MemorySwap": 75161927680,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.16920297543207805,
+              "supervisor_elapsed_seconds": 10.152178525924683,
+              "swap_usage_bytes": null
+            },
+            "preflight": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.8566973586727296,
+              "cgroup_peak_bytes": 4009787392,
+              "cgroup_peak_gib": 3.734405517578125,
+              "cgroup_swap_limit_bytes": null,
+              "container_elapsed_minutes": 0.08645211666666668,
+              "container_elapsed_seconds": 5.187127,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T12:38:19.480189821Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T12:38:14.293062213Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 50,
+                "nr_throttled": 0,
+                "system_usec": 1764674,
+                "throttled_usec": 0,
+                "usage_usec": 4443798,
+                "user_usec": 2679124
+              },
+              "cpu_seconds": 4.443798,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 75161927680,
+                "MemorySwap": 75161927680,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.4237762689590454,
+              "supervisor_elapsed_seconds": 25.426576137542725,
+              "swap_usage_bytes": null
+            },
+            "voxel_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.9825567286155263,
+              "cgroup_peak_bytes": 330854400,
+              "cgroup_peak_gib": 0.3081321716308594,
+              "cgroup_swap_limit_bytes": null,
+              "container_elapsed_minutes": 0.24813388333333333,
+              "container_elapsed_seconds": 14.888033,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T13:46:56.854256514Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T13:46:41.966223529Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 148,
+                "nr_throttled": 0,
+                "system_usec": 323874,
+                "throttled_usec": 0,
+                "usage_usec": 14628337,
+                "user_usec": 14304463
+              },
+              "cpu_seconds": 14.628337,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 75161927680,
+                "MemorySwap": 75161927680,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.426680314540863,
+              "supervisor_elapsed_seconds": 25.600818872451782,
+              "swap_usage_bytes": null
+            }
+          },
+          "validation": {
+            "artifacts": {
+              "error_count": 0,
+              "missing_instance_dimensions": [],
+              "processed_instance_dimensions": [
+                "PredInstance_SAT",
+                "PredInstance_FM"
+              ],
+              "publish_artifacts": [
+                "foreststructure_PredInstance_FM_results.csv",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv",
+                "foreststructure_PredInstance_FM_tiles.geojson",
+                "foreststructure_PredInstance_SAT_results.csv",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv",
+                "foreststructure_PredInstance_SAT_tiles.geojson",
+                "foreststructure_aoi_conversion.json",
+                "foreststructure_chm.tif",
+                "foreststructure_dtm.tif",
+                "foreststructure_julia_memory_safe_run.json",
+                "foreststructure_performance.csv",
+                "foreststructure_tiles.png",
+                "foreststructure_voxel_counts.csv",
+                "foreststructure_voxel_counts.json",
+                "foreststructure_voxel_counts.tif",
+                "foreststructure_voxel_counts_validity.tif"
+              ],
+              "status": "valid"
+            },
+            "science": {
+              "ignored_metadata": [
+                "source filename",
+                "output-layer prefix",
+                "explicit horizontal raster CRS"
+              ],
+              "rasters": {
+                "chm": {
+                  "crs_equal": true,
+                  "differing_cells": 0,
+                  "geometry_equal": true
+                },
+                "dtm": {
+                  "crs_equal": true,
+                  "differing_cells": 0,
+                  "geometry_equal": true
+                }
+              },
+              "status": "valid",
+              "tables": {
+                "1998_PredInstance_FM_results.csv": {
+                  "actual_rows": 168,
+                  "differing_values": 0,
+                  "expected_rows": 168,
+                  "headers_equal": true,
+                  "status": "valid"
+                },
+                "1998_PredInstance_FM_segment_diagnostics.csv": {
+                  "actual_rows": 7976,
+                  "differing_values": 0,
+                  "expected_rows": 7976,
+                  "headers_equal": true,
+                  "status": "valid"
+                },
+                "1998_PredInstance_SAT_results.csv": {
+                  "actual_rows": 168,
+                  "differing_values": 0,
+                  "expected_rows": 168,
+                  "headers_equal": true,
+                  "status": "valid"
+                },
+                "1998_PredInstance_SAT_segment_diagnostics.csv": {
+                  "actual_rows": 6955,
+                  "differing_values": 0,
+                  "expected_rows": 6955,
+                  "headers_equal": true,
+                  "status": "valid"
+                }
+              },
+              "vectors": {
+                "1998_PredInstance_FM_tiles.geojson": {
+                  "equal": true,
+                  "features": 168
+                },
+                "1998_PredInstance_SAT_tiles.geojson": {
+                  "equal": true,
+                  "features": 168
+                }
+              }
+            },
+            "voxels": {
+              "band_count": 159,
+              "csv_raster_exact_comparison": true,
+              "domain_cells": {
+                "excluded": 276512,
+                "invalid_dtm": 0,
+                "valid": 319340
+              },
+              "grid_shape": [
+                823,
+                724
+              ],
+              "height_upper_m": 79.5,
+              "occupied_voxels": 5177470,
+              "output_sha256": {
+                "foreststructure_PredInstance_FM_results.csv": "18a4daabfd45b5a57961a31d1f550c04d8de55e165732651009312949b6ae9d3",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv": "c0a30f8a2dd0bbeffa011f9609cf15b55ba3c688e571cc48dc54f217574873d9",
+                "foreststructure_PredInstance_FM_tiles.geojson": "294dded3308a117713fcf1970fdb6356fdf23826608f098350b2f9d20050320f",
+                "foreststructure_PredInstance_SAT_results.csv": "6c3000e05f7c05167364bd252058f7b2d43f5c3e0d3dad5bcb74b270903a5900",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv": "fc7bd364d0bb9bbf77b3ad7580c32c7f76be66663b2ca5484d9589a7eb24401c",
+                "foreststructure_PredInstance_SAT_tiles.geojson": "ff9a22e5afcb230effdd3968b7b5d9dd0877413e8652f6ac96ff3cac6d9b3f52",
+                "foreststructure_aoi_conversion.json": "1d5dbdf5ce49db533c14eb600edfd2592078091e9b1d45713f41484f98b5899d",
+                "foreststructure_chm.tif": "6c0d6af5faf583ba2303a3684717c3429f5b28fa7708520bab75e01db323b5a9",
+                "foreststructure_dtm.tif": "7462bda99ca019ed3764ca73797391842bbe8dfb13ce520ceeff5e1f925f8a30",
+                "foreststructure_julia_memory_safe_run.json": "9ddc7e9e6a747cb8ce973b267bd5375d7d7600334685c93df554f6b4778ed138",
+                "foreststructure_performance.csv": "dfc5d24655b06ca779b8ba67fa8e3f5c0908f94c96acfecc08b03b757c983526",
+                "foreststructure_tiles.png": "5bd02746ef4a2f09ec41bd75c49f2078c031b06d63480c6a958da17d2fa71d55",
+                "foreststructure_voxel_counts.csv": "55681f84fca6df5fffb66fd1f17c4973f15485bda37363b30a2312d0582340ed",
+                "foreststructure_voxel_counts.json": "88188d5e50ce01d708bbd7803677834ba47191082937021895122d1bacf8fd1c",
+                "foreststructure_voxel_counts.tif": "f5fedd7dfbdafc30f19893a27779f84ee9758b988da8010bcef894678be929a8",
+                "foreststructure_voxel_counts_validity.tif": "2001fb92ccdd54c3298d6e9c93778c4abb46709426a2c33b5886cc2133a94cdb"
+              },
+              "point_accounting": {
+                "excluded_domain": 30666156,
+                "included": 115569331,
+                "invalid_dtm": 0,
+                "negative_height": 1725879,
+                "nonfinite": 0,
+                "read": 147961366
+              },
+              "source_points": 147961366,
+              "status": "valid"
+            }
+          },
+          "workers": {
+            "admission": {},
+            "configured": 1,
+            "policy": null
+          }
+        },
+        "2551": {
+          "dataset_id": 2551,
+          "evidence_sha256": {
+            "logs/analysis.log": "4b1fb10f3785ef0a1d6142a5e0085082a7362c15418ee5c003fc1810b014ec05",
+            "output/foreststructure_julia_memory_safe_run.json": "890e187268ab9edc5e2556f62c9cf9e6810af2ef4f475736f45084e11ad35f7f",
+            "output/foreststructure_performance.csv": "013f1f91111a06aa01be8831598f5bfcab0902a2f8210618e9504f550c717d09",
+            "output/foreststructure_voxel_counts.json": "00fe93dda36f8f8409659d25426ba1819ba332df9d370c0f7efd210d95a4a540",
+            "reports/analysis_resources.json": "706381f00a09a3e10bed9b80a07af9b2d917ea372e0dcc99db8de76436727076",
+            "reports/artifact_validation.json": "0fd67a7d48a487a8ad11b2413cf7bdc22c469b53da5dffc5981cca0b35e39714",
+            "reports/preflight.json": "ab2538746833bb61f0682a61d36ed3cc67cc6de40e72c5bad94938487f1db7ae",
+            "reports/science_comparison.json": "fba8df4d680aac562dfea1d3ebe5393b3f12de0643b19649ef95bc6d0363023c",
+            "reports/voxel_validation.json": "28b577b6b219abe774344ffb649a18fa397d462e282cbc5b699fabdc3feeac3e"
+          },
+          "input": {
+            "aoi_sha256": "7e4c929e19346b45fbd6cb2c7189d7ab92563152acbe05e1bf7675cf355e495b",
+            "input_bytes": 1093956560,
+            "input_sha256": "8cebe43eb4e92ed1841fb26cda026ce395ed9630cf092dce4df0141a09e518b3",
+            "instance_dimensions": [
+              "PredInstance_SAT",
+              "PredInstance_FM"
+            ],
+            "order_validation_sha256": "510f5302ecb883b3d7888734c94183334198fdf07154c59202ca1882b3ee7811",
+            "point_count": 34192851,
+            "point_order_validation": {
+              "duplicate_indexes": 0,
+              "maximum": 34192850,
+              "minimum": 0,
+              "missing_indexes": 0,
+              "out_of_range_indexes": 0,
+              "read_count": 34192851,
+              "unique_complete_range": true
+            }
+          },
+          "pipeline_stage_minutes": {
+            "chm": 1.4228666666666667,
+            "dtm": 3.040783333333333,
+            "grid": 0.004616666666666667,
+            "output": 0.003533333333333333,
+            "segment": 3.9290499999999997,
+            "tile": 0.4721,
+            "total": 9.2235,
+            "voxel_export": 0.344080828782171
+          },
+          "pipeline_stage_seconds": {
+            "chm": 85.372,
+            "dtm": 182.447,
+            "grid": 0.277,
+            "output": 0.212,
+            "segment": 235.743,
+            "tile": 28.326,
+            "total": 553.41,
+            "voxel_export": 20.64484972693026
+          },
+          "point_callback_reads": {
+            "chm": {
+              "callback_events": 5,
+              "nonempty_callbacks": 4,
+              "point_records_in_callbacks": 34192851
+            },
+            "segment": {
+              "callback_events": 10,
+              "nonempty_callbacks": 8,
+              "point_records_in_callbacks": 68385702
+            }
+          },
+          "process_peak_rss_mib": 5754.66,
+          "self_reported_scratch_peak_mib": 47.794,
+          "shared_instance_read_groups": [],
+          "stages": {
+            "analysis": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 1.0741019979784092,
+              "cgroup_peak_bytes": 6012616704,
+              "cgroup_peak_gib": 5.5996856689453125,
+              "cgroup_swap_limit_bytes": null,
+              "container_elapsed_minutes": 9.362017250000001,
+              "container_elapsed_seconds": 561.721035,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T12:28:19.110971915Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T12:18:57.389936464Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 5594,
+                "nr_throttled": 2,
+                "system_usec": 48604918,
+                "throttled_usec": 1195,
+                "usage_usec": 603345686,
+                "user_usec": 554740767
+              },
+              "cpu_seconds": 603.345686,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 75161927680,
+                "MemorySwap": 75161927680,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 50213795,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 10.179659140110015,
+              "supervisor_elapsed_seconds": 610.779548406601,
+              "swap_usage_bytes": null
+            },
+            "artifact_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.29014583130338756,
+              "cgroup_peak_bytes": 7917568,
+              "cgroup_peak_gib": 0.007373809814453125,
+              "cgroup_swap_limit_bytes": null,
+              "container_elapsed_minutes": 0.0051315,
+              "container_elapsed_seconds": 0.30789,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T12:28:29.394986171Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T12:28:29.087096947Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 2,
+                "nr_throttled": 0,
+                "system_usec": 35131,
+                "throttled_usec": 0,
+                "usage_usec": 89333,
+                "user_usec": 54202
+              },
+              "cpu_seconds": 0.089333,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 75161927680,
+                "MemorySwap": 75161927680,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.16943212350209555,
+              "supervisor_elapsed_seconds": 10.165927410125732,
+              "swap_usage_bytes": null
+            },
+            "preflight": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.8074367398767324,
+              "cgroup_peak_bytes": 1192833024,
+              "cgroup_peak_gib": 1.1109123229980469,
+              "cgroup_swap_limit_bytes": null,
+              "container_elapsed_minutes": 0.038431266666666665,
+              "container_elapsed_seconds": 2.305876,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T12:18:04.388588039Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T12:18:02.082712892Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 19,
+                "nr_throttled": 0,
+                "system_usec": 668721,
+                "throttled_usec": 0,
+                "usage_usec": 1861849,
+                "user_usec": 1193128
+              },
+              "cpu_seconds": 1.861849,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 75161927680,
+                "MemorySwap": 75161927680,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.5211025635401408,
+              "supervisor_elapsed_seconds": 31.266153812408447,
+              "swap_usage_bytes": null
+            },
+            "voxel_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.6663069356786326,
+              "cgroup_peak_bytes": 49205248,
+              "cgroup_peak_gib": 0.045825958251953125,
+              "cgroup_swap_limit_bytes": null,
+              "container_elapsed_minutes": 0.013636733333333335,
+              "container_elapsed_seconds": 0.818204,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T12:28:39.864192678Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T12:28:39.04598874Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 7,
+                "nr_throttled": 0,
+                "system_usec": 100032,
+                "throttled_usec": 0,
+                "usage_usec": 545175,
+                "user_usec": 445143
+              },
+              "cpu_seconds": 0.545175,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 75161927680,
+                "MemorySwap": 75161927680,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.2712198813756307,
+              "supervisor_elapsed_seconds": 16.273192882537842,
+              "swap_usage_bytes": null
+            }
+          },
+          "validation": {
+            "artifacts": {
+              "error_count": 0,
+              "missing_instance_dimensions": [],
+              "processed_instance_dimensions": [
+                "PredInstance_SAT",
+                "PredInstance_FM"
+              ],
+              "publish_artifacts": [
+                "foreststructure_PredInstance_FM_results.csv",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv",
+                "foreststructure_PredInstance_FM_tiles.geojson",
+                "foreststructure_PredInstance_SAT_results.csv",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv",
+                "foreststructure_PredInstance_SAT_tiles.geojson",
+                "foreststructure_aoi_conversion.json",
+                "foreststructure_chm.tif",
+                "foreststructure_dtm.tif",
+                "foreststructure_julia_memory_safe_run.json",
+                "foreststructure_performance.csv",
+                "foreststructure_tiles.png",
+                "foreststructure_voxel_counts.csv",
+                "foreststructure_voxel_counts.json",
+                "foreststructure_voxel_counts.tif",
+                "foreststructure_voxel_counts_validity.tif"
+              ],
+              "status": "valid"
+            },
+            "science": {
+              "ignored_metadata": [
+                "source filename",
+                "output-layer prefix",
+                "explicit horizontal raster CRS"
+              ],
+              "rasters": {
+                "chm": {
+                  "crs_equal": true,
+                  "differing_cells": 0,
+                  "geometry_equal": true
+                },
+                "dtm": {
+                  "crs_equal": true,
+                  "differing_cells": 0,
+                  "geometry_equal": true
+                }
+              },
+              "status": "valid",
+              "tables": {
+                "2551_PredInstance_FM_results.csv": {
+                  "actual_rows": 1,
+                  "differing_values": 0,
+                  "expected_rows": 1,
+                  "headers_equal": true,
+                  "status": "valid"
+                },
+                "2551_PredInstance_FM_segment_diagnostics.csv": {
+                  "actual_rows": 254,
+                  "differing_values": 0,
+                  "expected_rows": 254,
+                  "headers_equal": true,
+                  "status": "valid"
+                },
+                "2551_PredInstance_SAT_results.csv": {
+                  "actual_rows": 1,
+                  "differing_values": 0,
+                  "expected_rows": 1,
+                  "headers_equal": true,
+                  "status": "valid"
+                },
+                "2551_PredInstance_SAT_segment_diagnostics.csv": {
+                  "actual_rows": 145,
+                  "differing_values": 0,
+                  "expected_rows": 145,
+                  "headers_equal": true,
+                  "status": "valid"
+                }
+              },
+              "vectors": {
+                "2551_PredInstance_FM_tiles.geojson": {
+                  "equal": true,
+                  "features": 1
+                },
+                "2551_PredInstance_SAT_tiles.geojson": {
+                  "equal": true,
+                  "features": 1
+                }
+              }
+            },
+            "voxels": {
+              "band_count": 52,
+              "csv_raster_exact_comparison": true,
+              "domain_cells": {
+                "excluded": 4707,
+                "invalid_dtm": 0,
+                "valid": 5490
+              },
+              "grid_shape": [
+                99,
+                103
+              ],
+              "height_upper_m": 26.0,
+              "occupied_voxels": 105920,
+              "output_sha256": {
+                "foreststructure_PredInstance_FM_results.csv": "bddce03c17d2eca22eb8699e54891da9bbac6cb25a5268548ebfa7c0427ea15f",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv": "a39a80c48417d4411503903e86bf5299ca1e2e7b44a7f5200a9d1eb006a65a3c",
+                "foreststructure_PredInstance_FM_tiles.geojson": "56ad428cd10763bdb965df2fbe5e7f368eb81c0f23bbfdc986a27f02c3a904e0",
+                "foreststructure_PredInstance_SAT_results.csv": "af0c3d9e4927c9ace4dac3514a64bbee9e8c0178eb37a5a875ab06e99ea4bb82",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv": "fb04d4cdba03f90dfe4c7a0eb9866d20b292fd4be7ca016395586811854c3259",
+                "foreststructure_PredInstance_SAT_tiles.geojson": "5cd040ce4a85a0d84cd6f21d8b34bb22a5a9302ca4194f112c12bb43cb3b0c9f",
+                "foreststructure_aoi_conversion.json": "f1da0b70f7d74aabc7c506d2dae6e5d0b048d4f73e0979fa2d95b98319550beb",
+                "foreststructure_chm.tif": "2f51f47c4caf184c334801f2fc8b40511700a915d18ba0c4e4d6a411fe59f5bc",
+                "foreststructure_dtm.tif": "4f611639d76ab0499f09cce3b2c6f2427260e58baba8fffac8d1c32f843ed3ef",
+                "foreststructure_julia_memory_safe_run.json": "890e187268ab9edc5e2556f62c9cf9e6810af2ef4f475736f45084e11ad35f7f",
+                "foreststructure_performance.csv": "013f1f91111a06aa01be8831598f5bfcab0902a2f8210618e9504f550c717d09",
+                "foreststructure_tiles.png": "18428bc9794c6461d651b774725cf9d12a767014226ce171358b5669118bcd41",
+                "foreststructure_voxel_counts.csv": "7c69301e83ed499eacd3b80cc1162cfda1d8c2095685a6d9a05db34b43e55f4c",
+                "foreststructure_voxel_counts.json": "00fe93dda36f8f8409659d25426ba1819ba332df9d370c0f7efd210d95a4a540",
+                "foreststructure_voxel_counts.tif": "e30d0d906de27121886a102595f86adb8d23160e186e581a69c42ea4f9dda2f3",
+                "foreststructure_voxel_counts_validity.tif": "8d813ebfedfd84f7f02dce77ea18d51bb57c1ada844f606bda1667f7e740f2c2"
+              },
+              "point_accounting": {
+                "excluded_domain": 7218608,
+                "included": 25665253,
+                "invalid_dtm": 0,
+                "negative_height": 1308990,
+                "nonfinite": 0,
+                "read": 34192851
+              },
+              "source_points": 34192851,
+              "status": "valid"
+            }
+          },
+          "workers": {
+            "admission": {},
+            "configured": 1,
+            "policy": null
+          }
+        }
+      },
+      "evidence_directory": "production_other4_cc58b74_20261013",
+      "manifest_sha256": "9d96c754389248239d6931cea0e31129b303468ce5f4742df1e9a285eb5bcbd7",
+      "resources": {
+        "additional_swap": false,
+        "catalog_workers": 1,
+        "cpus": 10,
+        "effective_internal_gib": 59.5,
+        "gpu": false,
+        "hard_memory_gib": 70,
+        "network": false,
+        "requested_internal_gib": 60
+      },
+      "runtime": {
+        "base_commit": "cc58b74c7d7c18eb143b6900226521a0cbc1130f",
+        "image_id": "sha256:3bb86542fda4dfc189a88f6611c8da962b7f524edb4e1a473afe2684d5baf1e4",
+        "memory_model_bytes_per_point": null,
+        "source_overlay": false,
+        "source_snapshot_hashes_rechecked": null,
+        "source_snapshot_sha256": {
+          "src/aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+          "src/artifact_publication.R": "a32f2ab3b6ea57549f96119012c7a88da1be2fa04a43a2f188d3df7f57b8c2b2",
+          "src/catalog_scheduler.R": "c0c81023150c4499c3a299d8336032daef2fc4dd311c0685f73ff3bc11b84cd7",
+          "src/convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+          "src/production_contract.R": "8a6375ec27d172da40e45d4fc6c6358923ab126acde26d6854fb62b66be9ef2a",
+          "src/project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+          "src/raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+          "src/run.R": "a659bbaa53cf8862d37fd178bf875ede1aec152bffcb1051d7bb5433f8892a2b",
+          "src/run_julia_memory_safe.R": "56ed8d00215aa371178bc58996045a67aaef273cea957ab47c35b072a60953dc",
+          "src/tile_scheduler.R": "779dc4d47b741167c0905cc7037400edfbd1dec757472eb28e3229f77b77f715",
+          "src/voxel_counts.R": "1fe0d8782f21e513ce7f595e6b8143043c7af1a6a0348171cb007f6228991021",
+          "src/voxel_counts.py": "00cad0efddf323ce0b5130cc3c5354443eeffcec73602e6bdaf1280180118000"
+        }
+      },
+      "status": "complete"
+    },
+    "workers10": {
+      "datasets": {
+        "1998": {
+          "dataset_id": 1998,
+          "evidence_sha256": {
+            "logs/analysis.log": "a1b991e1c4dd7565d1518078276c97a65350a51cd215e2908e7eb7ab85a68e85",
+            "output/foreststructure_julia_memory_safe_run.json": "dbe3a1c3a4d204ffa4963e87898c204f39b6be696b15f450204a0071dd3e1932",
+            "output/foreststructure_performance.csv": "e53151f59506130ff2de4d036751b2a2e6adb956869f367c8a3549e806d46492",
+            "output/foreststructure_voxel_counts.json": "815a6c004037d9274beee91a6ef36a56e35581bf27957bd6bfbff2da4d25fd8d",
+            "reports/analysis_resources.json": "e07ce27798f962db8141878eb0e7610f4c3c923f10afa4f75d2805223938fad2",
+            "reports/artifact_validation.json": "097d2d6b9697e327e448358b9d0395d14644fb7ab7a4ccaab96e509bb7127eb5",
+            "reports/preflight.json": "a6e7e6d3eee13033125cfe1a266c99b77f43bf962ffb57daddd25f908935e817",
+            "reports/science_comparison.json": "5783371477845b32fcd41b105df4bc71dc6c88cc221511f60d33a8838acf15ca",
+            "reports/voxel_validation.json": "2a8a48b820c4e6ec4819c174dd18ad97fdc2e80eccfc42e0f0893d69afafb1f3"
+          },
+          "input": {
+            "aoi_sha256": "3971dbd93e9d5bc3d1a19070efcd43fa1c0549344b01e3ae7292f40c7e172d9d",
+            "input_bytes": 3910169162,
+            "input_sha256": "8dd0b73aba27f17d235c7bb7dd79d710e151f359870fd725b0b28429b0d977e8",
+            "instance_dimensions": [
+              "PredInstance_SAT",
+              "PredInstance_FM"
+            ],
+            "october_baseline_input_aoi_match": true,
+            "order_validation_sha256": "02d1e39fa946b6e2ece87914416a53ee8c3fa4e2f992c1470d990243c2eecca8",
+            "point_count": 147961366,
+            "point_order_validation": {
+              "duplicate_indexes": 0,
+              "maximum": 147961365,
+              "minimum": 0,
+              "missing_indexes": 0,
+              "out_of_range_indexes": 0,
+              "read_count": 147961366,
+              "unique_complete_range": true
+            }
+          },
+          "pipeline_stage_minutes": {
+            "chm": 2.4825,
+            "dtm": 5.272616666666667,
+            "grid": 0.04451666666666666,
+            "output": 0.03423333333333333,
+            "segment": 5.131483333333334,
+            "tile": 2.1390833333333332,
+            "total": 17.634866666666667,
+            "voxel_export": 2.523269909499989
+          },
+          "pipeline_stage_seconds": {
+            "chm": 148.95,
+            "dtm": 316.357,
+            "grid": 2.671,
+            "output": 2.054,
+            "segment": 307.889,
+            "tile": 128.345,
+            "total": 1058.092,
+            "voxel_export": 151.39619456999935
+          },
+          "point_callback_reads": {
+            "chm": {
+              "callback_events": 73,
+              "nonempty_callbacks": 51,
+              "point_records_in_callbacks": 147961366
+            },
+            "segment": {
+              "callback_events": 73,
+              "nonempty_callbacks": 51,
+              "point_records_in_callbacks": 147961366
+            }
+          },
+          "process_peak_rss_mib": 654.137,
+          "self_reported_scratch_peak_mib": 3672.439,
+          "shared_instance_read_groups": [
+            [
+              "PredInstance_SAT",
+              "PredInstance_FM"
+            ]
+          ],
+          "stages": {
+            "analysis": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 3.7376461710699624,
+              "cgroup_peak_bytes": 12248367104,
+              "cgroup_peak_gib": 11.407180786132812,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 17.847670716666666,
+              "container_elapsed_seconds": 1070.860243,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:43:54.427764131Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T16:26:03.567521441Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 10706,
+                "nr_throttled": 381,
+                "system_usec": 224733899,
+                "throttled_usec": 431774,
+                "usage_usec": 4002496687,
+                "user_usec": 3777762787
+              },
+              "cpu_seconds": 4002.496687,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 3850973437,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 18.378381661574046,
+              "supervisor_elapsed_seconds": 1102.7028996944427,
+              "swap_usage_bytes": null
+            },
+            "artifact_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.2617369987643011,
+              "cgroup_peak_bytes": 8093696,
+              "cgroup_peak_gib": 0.007537841796875,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.0058401500000000005,
+              "container_elapsed_seconds": 0.350409,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:44:30.582983618Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T16:44:30.232574063Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 2,
+                "nr_throttled": 0,
+                "system_usec": 34267,
+                "throttled_usec": 0,
+                "usage_usec": 91715,
+                "user_usec": 57448
+              },
+              "cpu_seconds": 0.091715,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.250039811929067,
+              "supervisor_elapsed_seconds": 15.002388715744019,
+              "swap_usage_bytes": null
+            },
+            "preflight": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.8511201155868653,
+              "cgroup_peak_bytes": 91385856,
+              "cgroup_peak_gib": 0.08510971069335938,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.0679662,
+              "container_elapsed_seconds": 4.077972,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:25:52.012443756Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T16:25:47.934471292Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 40,
+                "nr_throttled": 0,
+                "system_usec": 771744,
+                "throttled_usec": 0,
+                "usage_usec": 3470844,
+                "user_usec": 2699100
+              },
+              "cpu_seconds": 3.470844,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.25002578099568684,
+              "supervisor_elapsed_seconds": 15.001546859741211,
+              "swap_usage_bytes": null
+            },
+            "science_comparison": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.694857142857143,
+              "cgroup_peak_bytes": 504045568,
+              "cgroup_peak_gib": 0.46942901611328125,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.03794583333333333,
+              "container_elapsed_seconds": 2.27675,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:46:14.315160518Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T16:46:12.038410173Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 19,
+                "nr_throttled": 0,
+                "system_usec": 466246,
+                "throttled_usec": 0,
+                "usage_usec": 1582016,
+                "user_usec": 1115769
+              },
+              "cpu_seconds": 1.582016,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.7500763138135275,
+              "supervisor_elapsed_seconds": 45.004578828811646,
+              "swap_usage_bytes": null
+            },
+            "voxel_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.9783803333444793,
+              "cgroup_peak_bytes": 327118848,
+              "cgroup_peak_gib": 0.3046531677246094,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.25769438333333333,
+              "container_elapsed_seconds": 15.461663,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:45:12.378071495Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T16:44:56.916408451Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 153,
+                "nr_throttled": 0,
+                "system_usec": 331920,
+                "throttled_usec": 0,
+                "usage_usec": 15127387,
+                "user_usec": 14795466
+              },
+              "cpu_seconds": 15.127387,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 1.0000941673914592,
+              "supervisor_elapsed_seconds": 60.00565004348755,
+              "swap_usage_bytes": null
+            }
+          },
+          "validation": {
+            "artifacts": {
+              "error_count": 0,
+              "missing_instance_dimensions": [],
+              "processed_instance_dimensions": [
+                "PredInstance_SAT",
+                "PredInstance_FM"
+              ],
+              "publish_artifacts": [
+                "foreststructure_PredInstance_FM_results.csv",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv",
+                "foreststructure_PredInstance_FM_tiles.geojson",
+                "foreststructure_PredInstance_SAT_results.csv",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv",
+                "foreststructure_PredInstance_SAT_tiles.geojson",
+                "foreststructure_aoi_conversion.json",
+                "foreststructure_chm.tif",
+                "foreststructure_dtm.tif",
+                "foreststructure_julia_memory_safe_run.json",
+                "foreststructure_performance.csv",
+                "foreststructure_tiles.png",
+                "foreststructure_voxel_counts.csv",
+                "foreststructure_voxel_counts.json",
+                "foreststructure_voxel_counts.tif",
+                "foreststructure_voxel_counts_validity.tif"
+              ],
+              "status": "valid"
+            },
+            "science": {
+              "ignored_metadata": [
+                "Performance/provenance execution details",
+                "Equivalent CRS text serialization",
+                "TIFF storage encoding"
+              ],
+              "rasters": {
+                "foreststructure_chm.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 944,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 856
+                },
+                "foreststructure_dtm.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 473,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 428
+                },
+                "foreststructure_voxel_counts.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 159,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 823,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 724
+                },
+                "foreststructure_voxel_counts_validity.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 823,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 724
+                }
+              },
+              "scientific_parameters": {
+                "apex_minimum_height": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "chm_resolution": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "classify_ground_last_returns": {
+                  "actual": false,
+                  "expected": false
+                },
+                "dtm_buffer": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "dtm_chunk_size": {
+                  "actual": 60,
+                  "expected": 60
+                },
+                "dtm_resolution": {
+                  "actual": 1,
+                  "expected": 1
+                },
+                "gap_height_threshold": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "grid_search_step": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "maximum_height": {
+                  "actual": 70,
+                  "expected": 70
+                },
+                "minimum_occupied_layers": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "minimum_tree_thickness": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "minimum_tree_voxels": {
+                  "actual": 100,
+                  "expected": 100
+                },
+                "ptd_resolution": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "segment_chunk_size": {
+                  "actual": 60,
+                  "expected": 60
+                },
+                "tile_size": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "vegetation_minimum_height": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "voxel_resolution": {
+                  "actual": 0.2,
+                  "expected": 0.2
+                }
+              },
+              "status": "valid",
+              "tables": {
+                "foreststructure_PredInstance_FM_results.csv": {
+                  "actual_bytes": 41218,
+                  "actual_sha256": "18a4daabfd45b5a57961a31d1f550c04d8de55e165732651009312949b6ae9d3",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 41218,
+                  "expected_sha256": "18a4daabfd45b5a57961a31d1f550c04d8de55e165732651009312949b6ae9d3",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv": {
+                  "actual_bytes": 818528,
+                  "actual_sha256": "c0a30f8a2dd0bbeffa011f9609cf15b55ba3c688e571cc48dc54f217574873d9",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 818528,
+                  "expected_sha256": "c0a30f8a2dd0bbeffa011f9609cf15b55ba3c688e571cc48dc54f217574873d9",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_results.csv": {
+                  "actual_bytes": 41272,
+                  "actual_sha256": "6c3000e05f7c05167364bd252058f7b2d43f5c3e0d3dad5bcb74b270903a5900",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 41272,
+                  "expected_sha256": "6c3000e05f7c05167364bd252058f7b2d43f5c3e0d3dad5bcb74b270903a5900",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv": {
+                  "actual_bytes": 713450,
+                  "actual_sha256": "fc7bd364d0bb9bbf77b3ad7580c32c7f76be66663b2ca5484d9589a7eb24401c",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 713450,
+                  "expected_sha256": "fc7bd364d0bb9bbf77b3ad7580c32c7f76be66663b2ca5484d9589a7eb24401c",
+                  "status": "valid"
+                },
+                "foreststructure_voxel_counts.csv": {
+                  "actual_bytes": 176269267,
+                  "actual_sha256": "55681f84fca6df5fffb66fd1f17c4973f15485bda37363b30a2312d0582340ed",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 176269267,
+                  "expected_sha256": "55681f84fca6df5fffb66fd1f17c4973f15485bda37363b30a2312d0582340ed",
+                  "status": "valid"
+                }
+              },
+              "vectors": {
+                "foreststructure_PredInstance_FM_tiles.geojson": {
+                  "complete_structure_equal": true,
+                  "feature_count": 168,
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_tiles.geojson": {
+                  "complete_structure_equal": true,
+                  "feature_count": 168,
+                  "status": "valid"
+                }
+              },
+              "voxel_semantics": {
+                "band_bounds_formula": true,
+                "band_count": true,
+                "boundary_policy": true,
+                "chunk_points": true,
+                "domain_cells": true,
+                "grid_extent_source": true,
+                "height_interval": true,
+                "height_reference": true,
+                "metric": true,
+                "negative_height_policy": true,
+                "nodata": true,
+                "normalization": true,
+                "occupied_voxels": true,
+                "outlier_policy": true,
+                "point_accounting": true,
+                "schema_version": true,
+                "units": true,
+                "validity_mask": true,
+                "voxel_size_m": true,
+                "zero": true
+              }
+            },
+            "voxels": {
+              "band_count": 159,
+              "csv_raster_exact_comparison": true,
+              "domain_cells": {
+                "excluded": 276512,
+                "invalid_dtm": 0,
+                "valid": 319340
+              },
+              "grid_shape": [
+                823,
+                724
+              ],
+              "height_upper_m": 79.5,
+              "occupied_voxels": 5177470,
+              "output_sha256": {
+                "foreststructure_PredInstance_FM_results.csv": "18a4daabfd45b5a57961a31d1f550c04d8de55e165732651009312949b6ae9d3",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv": "c0a30f8a2dd0bbeffa011f9609cf15b55ba3c688e571cc48dc54f217574873d9",
+                "foreststructure_PredInstance_FM_tiles.geojson": "294dded3308a117713fcf1970fdb6356fdf23826608f098350b2f9d20050320f",
+                "foreststructure_PredInstance_SAT_results.csv": "6c3000e05f7c05167364bd252058f7b2d43f5c3e0d3dad5bcb74b270903a5900",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv": "fc7bd364d0bb9bbf77b3ad7580c32c7f76be66663b2ca5484d9589a7eb24401c",
+                "foreststructure_PredInstance_SAT_tiles.geojson": "ff9a22e5afcb230effdd3968b7b5d9dd0877413e8652f6ac96ff3cac6d9b3f52",
+                "foreststructure_aoi_conversion.json": "2ddf6d0480db99fc6d3e1338212d2b0904ee4d32603be42b79bac4053590935c",
+                "foreststructure_chm.tif": "6c0d6af5faf583ba2303a3684717c3429f5b28fa7708520bab75e01db323b5a9",
+                "foreststructure_dtm.tif": "7462bda99ca019ed3764ca73797391842bbe8dfb13ce520ceeff5e1f925f8a30",
+                "foreststructure_julia_memory_safe_run.json": "dbe3a1c3a4d204ffa4963e87898c204f39b6be696b15f450204a0071dd3e1932",
+                "foreststructure_performance.csv": "e53151f59506130ff2de4d036751b2a2e6adb956869f367c8a3549e806d46492",
+                "foreststructure_tiles.png": "5bd02746ef4a2f09ec41bd75c49f2078c031b06d63480c6a958da17d2fa71d55",
+                "foreststructure_voxel_counts.csv": "55681f84fca6df5fffb66fd1f17c4973f15485bda37363b30a2312d0582340ed",
+                "foreststructure_voxel_counts.json": "815a6c004037d9274beee91a6ef36a56e35581bf27957bd6bfbff2da4d25fd8d",
+                "foreststructure_voxel_counts.tif": "f5fedd7dfbdafc30f19893a27779f84ee9758b988da8010bcef894678be929a8",
+                "foreststructure_voxel_counts_validity.tif": "2001fb92ccdd54c3298d6e9c93778c4abb46709426a2c33b5886cc2133a94cdb"
+              },
+              "point_accounting": {
+                "excluded_domain": 30666156,
+                "included": 115569331,
+                "invalid_dtm": 0,
+                "negative_height": 1725879,
+                "nonfinite": 0,
+                "read": 147961366
+              },
+              "source_points": 147961366,
+              "status": "valid"
+            }
+          },
+          "workers": {
+            "admission": {
+              "CHM": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 10,
+                "maximum_reserved_bytes": 25313012224,
+                "requested_worker_caps": [
+                  10
+                ],
+                "tasks": 72,
+                "wave_count": 9,
+                "wave_elapsed_seconds": 145.222,
+                "waves_by_worker_count": {
+                  "10": 3,
+                  "5": 1,
+                  "6": 1,
+                  "7": 1,
+                  "8": 3
+                }
+              },
+              "DTM": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 10,
+                "maximum_reserved_bytes": 25498604544,
+                "requested_worker_caps": [
+                  10
+                ],
+                "tasks": 72,
+                "wave_count": 10,
+                "wave_elapsed_seconds": 312.003,
+                "waves_by_worker_count": {
+                  "10": 3,
+                  "2": 1,
+                  "4": 1,
+                  "6": 2,
+                  "7": 1,
+                  "8": 1,
+                  "9": 1
+                }
+              },
+              "segment": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 10,
+                "maximum_reserved_bytes": 25313012224,
+                "requested_worker_caps": [
+                  10
+                ],
+                "tasks": 72,
+                "wave_count": 9,
+                "wave_elapsed_seconds": 187.052,
+                "waves_by_worker_count": {
+                  "10": 3,
+                  "5": 1,
+                  "6": 1,
+                  "7": 1,
+                  "8": 3
+                }
+              },
+              "tiles": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 10,
+                "maximum_reserved_bytes": 19666506240,
+                "requested_worker_caps": [
+                  10
+                ],
+                "tasks": 168,
+                "wave_count": 17,
+                "wave_elapsed_seconds": 123.546,
+                "waves_by_worker_count": {
+                  "10": 16,
+                  "8": 1
+                }
+              }
+            },
+            "configured": 10,
+            "policy": "explicit_cap"
+          }
+        }
+      },
+      "evidence_directory": "production_parallel30_w10_20261013",
+      "manifest_sha256": "3d12a31e9575a9101af9d6bde98045cd298c84d774506e35d409b9d0ec780af1",
+      "resources": {
+        "additional_swap": false,
+        "catalog_worker_cap": 10,
+        "cpus": 10,
+        "effective_internal_gib": 25.5,
+        "gpu": false,
+        "hard_memory_gib": 30,
+        "network": false,
+        "requested_internal_gib": 30
+      },
+      "runtime": {
+        "base_commit": "33b36ab3d29ba526a7efdb0fba9864ade23850d4",
+        "image_id": "sha256:3bb86542fda4dfc189a88f6611c8da962b7f524edb4e1a473afe2684d5baf1e4",
+        "memory_model_bytes_per_point": {
+          "CHM": 512,
+          "DTM": 256,
+          "segment": 512,
+          "tiles": 512
+        },
+        "source_overlay": true,
+        "source_snapshot_hashes_rechecked": true,
+        "source_snapshot_sha256": {
+          "src/aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+          "src/artifact_publication.R": "a32f2ab3b6ea57549f96119012c7a88da1be2fa04a43a2f188d3df7f57b8c2b2",
+          "src/catalog_scheduler.R": "f4e9e929603fc41d3e0d477528444ea1d47788c0992431dc5111d7f7d67171ac",
+          "src/convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+          "src/copc_task_counts.py": "ac002b2f4ff513252b88a06d01d74521ef1a7fc68cfa78d4ec2f91c2ec4ff0f3",
+          "src/galaxy_resource_request.py": "f46ff105864c1317fe930520957136decd1735d6863a3541ee5cbe1d131f3b31",
+          "src/instance_read_groups.R": "a021e30c08d03ab0203310b35dade72686363b77f9a3122b9f5c331f31502eec",
+          "src/production_contract.R": "49a7763935999eadba98946bd99f362855d58cd83aface3f8d28b457422f8fb3",
+          "src/project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+          "src/raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+          "src/resource_scheduler.R": "4c6e9aee5c9aef6445e3fa4bf319f3c88cd707172f9919bed0c5d9a66dbd636e",
+          "src/run.R": "2deeaeda00e9b10e295383ec0310129c673d2475338ed08e5286262a52da5ab1",
+          "src/run_julia_memory_safe.R": "88c08c5e5c3f5988d11373341c035d6574932f5a914423b149f1b763f393ced0",
+          "src/tile_scheduler.R": "20165fca6f488c4f7cbf5e8e18f57d90d9f5fc5c24929eb36b96e8208705613f",
+          "src/voxel_counts.R": "1fe0d8782f21e513ce7f595e6b8143043c7af1a6a0348171cb007f6228991021",
+          "src/voxel_counts.py": "00cad0efddf323ce0b5130cc3c5354443eeffcec73602e6bdaf1280180118000"
+        }
+      },
+      "status": "complete"
+    },
+    "workers4": {
+      "datasets": {
+        "1998": {
+          "dataset_id": 1998,
+          "evidence_sha256": {
+            "logs/analysis.log": "d41a7ba7f97e7bdb81a358cd3bec07f978bbe57413188436e025be499ba95b37",
+            "output/foreststructure_julia_memory_safe_run.json": "8bf70eea55c7cc0121f6bfd8c50436524075a4cb1ac56fed02c25ea2400a1db4",
+            "output/foreststructure_performance.csv": "15774592cde815310131a004abdeba1dd5631b939046fc819c2fa4fe63ce88ed",
+            "output/foreststructure_voxel_counts.json": "4942e9a80ce1e0918ce43311ddc32b9d526b659a2a0d75a408900950cc9c7d85",
+            "reports/analysis_resources.json": "2f28060aec177ee5f785f1c305bd6150eace374aa839b01a4a086fa4bab7c6fa",
+            "reports/artifact_validation.json": "f5e99d85c803243802d52c9d42a97dffc6bab51f04a6e1bbc59788c8711bd90f",
+            "reports/preflight.json": "a6e7e6d3eee13033125cfe1a266c99b77f43bf962ffb57daddd25f908935e817",
+            "reports/science_comparison.json": "ba3a5826ba7224e72d2eecf916fc3adc2ea49cc196926e22e3c0888df1fe321e",
+            "reports/voxel_validation.json": "4fa00157d7a719eb449561624d92578d3ec0f4e920a6f74665ae941bbd77c7bf"
+          },
+          "input": {
+            "aoi_sha256": "3971dbd93e9d5bc3d1a19070efcd43fa1c0549344b01e3ae7292f40c7e172d9d",
+            "input_bytes": 3910169162,
+            "input_sha256": "8dd0b73aba27f17d235c7bb7dd79d710e151f359870fd725b0b28429b0d977e8",
+            "instance_dimensions": [
+              "PredInstance_SAT",
+              "PredInstance_FM"
+            ],
+            "october_baseline_input_aoi_match": true,
+            "order_validation_sha256": "02d1e39fa946b6e2ece87914416a53ee8c3fa4e2f992c1470d990243c2eecca8",
+            "point_count": 147961366,
+            "point_order_validation": {
+              "duplicate_indexes": 0,
+              "maximum": 147961365,
+              "minimum": 0,
+              "missing_indexes": 0,
+              "out_of_range_indexes": 0,
+              "read_count": 147961366,
+              "unique_complete_range": true
+            }
+          },
+          "pipeline_stage_minutes": {
+            "chm": 4.34755,
+            "dtm": 10.020016666666667,
+            "grid": 0.0436,
+            "output": 0.03208333333333333,
+            "segment": 7.582516666666667,
+            "tile": 4.8248,
+            "total": 29.40225,
+            "voxel_export": 2.544432341082332
+          },
+          "pipeline_stage_seconds": {
+            "chm": 260.853,
+            "dtm": 601.201,
+            "grid": 2.616,
+            "output": 1.925,
+            "segment": 454.951,
+            "tile": 289.488,
+            "total": 1764.135,
+            "voxel_export": 152.66594046493992
+          },
+          "point_callback_reads": {
+            "chm": {
+              "callback_events": 73,
+              "nonempty_callbacks": 51,
+              "point_records_in_callbacks": 147961366
+            },
+            "segment": {
+              "callback_events": 73,
+              "nonempty_callbacks": 51,
+              "point_records_in_callbacks": 147961366
+            }
+          },
+          "process_peak_rss_mib": 652.801,
+          "self_reported_scratch_peak_mib": 3672.439,
+          "shared_instance_read_groups": [
+            [
+              "PredInstance_SAT",
+              "PredInstance_FM"
+            ]
+          ],
+          "stages": {
+            "analysis": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 2.2567997907765553,
+              "cgroup_peak_bytes": 9917722624,
+              "cgroup_peak_gib": 9.23659896850586,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 29.632689316666664,
+              "container_elapsed_seconds": 1777.961359,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:20:34.642816345Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T15:50:56.681457815Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 17766,
+                "nr_throttled": 33,
+                "system_usec": 225626183,
+                "throttled_usec": 37739,
+                "usage_usec": 4012502823,
+                "user_usec": 3786876640
+              },
+              "cpu_seconds": 4012.502823,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 3850991778,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 30.819052724043527,
+              "supervisor_elapsed_seconds": 1849.1431634426117,
+              "swap_usage_bytes": null
+            },
+            "artifact_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.037452485451426085,
+              "cgroup_peak_bytes": 8155136,
+              "cgroup_peak_gib": 0.007595062255859375,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.04014998333333333,
+              "container_elapsed_seconds": 2.408999,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:21:58.3608858Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T16:21:55.951886495Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 2,
+                "nr_throttled": 0,
+                "system_usec": 28384,
+                "throttled_usec": 0,
+                "usage_usec": 90223,
+                "user_usec": 61838
+              },
+              "cpu_seconds": 0.090223,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.833405876159668,
+              "supervisor_elapsed_seconds": 50.00435256958008,
+              "swap_usage_bytes": null
+            },
+            "preflight": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.8547311005566859,
+              "cgroup_peak_bytes": 4010356736,
+              "cgroup_peak_gib": 3.734935760498047,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.09135013333333333,
+              "container_elapsed_seconds": 5.481008,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T15:50:39.332206338Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T15:50:33.851198073Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 52,
+                "nr_throttled": 0,
+                "system_usec": 1991464,
+                "throttled_usec": 0,
+                "usage_usec": 4684788,
+                "user_usec": 2693324
+              },
+              "cpu_seconds": 4.684788,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.25004242261250814,
+              "supervisor_elapsed_seconds": 15.002545356750488,
+              "swap_usage_bytes": null
+            },
+            "science_comparison": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.6867700197863612,
+              "cgroup_peak_bytes": 504569856,
+              "cgroup_peak_gib": 0.46991729736328125,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.03955586666666667,
+              "container_elapsed_seconds": 2.373352,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:24:53.053283522Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T16:24:50.67993151Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 18,
+                "nr_throttled": 0,
+                "system_usec": 502983,
+                "throttled_usec": 0,
+                "usage_usec": 1629947,
+                "user_usec": 1126963
+              },
+              "cpu_seconds": 1.629947,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.5000560879707336,
+              "supervisor_elapsed_seconds": 30.00336527824402,
+              "swap_usage_bytes": null
+            },
+            "voxel_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.40921239886943883,
+              "cgroup_peak_bytes": 327049216,
+              "cgroup_peak_gib": 0.30458831787109375,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.6355192333333334,
+              "container_elapsed_seconds": 38.131154,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T16:23:59.580039406Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T16:23:21.448885552Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 160,
+                "nr_throttled": 0,
+                "system_usec": 340841,
+                "throttled_usec": 0,
+                "usage_usec": 15603741,
+                "user_usec": 15262899
+              },
+              "cpu_seconds": 15.603741,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 2.0001681367556254,
+              "supervisor_elapsed_seconds": 120.01008820533752,
+              "swap_usage_bytes": null
+            }
+          },
+          "validation": {
+            "artifacts": {
+              "error_count": 0,
+              "missing_instance_dimensions": [],
+              "processed_instance_dimensions": [
+                "PredInstance_SAT",
+                "PredInstance_FM"
+              ],
+              "publish_artifacts": [
+                "foreststructure_PredInstance_FM_results.csv",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv",
+                "foreststructure_PredInstance_FM_tiles.geojson",
+                "foreststructure_PredInstance_SAT_results.csv",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv",
+                "foreststructure_PredInstance_SAT_tiles.geojson",
+                "foreststructure_aoi_conversion.json",
+                "foreststructure_chm.tif",
+                "foreststructure_dtm.tif",
+                "foreststructure_julia_memory_safe_run.json",
+                "foreststructure_performance.csv",
+                "foreststructure_tiles.png",
+                "foreststructure_voxel_counts.csv",
+                "foreststructure_voxel_counts.json",
+                "foreststructure_voxel_counts.tif",
+                "foreststructure_voxel_counts_validity.tif"
+              ],
+              "status": "valid"
+            },
+            "science": {
+              "ignored_metadata": [
+                "Performance/provenance execution details",
+                "Equivalent CRS text serialization",
+                "TIFF storage encoding"
+              ],
+              "rasters": {
+                "foreststructure_chm.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 944,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 856
+                },
+                "foreststructure_dtm.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 473,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 428
+                },
+                "foreststructure_voxel_counts.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 159,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 823,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 724
+                },
+                "foreststructure_voxel_counts_validity.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 823,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 724
+                }
+              },
+              "scientific_parameters": {
+                "apex_minimum_height": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "chm_resolution": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "classify_ground_last_returns": {
+                  "actual": false,
+                  "expected": false
+                },
+                "dtm_buffer": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "dtm_chunk_size": {
+                  "actual": 60,
+                  "expected": 60
+                },
+                "dtm_resolution": {
+                  "actual": 1,
+                  "expected": 1
+                },
+                "gap_height_threshold": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "grid_search_step": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "maximum_height": {
+                  "actual": 70,
+                  "expected": 70
+                },
+                "minimum_occupied_layers": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "minimum_tree_thickness": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "minimum_tree_voxels": {
+                  "actual": 100,
+                  "expected": 100
+                },
+                "ptd_resolution": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "segment_chunk_size": {
+                  "actual": 60,
+                  "expected": 60
+                },
+                "tile_size": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "vegetation_minimum_height": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "voxel_resolution": {
+                  "actual": 0.2,
+                  "expected": 0.2
+                }
+              },
+              "status": "valid",
+              "tables": {
+                "foreststructure_PredInstance_FM_results.csv": {
+                  "actual_bytes": 41218,
+                  "actual_sha256": "18a4daabfd45b5a57961a31d1f550c04d8de55e165732651009312949b6ae9d3",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 41218,
+                  "expected_sha256": "18a4daabfd45b5a57961a31d1f550c04d8de55e165732651009312949b6ae9d3",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv": {
+                  "actual_bytes": 818528,
+                  "actual_sha256": "c0a30f8a2dd0bbeffa011f9609cf15b55ba3c688e571cc48dc54f217574873d9",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 818528,
+                  "expected_sha256": "c0a30f8a2dd0bbeffa011f9609cf15b55ba3c688e571cc48dc54f217574873d9",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_results.csv": {
+                  "actual_bytes": 41272,
+                  "actual_sha256": "6c3000e05f7c05167364bd252058f7b2d43f5c3e0d3dad5bcb74b270903a5900",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 41272,
+                  "expected_sha256": "6c3000e05f7c05167364bd252058f7b2d43f5c3e0d3dad5bcb74b270903a5900",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv": {
+                  "actual_bytes": 713450,
+                  "actual_sha256": "fc7bd364d0bb9bbf77b3ad7580c32c7f76be66663b2ca5484d9589a7eb24401c",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 713450,
+                  "expected_sha256": "fc7bd364d0bb9bbf77b3ad7580c32c7f76be66663b2ca5484d9589a7eb24401c",
+                  "status": "valid"
+                },
+                "foreststructure_voxel_counts.csv": {
+                  "actual_bytes": 176269267,
+                  "actual_sha256": "55681f84fca6df5fffb66fd1f17c4973f15485bda37363b30a2312d0582340ed",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 176269267,
+                  "expected_sha256": "55681f84fca6df5fffb66fd1f17c4973f15485bda37363b30a2312d0582340ed",
+                  "status": "valid"
+                }
+              },
+              "vectors": {
+                "foreststructure_PredInstance_FM_tiles.geojson": {
+                  "complete_structure_equal": true,
+                  "feature_count": 168,
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_tiles.geojson": {
+                  "complete_structure_equal": true,
+                  "feature_count": 168,
+                  "status": "valid"
+                }
+              },
+              "voxel_semantics": {
+                "band_bounds_formula": true,
+                "band_count": true,
+                "boundary_policy": true,
+                "chunk_points": true,
+                "domain_cells": true,
+                "grid_extent_source": true,
+                "height_interval": true,
+                "height_reference": true,
+                "metric": true,
+                "negative_height_policy": true,
+                "nodata": true,
+                "normalization": true,
+                "occupied_voxels": true,
+                "outlier_policy": true,
+                "point_accounting": true,
+                "schema_version": true,
+                "units": true,
+                "validity_mask": true,
+                "voxel_size_m": true,
+                "zero": true
+              }
+            },
+            "voxels": {
+              "band_count": 159,
+              "csv_raster_exact_comparison": true,
+              "domain_cells": {
+                "excluded": 276512,
+                "invalid_dtm": 0,
+                "valid": 319340
+              },
+              "grid_shape": [
+                823,
+                724
+              ],
+              "height_upper_m": 79.5,
+              "occupied_voxels": 5177470,
+              "output_sha256": {
+                "foreststructure_PredInstance_FM_results.csv": "18a4daabfd45b5a57961a31d1f550c04d8de55e165732651009312949b6ae9d3",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv": "c0a30f8a2dd0bbeffa011f9609cf15b55ba3c688e571cc48dc54f217574873d9",
+                "foreststructure_PredInstance_FM_tiles.geojson": "294dded3308a117713fcf1970fdb6356fdf23826608f098350b2f9d20050320f",
+                "foreststructure_PredInstance_SAT_results.csv": "6c3000e05f7c05167364bd252058f7b2d43f5c3e0d3dad5bcb74b270903a5900",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv": "fc7bd364d0bb9bbf77b3ad7580c32c7f76be66663b2ca5484d9589a7eb24401c",
+                "foreststructure_PredInstance_SAT_tiles.geojson": "ff9a22e5afcb230effdd3968b7b5d9dd0877413e8652f6ac96ff3cac6d9b3f52",
+                "foreststructure_aoi_conversion.json": "43d3adb6eefc1aa23da55346cd3fedf4fafb33a127cafec24503df4fe142c821",
+                "foreststructure_chm.tif": "6c0d6af5faf583ba2303a3684717c3429f5b28fa7708520bab75e01db323b5a9",
+                "foreststructure_dtm.tif": "7462bda99ca019ed3764ca73797391842bbe8dfb13ce520ceeff5e1f925f8a30",
+                "foreststructure_julia_memory_safe_run.json": "8bf70eea55c7cc0121f6bfd8c50436524075a4cb1ac56fed02c25ea2400a1db4",
+                "foreststructure_performance.csv": "15774592cde815310131a004abdeba1dd5631b939046fc819c2fa4fe63ce88ed",
+                "foreststructure_tiles.png": "5bd02746ef4a2f09ec41bd75c49f2078c031b06d63480c6a958da17d2fa71d55",
+                "foreststructure_voxel_counts.csv": "55681f84fca6df5fffb66fd1f17c4973f15485bda37363b30a2312d0582340ed",
+                "foreststructure_voxel_counts.json": "4942e9a80ce1e0918ce43311ddc32b9d526b659a2a0d75a408900950cc9c7d85",
+                "foreststructure_voxel_counts.tif": "f5fedd7dfbdafc30f19893a27779f84ee9758b988da8010bcef894678be929a8",
+                "foreststructure_voxel_counts_validity.tif": "2001fb92ccdd54c3298d6e9c93778c4abb46709426a2c33b5886cc2133a94cdb"
+              },
+              "point_accounting": {
+                "excluded_domain": 30666156,
+                "included": 115569331,
+                "invalid_dtm": 0,
+                "negative_height": 1725879,
+                "nonfinite": 0,
+                "read": 147961366
+              },
+              "source_points": 147961366,
+              "status": "valid"
+            }
+          },
+          "workers": {
+            "admission": {
+              "CHM": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 4,
+                "maximum_reserved_bytes": 18613609984,
+                "requested_worker_caps": [
+                  4
+                ],
+                "tasks": 72,
+                "wave_count": 18,
+                "wave_elapsed_seconds": 254.654,
+                "waves_by_worker_count": {
+                  "4": 18
+                }
+              },
+              "DTM": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 4,
+                "maximum_reserved_bytes": 26230878720,
+                "requested_worker_caps": [
+                  4
+                ],
+                "tasks": 72,
+                "wave_count": 21,
+                "wave_elapsed_seconds": 593.846,
+                "waves_by_worker_count": {
+                  "2": 5,
+                  "3": 2,
+                  "4": 14
+                }
+              },
+              "segment": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 4,
+                "maximum_reserved_bytes": 18613609984,
+                "requested_worker_caps": [
+                  4
+                ],
+                "tasks": 72,
+                "wave_count": 18,
+                "wave_elapsed_seconds": 331.73,
+                "waves_by_worker_count": {
+                  "4": 18
+                }
+              },
+              "tiles": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 4,
+                "maximum_reserved_bytes": 9192608256,
+                "requested_worker_caps": [
+                  4
+                ],
+                "tasks": 168,
+                "wave_count": 42,
+                "wave_elapsed_seconds": 277.914,
+                "waves_by_worker_count": {
+                  "4": 42
+                }
+              }
+            },
+            "configured": 4,
+            "policy": "explicit_cap"
+          }
+        },
+        "2551": {
+          "dataset_id": 2551,
+          "evidence_sha256": {
+            "logs/analysis.log": "136b669ee83608f4fe87387a12872a2067cbc69f75239a40abb24025a57a0a29",
+            "output/foreststructure_julia_memory_safe_run.json": "98a51735136a0e0d7a882c0e1c787e91a72d8aa35716dce6cef0196c239ec7f9",
+            "output/foreststructure_performance.csv": "1416e45c898ead4fd4f377be3189a527044ba38780cff29c8b1dc5d4367d07b3",
+            "output/foreststructure_voxel_counts.json": "295128b2516807b53fe12314a810c2af66bef539edb866ef079b9e1fe8992f2a",
+            "reports/analysis_resources.json": "a35b2731312215ab9b081f7643190245d4cf08f3c923d37c991ee23cbe572e92",
+            "reports/artifact_validation.json": "156095fbda37f3911c9f9a6e3013ff050384bb60250a530f5c05957fcbde40e6",
+            "reports/preflight.json": "d3e7e62ebefbe69d625a26e816964ccf73c49e9d246f4b13299ab0fcc85372ba",
+            "reports/science_comparison.json": "8073d07c3bd5e7865947a8c45744f00ce08937d2db35fbfc7b841a845e9467bf",
+            "reports/voxel_validation.json": "91c5a362198b5cb940ef7155b9e8f2fee5ad261a9f348c1b81b0c6bb3b3ecd0e"
+          },
+          "input": {
+            "aoi_sha256": "7e4c929e19346b45fbd6cb2c7189d7ab92563152acbe05e1bf7675cf355e495b",
+            "input_bytes": 1093956560,
+            "input_sha256": "8cebe43eb4e92ed1841fb26cda026ce395ed9630cf092dce4df0141a09e518b3",
+            "instance_dimensions": [
+              "PredInstance_SAT",
+              "PredInstance_FM"
+            ],
+            "october_baseline_input_aoi_match": true,
+            "order_validation_sha256": "510f5302ecb883b3d7888734c94183334198fdf07154c59202ca1882b3ee7811",
+            "point_count": 34192851,
+            "point_order_validation": {
+              "duplicate_indexes": 0,
+              "maximum": 34192850,
+              "minimum": 0,
+              "missing_indexes": 0,
+              "out_of_range_indexes": 0,
+              "read_count": 34192851,
+              "unique_complete_range": true
+            }
+          },
+          "pipeline_stage_minutes": {
+            "chm": 1.01695,
+            "dtm": 2.5284166666666668,
+            "grid": 0.004816666666666666,
+            "output": 0.008266666666666667,
+            "segment": 2.083,
+            "tile": 0.48558333333333337,
+            "total": 6.485816666666667,
+            "voxel_export": 0.35243640721697983
+          },
+          "pipeline_stage_seconds": {
+            "chm": 61.017,
+            "dtm": 151.705,
+            "grid": 0.289,
+            "output": 0.496,
+            "segment": 124.98,
+            "tile": 29.135,
+            "total": 389.149,
+            "voxel_export": 21.14618443301879
+          },
+          "point_callback_reads": {
+            "chm": {
+              "callback_events": 5,
+              "nonempty_callbacks": 4,
+              "point_records_in_callbacks": 34192851
+            },
+            "segment": {
+              "callback_events": 5,
+              "nonempty_callbacks": 4,
+              "point_records_in_callbacks": 34192851
+            }
+          },
+          "process_peak_rss_mib": 3659.953,
+          "self_reported_scratch_peak_mib": 93.65,
+          "shared_instance_read_groups": [
+            [
+              "PredInstance_SAT",
+              "PredInstance_FM"
+            ]
+          ],
+          "stages": {
+            "analysis": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 1.356159377822569,
+              "cgroup_peak_bytes": 7480496128,
+              "cgroup_peak_gib": 6.966754913330078,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 6.5930260333333335,
+              "container_elapsed_seconds": 395.581562,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T15:50:03.782445796Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T15:43:28.20088352Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 3955,
+                "nr_throttled": 1,
+                "system_usec": 48947595,
+                "throttled_usec": 630,
+                "usage_usec": 536471645,
+                "user_usec": 487524050
+              },
+              "cpu_seconds": 536.471645,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 98303616,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 6.753205994764964,
+              "supervisor_elapsed_seconds": 405.1923596858978,
+              "swap_usage_bytes": null
+            },
+            "artifact_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.19042808411383869,
+              "cgroup_peak_bytes": 8241152,
+              "cgroup_peak_gib": 0.0076751708984375,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.00876035,
+              "container_elapsed_seconds": 0.525621,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T15:50:13.867578319Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T15:50:13.341957477Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 3,
+                "nr_throttled": 0,
+                "system_usec": 45496,
+                "throttled_usec": 0,
+                "usage_usec": 100093,
+                "user_usec": 54596
+              },
+              "cpu_seconds": 0.100093,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.1666926940282186,
+              "supervisor_elapsed_seconds": 10.001561641693115,
+              "swap_usage_bytes": null
+            },
+            "preflight": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.8176341007795577,
+              "cgroup_peak_bytes": 1195819008,
+              "cgroup_peak_gib": 1.1136932373046875,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.04091636666666667,
+              "container_elapsed_seconds": 2.454982,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T15:43:20.371504529Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T15:43:17.916522713Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 23,
+                "nr_throttled": 0,
+                "system_usec": 787246,
+                "throttled_usec": 0,
+                "usage_usec": 2007277,
+                "user_usec": 1220031
+              },
+              "cpu_seconds": 2.007277,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.16668819189071654,
+              "supervisor_elapsed_seconds": 10.001291513442993,
+              "swap_usage_bytes": null
+            },
+            "science_comparison": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.3762251496365968,
+              "cgroup_peak_bytes": 52240384,
+              "cgroup_peak_gib": 0.04865264892578125,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.012474666666666667,
+              "container_elapsed_seconds": 0.74848,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T15:50:29.434288764Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T15:50:28.685808426Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 4,
+                "nr_throttled": 0,
+                "system_usec": 85877,
+                "throttled_usec": 0,
+                "usage_usec": 281597,
+                "user_usec": 195720
+              },
+              "cpu_seconds": 0.281597,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.08336313168207804,
+              "supervisor_elapsed_seconds": 5.001787900924683,
+              "swap_usage_bytes": null
+            },
+            "voxel_validation": {
+              "additional_swap_disabled": true,
+              "average_cpu_cores": 0.7307452750366923,
+              "cgroup_peak_bytes": 51933184,
+              "cgroup_peak_gib": 0.048366546630859375,
+              "cgroup_swap_limit_bytes": 0.0,
+              "container_elapsed_minutes": 0.01313855,
+              "container_elapsed_seconds": 0.788313,
+              "container_state": {
+                "ExitCode": 0,
+                "FinishedAt": "2026-10-13T15:50:23.49665457Z",
+                "OOMKilled": false,
+                "StartedAt": "2026-10-13T15:50:22.708341096Z"
+              },
+              "cpu_counters": {
+                "burst_usec": 0,
+                "core_sched.force_idle_usec": 0,
+                "nr_bursts": 0,
+                "nr_periods": 7,
+                "nr_throttled": 0,
+                "system_usec": 91532,
+                "throttled_usec": 0,
+                "usage_usec": 576056,
+                "user_usec": 484524
+              },
+              "cpu_seconds": 0.576056,
+              "enforced_limits": {
+                "DeviceRequests": null,
+                "Memory": 32212254720,
+                "MemorySwap": 32212254720,
+                "NanoCpus": 10000000000,
+                "NetworkMode": "none"
+              },
+              "memory_events": {
+                "high": 0,
+                "low": 0,
+                "max": 0,
+                "oom": 0,
+                "oom_group_kill": 0,
+                "oom_kill": 0
+              },
+              "sampled_scratch_peak_bytes": 0,
+              "status": "valid",
+              "supervisor_elapsed_minutes": 0.08336389859517415,
+              "supervisor_elapsed_seconds": 5.001833915710449,
+              "swap_usage_bytes": null
+            }
+          },
+          "validation": {
+            "artifacts": {
+              "error_count": 0,
+              "missing_instance_dimensions": [],
+              "processed_instance_dimensions": [
+                "PredInstance_SAT",
+                "PredInstance_FM"
+              ],
+              "publish_artifacts": [
+                "foreststructure_PredInstance_FM_results.csv",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv",
+                "foreststructure_PredInstance_FM_tiles.geojson",
+                "foreststructure_PredInstance_SAT_results.csv",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv",
+                "foreststructure_PredInstance_SAT_tiles.geojson",
+                "foreststructure_aoi_conversion.json",
+                "foreststructure_chm.tif",
+                "foreststructure_dtm.tif",
+                "foreststructure_julia_memory_safe_run.json",
+                "foreststructure_performance.csv",
+                "foreststructure_tiles.png",
+                "foreststructure_voxel_counts.csv",
+                "foreststructure_voxel_counts.json",
+                "foreststructure_voxel_counts.tif",
+                "foreststructure_voxel_counts_validity.tif"
+              ],
+              "status": "valid"
+            },
+            "science": {
+              "ignored_metadata": [
+                "Performance/provenance execution details",
+                "Equivalent CRS text serialization",
+                "TIFF storage encoding"
+              ],
+              "rasters": {
+                "foreststructure_chm.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 112,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 116
+                },
+                "foreststructure_dtm.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 57,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 59
+                },
+                "foreststructure_voxel_counts.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 52,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 99,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 103
+                },
+                "foreststructure_voxel_counts_validity.tif": {
+                  "band_metadata_equal": true,
+                  "bands": 1,
+                  "dataset_metadata_equal": true,
+                  "differing_cells": 0,
+                  "differing_mask_cells": 0,
+                  "geometry_equal": true,
+                  "height": 99,
+                  "semantic_crs_equal": true,
+                  "status": "valid",
+                  "width": 103
+                }
+              },
+              "scientific_parameters": {
+                "apex_minimum_height": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "chm_resolution": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "classify_ground_last_returns": {
+                  "actual": false,
+                  "expected": false
+                },
+                "dtm_buffer": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "dtm_chunk_size": {
+                  "actual": 60,
+                  "expected": 60
+                },
+                "dtm_resolution": {
+                  "actual": 1,
+                  "expected": 1
+                },
+                "gap_height_threshold": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "grid_search_step": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "maximum_height": {
+                  "actual": 70,
+                  "expected": 70
+                },
+                "minimum_occupied_layers": {
+                  "actual": 3,
+                  "expected": 3
+                },
+                "minimum_tree_thickness": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "minimum_tree_voxels": {
+                  "actual": 100,
+                  "expected": 100
+                },
+                "ptd_resolution": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "segment_chunk_size": {
+                  "actual": 60,
+                  "expected": 60
+                },
+                "tile_size": {
+                  "actual": 20,
+                  "expected": 20
+                },
+                "vegetation_minimum_height": {
+                  "actual": 0.5,
+                  "expected": 0.5
+                },
+                "voxel_resolution": {
+                  "actual": 0.2,
+                  "expected": 0.2
+                }
+              },
+              "status": "valid",
+              "tables": {
+                "foreststructure_PredInstance_FM_results.csv": {
+                  "actual_bytes": 689,
+                  "actual_sha256": "bddce03c17d2eca22eb8699e54891da9bbac6cb25a5268548ebfa7c0427ea15f",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 689,
+                  "expected_sha256": "bddce03c17d2eca22eb8699e54891da9bbac6cb25a5268548ebfa7c0427ea15f",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv": {
+                  "actual_bytes": 25588,
+                  "actual_sha256": "a39a80c48417d4411503903e86bf5299ca1e2e7b44a7f5200a9d1eb006a65a3c",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 25588,
+                  "expected_sha256": "a39a80c48417d4411503903e86bf5299ca1e2e7b44a7f5200a9d1eb006a65a3c",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_results.csv": {
+                  "actual_bytes": 687,
+                  "actual_sha256": "af0c3d9e4927c9ace4dac3514a64bbee9e8c0178eb37a5a875ab06e99ea4bb82",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 687,
+                  "expected_sha256": "af0c3d9e4927c9ace4dac3514a64bbee9e8c0178eb37a5a875ab06e99ea4bb82",
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv": {
+                  "actual_bytes": 14713,
+                  "actual_sha256": "fb04d4cdba03f90dfe4c7a0eb9866d20b292fd4be7ca016395586811854c3259",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 14713,
+                  "expected_sha256": "fb04d4cdba03f90dfe4c7a0eb9866d20b292fd4be7ca016395586811854c3259",
+                  "status": "valid"
+                },
+                "foreststructure_voxel_counts.csv": {
+                  "actual_bytes": 3621837,
+                  "actual_sha256": "7c69301e83ed499eacd3b80cc1162cfda1d8c2095685a6d9a05db34b43e55f4c",
+                  "exact_bytes_equal": true,
+                  "expected_bytes": 3621837,
+                  "expected_sha256": "7c69301e83ed499eacd3b80cc1162cfda1d8c2095685a6d9a05db34b43e55f4c",
+                  "status": "valid"
+                }
+              },
+              "vectors": {
+                "foreststructure_PredInstance_FM_tiles.geojson": {
+                  "complete_structure_equal": true,
+                  "feature_count": 1,
+                  "status": "valid"
+                },
+                "foreststructure_PredInstance_SAT_tiles.geojson": {
+                  "complete_structure_equal": true,
+                  "feature_count": 1,
+                  "status": "valid"
+                }
+              },
+              "voxel_semantics": {
+                "band_bounds_formula": true,
+                "band_count": true,
+                "boundary_policy": true,
+                "chunk_points": true,
+                "domain_cells": true,
+                "grid_extent_source": true,
+                "height_interval": true,
+                "height_reference": true,
+                "metric": true,
+                "negative_height_policy": true,
+                "nodata": true,
+                "normalization": true,
+                "occupied_voxels": true,
+                "outlier_policy": true,
+                "point_accounting": true,
+                "schema_version": true,
+                "units": true,
+                "validity_mask": true,
+                "voxel_size_m": true,
+                "zero": true
+              }
+            },
+            "voxels": {
+              "band_count": 52,
+              "csv_raster_exact_comparison": true,
+              "domain_cells": {
+                "excluded": 4707,
+                "invalid_dtm": 0,
+                "valid": 5490
+              },
+              "grid_shape": [
+                99,
+                103
+              ],
+              "height_upper_m": 26.0,
+              "occupied_voxels": 105920,
+              "output_sha256": {
+                "foreststructure_PredInstance_FM_results.csv": "bddce03c17d2eca22eb8699e54891da9bbac6cb25a5268548ebfa7c0427ea15f",
+                "foreststructure_PredInstance_FM_segment_diagnostics.csv": "a39a80c48417d4411503903e86bf5299ca1e2e7b44a7f5200a9d1eb006a65a3c",
+                "foreststructure_PredInstance_FM_tiles.geojson": "56ad428cd10763bdb965df2fbe5e7f368eb81c0f23bbfdc986a27f02c3a904e0",
+                "foreststructure_PredInstance_SAT_results.csv": "af0c3d9e4927c9ace4dac3514a64bbee9e8c0178eb37a5a875ab06e99ea4bb82",
+                "foreststructure_PredInstance_SAT_segment_diagnostics.csv": "fb04d4cdba03f90dfe4c7a0eb9866d20b292fd4be7ca016395586811854c3259",
+                "foreststructure_PredInstance_SAT_tiles.geojson": "5cd040ce4a85a0d84cd6f21d8b34bb22a5a9302ca4194f112c12bb43cb3b0c9f",
+                "foreststructure_aoi_conversion.json": "ec90b96f4c7d80056203ebc6258299d739b2b53024de6047ece0900f3f6b227b",
+                "foreststructure_chm.tif": "2f51f47c4caf184c334801f2fc8b40511700a915d18ba0c4e4d6a411fe59f5bc",
+                "foreststructure_dtm.tif": "4f611639d76ab0499f09cce3b2c6f2427260e58baba8fffac8d1c32f843ed3ef",
+                "foreststructure_julia_memory_safe_run.json": "98a51735136a0e0d7a882c0e1c787e91a72d8aa35716dce6cef0196c239ec7f9",
+                "foreststructure_performance.csv": "1416e45c898ead4fd4f377be3189a527044ba38780cff29c8b1dc5d4367d07b3",
+                "foreststructure_tiles.png": "18428bc9794c6461d651b774725cf9d12a767014226ce171358b5669118bcd41",
+                "foreststructure_voxel_counts.csv": "7c69301e83ed499eacd3b80cc1162cfda1d8c2095685a6d9a05db34b43e55f4c",
+                "foreststructure_voxel_counts.json": "295128b2516807b53fe12314a810c2af66bef539edb866ef079b9e1fe8992f2a",
+                "foreststructure_voxel_counts.tif": "e30d0d906de27121886a102595f86adb8d23160e186e581a69c42ea4f9dda2f3",
+                "foreststructure_voxel_counts_validity.tif": "8d813ebfedfd84f7f02dce77ea18d51bb57c1ada844f606bda1667f7e740f2c2"
+              },
+              "point_accounting": {
+                "excluded_domain": 7218608,
+                "included": 25665253,
+                "invalid_dtm": 0,
+                "negative_height": 1308990,
+                "nonfinite": 0,
+                "read": 34192851
+              },
+              "source_points": 34192851,
+              "status": "valid"
+            }
+          },
+          "workers": {
+            "admission": {
+              "CHM": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 4,
+                "maximum_reserved_bytes": 23481742336,
+                "requested_worker_caps": [
+                  4
+                ],
+                "tasks": 4,
+                "wave_count": 1,
+                "wave_elapsed_seconds": 59.997,
+                "waves_by_worker_count": {
+                  "4": 1
+                }
+              },
+              "DTM": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 2,
+                "maximum_reserved_bytes": 24252163072,
+                "requested_worker_caps": [
+                  4
+                ],
+                "tasks": 4,
+                "wave_count": 3,
+                "wave_elapsed_seconds": 149.70999999999998,
+                "waves_by_worker_count": {
+                  "1": 2,
+                  "2": 1
+                }
+              },
+              "segment": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 4,
+                "maximum_reserved_bytes": 23481742336,
+                "requested_worker_caps": [
+                  4
+                ],
+                "tasks": 4,
+                "wave_count": 1,
+                "wave_elapsed_seconds": 70.885,
+                "waves_by_worker_count": {
+                  "4": 1
+                }
+              },
+              "tiles": {
+                "all_wave_reservations_within_budget": true,
+                "estimate_modes": [
+                  "copc_hierarchy"
+                ],
+                "maximum_admitted_workers": 1,
+                "maximum_reserved_bytes": 7907125760,
+                "requested_worker_caps": [
+                  1
+                ],
+                "tasks": 1,
+                "wave_count": 1,
+                "wave_elapsed_seconds": 28.899,
+                "waves_by_worker_count": {
+                  "1": 1
+                }
+              }
+            },
+            "configured": 4,
+            "policy": "explicit_cap"
+          }
+        }
+      },
+      "evidence_directory": "production_parallel30_20261013",
+      "manifest_sha256": "9ccbb4992ae52c04f4aefceacce692f247ae70a4471c395e0d75079c6039366f",
+      "resources": {
+        "additional_swap": false,
+        "catalog_worker_cap": 4,
+        "cpus": 10,
+        "effective_internal_gib": 25.5,
+        "gpu": false,
+        "hard_memory_gib": 30,
+        "network": false,
+        "requested_internal_gib": 30
+      },
+      "runtime": {
+        "base_commit": "cc58b74c7d7c18eb143b6900226521a0cbc1130f",
+        "image_id": "sha256:3bb86542fda4dfc189a88f6611c8da962b7f524edb4e1a473afe2684d5baf1e4",
+        "memory_model_bytes_per_point": {
+          "CHM": 512,
+          "DTM": 512,
+          "segment": 512,
+          "tiles": 512
+        },
+        "source_overlay": true,
+        "source_snapshot_hashes_rechecked": true,
+        "source_snapshot_sha256": {
+          "src/aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+          "src/artifact_publication.R": "a32f2ab3b6ea57549f96119012c7a88da1be2fa04a43a2f188d3df7f57b8c2b2",
+          "src/catalog_scheduler.R": "f4e9e929603fc41d3e0d477528444ea1d47788c0992431dc5111d7f7d67171ac",
+          "src/convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+          "src/copc_task_counts.py": "323bb1b68ef70b727d1cba36fc850b33bc67f59c3e9dcbcc9759a9dc89104c35",
+          "src/instance_read_groups.R": "a021e30c08d03ab0203310b35dade72686363b77f9a3122b9f5c331f31502eec",
+          "src/production_contract.R": "8a6375ec27d172da40e45d4fc6c6358923ab126acde26d6854fb62b66be9ef2a",
+          "src/project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+          "src/raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+          "src/resource_scheduler.R": "bac0c8aacce19e0be924f331e01271ee85e4461fcd0e7d3a56e5432fd1630367",
+          "src/run.R": "2deeaeda00e9b10e295383ec0310129c673d2475338ed08e5286262a52da5ab1",
+          "src/run_julia_memory_safe.R": "663af29794d8909a3943c61b8390fa764669c02b300cc5f0eaf03a4f0dfc8d51",
+          "src/tile_scheduler.R": "20165fca6f488c4f7cbf5e8e18f57d90d9f5fc5c24929eb36b96e8208705613f",
+          "src/voxel_counts.R": "1fe0d8782f21e513ce7f595e6b8143043c7af1a6a0348171cb007f6228991021",
+          "src/voxel_counts.py": "00cad0efddf323ce0b5130cc3c5354443eeffcec73602e6bdaf1280180118000"
+        }
+      },
+      "status": "complete"
+    }
+  },
+  "schema_version": 1,
+  "size_dependent_galaxy_policy": {
+    "deployment_status": "Policy and TPV example tested locally; not installed in a production Galaxy destination",
+    "maximum_cpus": 10,
+    "maximum_memory_decimal_gb": 100,
+    "policy": "merged-copc-size-2026-10-13",
+    "qualification": "Boundary/unit/expression tests passed. The complete tier policy is not benchmarked end to end. Real candidate benchmarks use 30 GiB, not the 30 decimal GB tier.",
+    "runtime_headroom_fraction": 0.15,
+    "size_basis": "single merged COPC, recorded compressed bytes",
+    "tiers": [
+      {
+        "cpus": 8,
+        "maximum_input_bytes": 1000000000,
+        "memory_mib": 28610
+      },
+      {
+        "cpus": 10,
+        "maximum_input_bytes": 5000000000,
+        "memory_mib": 28610
+      },
+      {
+        "cpus": 10,
+        "maximum_input_bytes": 10000000000,
+        "memory_mib": 57220
+      },
+      {
+        "cpus": 10,
+        "maximum_input_bytes": null,
+        "memory_mib": 95367
+      }
+    ]
+  },
+  "status": "complete",
+  "synthetic_auto10_validation": {
+    "cases": {
+      "aoi": {
+        "maximum_admitted_workers": 10,
+        "scientific_artifact_comparisons": 14,
+        "shared_instance_read_groups": 1,
+        "status": "valid",
+        "workers": 10
+      },
+      "full": {
+        "maximum_admitted_workers": 10,
+        "scientific_artifact_comparisons": 14,
+        "shared_instance_read_groups": 1,
+        "status": "valid",
+        "workers": 10
+      }
+    },
+    "comparison": "Exact CSV bytes, complete GeoJSON and raster cells/metadata; no numeric tolerance",
+    "evidence_sha256": {
+      "comparison.json": "62efd2b22338af93fab7424b23ec06c38aacda7158bc285fa0fe3014ea62360d",
+      "runtime.json": "e06002bae7ad95a0c691389719bed46692bc4c2e2211301c103a4bf8f8cc1895"
+    },
+    "input_sha256": "6d8ed657720423ad92e7fde87e551abb5dd7a14b2fffa300ec58dcd592ac7874",
+    "point_count": 54724,
+    "runtime": {
+      "additional_swap": false,
+      "baseline_image": "sha256:3bb86542fda4dfc189a88f6611c8da962b7f524edb4e1a473afe2684d5baf1e4",
+      "candidate_source_sha256": {
+        "aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+        "artifact_publication.R": "a32f2ab3b6ea57549f96119012c7a88da1be2fa04a43a2f188d3df7f57b8c2b2",
+        "catalog_scheduler.R": "f4e9e929603fc41d3e0d477528444ea1d47788c0992431dc5111d7f7d67171ac",
+        "convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+        "copc_task_counts.py": "ac002b2f4ff513252b88a06d01d74521ef1a7fc68cfa78d4ec2f91c2ec4ff0f3",
+        "instance_read_groups.R": "a021e30c08d03ab0203310b35dade72686363b77f9a3122b9f5c331f31502eec",
+        "production_contract.R": "49a7763935999eadba98946bd99f362855d58cd83aface3f8d28b457422f8fb3",
+        "project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+        "raster_crs.py": "bff04eec93cbb2339921ad3b678302e1639575b4ce67dba0d314cf5a2e896012",
+        "resource_scheduler.R": "4c6e9aee5c9aef6445e3fa4bf319f3c88cd707172f9919bed0c5d9a66dbd636e",
+        "run.R": "2deeaeda00e9b10e295383ec0310129c673d2475338ed08e5286262a52da5ab1",
+        "run_julia_memory_safe.R": "88c08c5e5c3f5988d11373341c035d6574932f5a914423b149f1b763f393ced0",
+        "tile_scheduler.R": "20165fca6f488c4f7cbf5e8e18f57d90d9f5fc5c24929eb36b96e8208705613f",
+        "voxel_counts.R": "1fe0d8782f21e513ce7f595e6b8143043c7af1a6a0348171cb007f6228991021",
+        "voxel_counts.py": "00cad0efddf323ce0b5130cc3c5354443eeffcec73602e6bdaf1280180118000"
+      },
+      "cpus": 10,
+      "gpu": false,
+      "internal_memory_gib": 25.5,
+      "memory_bytes": 32212254720,
+      "network": "none",
+      "target_chunk_points": 5000,
+      "voxel_batch_points": 250000,
+      "worker_environment": "unset"
+    },
+    "status": "valid"
+  },
+  "validation_supplement": [
+    {
+      "result": "15 tests passed",
+      "scope": "COPC hierarchy and legacy LAS header regression tests"
+    },
+    {
+      "result": "6 tests passed",
+      "scope": "Merged-COPC allocation policy boundaries, units, caps, invalid inputs and TPV expressions"
+    },
+    {
+      "result": "passed",
+      "scope": "Aggregate memory admission, changing headroom, worker failure, dense 1805 estimate and cgroup cache accounting"
+    },
+    {
+      "result": "passed",
+      "scope": "Galaxy allocation above 70 GiB, tighter limits, maximum 10 CPUs, 100 decimal GB ceiling and unlimited cgroup-v1 fallback"
+    },
+    {
+      "result": "passed",
+      "scope": "Shared instance reads, empty dimensions and exact adaptive CHM geometry"
+    },
+    {
+      "result": "exact scientific agreement",
+      "scope": "Synthetic full extent and AOI differential at workers 1, 2, 4 and automatic 10"
+    },
+    {
+      "result": "all applicable lanes passed; no fresh dependency resolution",
+      "scope": "Container release gate on pinned runtime, followed by final-source focused tests"
+    }
+  ]
+}

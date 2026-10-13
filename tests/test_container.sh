@@ -86,7 +86,7 @@ docker run --rm --network none \
   /generated/aoi_with_exclusion.gpkg
 
 help_path="${results_dir}/help.txt"
-docker run --rm --network none "${docker_limits[@]}" "${image_name}" --help > "${help_path}"
+docker run --rm --network none "${docker_limits[@]}" --entrypoint Rscript "${image_name}" /opt/foreststructure/run.R --help > "${help_path}"
 for expected_help in \
   "Optional GeoJSON or GeoPackage Audit AOI" \
   "omitted, tiles cover the complete" \
@@ -127,7 +127,9 @@ run_failure_case() {
     --volume "${repo_dir}/tests/fixtures:/fixtures:ro" \
     --volume "${input_dir}:/in:ro" \
     --volume "${output_dir}:/out:${output_mode}" \
+    --entrypoint Rscript \
     "${image_name}" \
+    /opt/foreststructure/run.R \
     --point-cloud "${point_cloud_path}" \
     --aoi "${aoi_path}" \
     --dataset-id "${dataset_id}" \
@@ -189,7 +191,9 @@ run_case() {
     --volume "${repo_dir}/tests/fixtures:/fixtures:ro" \
     --volume "${input_dir}:/in:ro" \
     --volume "${output_dir}:/out" \
+    --entrypoint Rscript \
     "${image_name}" \
+    /opt/foreststructure/run.R \
     --point-cloud "${point_cloud_path}" \
     "${aoi_arguments[@]}" \
     --dataset-id "${dataset_id}" \
@@ -238,3 +242,7 @@ docker run --rm --network none \
   --volume "${results_dir}:/results:ro" \
   "${image_name}" \
   /tests/verify_rasters.R /results /inputs/point_cloud.laz
+
+# Also test the production entry point that is published by the default image.
+FORESTSTRUCTURE_SKIP_BUILD=1 FORESTSTRUCTURE_JULIA_IMAGE="${image_name}" \
+  bash "${repo_dir}/tests/test_julia_memory_safe.sh"

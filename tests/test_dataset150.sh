@@ -44,7 +44,9 @@ docker run --rm --network none \
   --volume "${point_cloud}:/in/$(basename "${point_cloud}"):ro" \
   --volume "${fixture_dir}:/fixtures:ro" \
   --volume "${output_dir}:/out" \
+  --entrypoint Rscript \
   "${image_name}" \
+  /opt/foreststructure/run.R \
   --point-cloud "/in/$(basename "${point_cloud}")" \
   --aoi /fixtures/150_upstream_tiles.geojson \
   --dataset-id 150 \

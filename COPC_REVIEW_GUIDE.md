@@ -139,9 +139,17 @@ to its geometry and scientific instance value without assuming physical order.
 
 - Accepts canonical `.copc.laz` as the actual scientific input.
 - Rejects COPC without `OriginalPointIndex`.
-- Requires the order key and requested instance dimensions within lidR's first
-  nine ExtraBytes, preserving selective spatial streaming.
-- Skips LAX creation for COPC because COPC already carries a spatial hierarchy.
+- Reads directly from COPC when the order key and requested instance dimensions
+  are within lidR's first nine ExtraBytes. Otherwise it reuses the bounded,
+  verified projection helper to create one compact indexed scratch LAZ, retaining
+  the original order key and selected IDs. The pinned COPC reader truncates extras
+  after nine even with selector `0`; a wildcard is not a valid workaround.
+- Skips LAX creation for direct COPC. The high-ordinal fallback requires a LAX
+  beside its scratch projection. Voxel counts always read the original source.
+- Uses an optional AOI, otherwise the full-extent footprint; exports voxel counts
+  unconditionally; defaults to the `foreststructure` output prefix. Galaxy owns
+  CPU/memory allocation and job directories. Explicit missing instance selections
+  fail, and auto discovery requires at least one supported instance field.
 - Optionally validates an original LAS/LAZ companion by header count and bounds.
 - Records COPC use, order restoration, selectors, and companion validation in
   the run provenance JSON.

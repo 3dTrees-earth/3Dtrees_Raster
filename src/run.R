@@ -3119,7 +3119,8 @@ run_analysis <- function(parameters) {
     point_cloud_xy_bounds(parameters$point_cloud),
     parameters$chunk_size,
     parameter_or(parameters, "target_chunk_points", 0),
-    grepl("\\.copc\\.laz$", parameters$point_cloud, ignore.case = TRUE)
+    parameter_or(parameters, "adaptive_spatial_input",
+      grepl("\\.copc\\.laz$", parameters$point_cloud, ignore.case = TRUE))
   )
   parameters$effective_chunk_size <- parameters$adaptive_chunking$chunk_size_m
   message(sprintf(

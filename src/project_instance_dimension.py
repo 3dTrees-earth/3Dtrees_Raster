@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stream an XYZ + one ExtraByte LAZ projection and verify ordered values."""
+"""Stream a compact XYZ/ExtraByte LAZ projection and verify ordered values."""
 
 from __future__ import annotations
 
@@ -37,18 +37,20 @@ def extra_params(dimension) -> laspy.ExtraBytesParams:
         kwargs["scales"] = dimension.scales
     if dimension.offsets is not None:
         kwargs["offsets"] = dimension.offsets
+    if dimension.no_data is not None:
+        kwargs["no_data"] = dimension.no_data
     return laspy.ExtraBytesParams(**kwargs)
 
 
-def crs_text(header: laspy.LasHeader) -> str | None:
-    crs = header.parse_crs()
-    return None if crs is None else crs.to_wkt()
+def stored_bounds(header: laspy.LasHeader, bounds: np.ndarray) -> np.ndarray:
+    """Compare bounds on the stored lattice, allowing writer rounding noise."""
+    return np.rint((bounds - header.offsets) / header.scales)
 
 
 def stream_projection(
     source_path: pathlib.Path,
     output_path: pathlib.Path,
-    dimension_name: str,
+    dimension_name: str | list[str],
     chunk_points: int,
 ) -> dict[str, object]:
     source_digest = hashlib.sha256()
@@ -56,7 +58,10 @@ def stream_projection(
 
     with laspy.open(source_path) as source:
         source_header = source.header
-        dimension = extra_dimension(source_header, dimension_name)
+        names = [dimension_name] if isinstance(dimension_name, str) else dimension_name
+        if not names or len(names) != len(set(names)):
+            raise ValueError("projection requires unique dimension names")
+        dimensions = [extra_dimension(source_header, name) for name in names]
         output_header = laspy.LasHeader(
             point_format=0,
             version=str(source_header.version),
@@ -66,8 +71,9 @@ def stream_projection(
         output_header.generating_software = "3dtrees-foreststructure-julia-memory-safe"
         source_crs = source_header.parse_crs()
         if source_crs is not None:
-            output_header.add_crs(source_crs)
-        output_header.add_extra_dim(extra_params(dimension))
+            output_header.add_crs(source_crs, keep_compatibility=False)
+        for dimension in dimensions:
+            output_header.add_extra_dim(extra_params(dimension))
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
@@ -92,12 +98,13 @@ def stream_projection(
                     projected.X = points.X
                     projected.Y = points.Y
                     projected.Z = points.Z
-                    projected.array[dimension_name] = points.array[dimension_name]
+                    for name in names:
+                        projected.array[name] = points.array[name]
                     for values in (
                         points.X,
                         points.Y,
                         points.Z,
-                        points.array[dimension_name],
+                        *(points.array[name] for name in names),
                     ):
                         update_hash(source_digest, values)
                     writer.write_points(projected)
@@ -108,7 +115,7 @@ def stream_projection(
                         points.X,
                         points.Y,
                         points.Z,
-                        points.array[dimension_name],
+                        *(points.array[name] for name in names),
                     ):
                         update_hash(projected_digest, values)
                 projected_header = projected_source.header
@@ -121,15 +128,15 @@ def stream_projection(
                 raise RuntimeError("XYZ scales differ after projection")
             if not np.array_equal(source_header.offsets, projected_header.offsets):
                 raise RuntimeError("XYZ offsets differ after projection")
-            if not np.array_equal(source_header.mins, projected_header.mins):
+            if not np.array_equal(stored_bounds(source_header, source_header.mins),
+                                  stored_bounds(projected_header, projected_header.mins)):
                 raise RuntimeError("XYZ minimum bounds differ after projection")
-            if not np.array_equal(source_header.maxs, projected_header.maxs):
+            if not np.array_equal(stored_bounds(source_header, source_header.maxs),
+                                  stored_bounds(projected_header, projected_header.maxs)):
                 raise RuntimeError("XYZ maximum bounds differ after projection")
-            if crs_text(source_header) != crs_text(projected_header):
+            if source_header.parse_crs() != projected_header.parse_crs():
                 raise RuntimeError("CRS differs after projection")
-            if [item.name for item in projected_header.point_format.extra_dimensions] != [
-                dimension_name
-            ]:
+            if [item.name for item in projected_header.point_format.extra_dimensions] != names:
                 raise RuntimeError("projection contains an unexpected ExtraByte set")
             os.replace(temporary_path, output_path)
         except BaseException:
@@ -139,15 +146,20 @@ def stream_projection(
     return {
         "source": str(source_path.resolve()),
         "projection": str(output_path.resolve()),
-        "dimension": dimension_name,
+        "dimension": names[0] if len(names) == 1 else names,
         "source_ordinal": [
             item.name for item in source_header.point_format.extra_dimensions
-        ].index(dimension_name)
+        ].index(names[0])
         + 1,
-        "source_datatype": str(dimension.dtype),
+        "source_datatype": str(dimensions[0].dtype),
+        "source_ordinals": {
+            name: list(source_header.point_format.extra_dimension_names).index(name) + 1
+            for name in names
+        },
+        "chunk_points": chunk_points,
         "point_count": source_header.point_count,
         "xyz_instance_ordered_sha256": source_digest.hexdigest(),
-        "projection_selector": "xyz1",
+        "projection_selector": "xyz" + "".join(str(i + 1) for i in range(len(names))),
     }
 
 
@@ -155,8 +167,8 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--source", required=True, type=pathlib.Path)
     parser.add_argument("--output", required=True, type=pathlib.Path)
-    parser.add_argument("--dimension", required=True)
-    parser.add_argument("--chunk-points", type=int, default=1_000_000)
+    parser.add_argument("--dimension", required=True, action="append")
+    parser.add_argument("--chunk-points", type=int, default=250_000)
     return parser.parse_args()
 
 

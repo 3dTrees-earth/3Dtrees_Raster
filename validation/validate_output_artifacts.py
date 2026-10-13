@@ -34,7 +34,7 @@ def as_list(value: Any) -> list[Any]:
     return [value]
 
 
-def expected_artifact_names(dataset_id: int, processed: list[str], voxel_counts: bool = False) -> set[str]:
+def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_counts: bool = False) -> set[str]:
     """Return the exact scientific and provenance artifact contract."""
 
     names = {
@@ -59,7 +59,7 @@ def expected_artifact_names(dataset_id: int, processed: list[str], voxel_counts:
     return names
 
 
-def allowed_gdal_sidecar_names(dataset_id: int) -> set[str]:
+def allowed_gdal_sidecar_names(dataset_id: int | str) -> set[str]:
     """Return only the known non-scientific DTM/CHM PAM filenames."""
 
     return {
@@ -69,7 +69,7 @@ def allowed_gdal_sidecar_names(dataset_id: int) -> set[str]:
     }
 
 
-def validate_output_directory(dataset_id: int, output: Path) -> dict[str, Any]:
+def validate_output_directory(dataset_id: int | str, output: Path) -> dict[str, Any]:
     """Return a machine-readable artifact validation report."""
 
     errors: list[str] = []
@@ -149,7 +149,7 @@ def write_report(report: dict[str, Any], path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("dataset_id", type=int)
+    parser.add_argument("dataset_id", help="Output prefix: foreststructure, or a legacy dataset ID")
     parser.add_argument("output_directory", type=Path)
     parser.add_argument("--report", type=Path)
     arguments = parser.parse_args()

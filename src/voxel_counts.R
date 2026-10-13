@@ -6,9 +6,10 @@ voxel_count_paths <- function(directory, dataset_id) {
        metadata = paste0(prefix, ".json"), mask = paste0(prefix, "_validity.tif"))
 }
 
-add_voxel_count_arguments <- function(parser) {
-  parser$add_argument("--export-voxel-counts", action = "store_true", default = FALSE,
-                      help = "Export full-source 0.5 m point counts as CSV and GeoTIFF")
+add_voxel_count_arguments <- function(parser, mandatory = FALSE) {
+  parser$add_argument("--export-voxel-counts", action = "store_true", default = mandatory,
+                      help = if (mandatory) "Already enabled; accepted for compatibility" else
+                        "Export full-source 0.5 m point counts as CSV and GeoTIFF")
   parser$add_argument("--voxel-count-chunk-points", type = "integer", default = 250000L,
                       help = "Maximum source records per voxel-count batch (default: 250000)")
 }
@@ -36,9 +37,10 @@ write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
   usable_path <- file.path(work_directory, "voxel_usable.gpkg")
   sf::st_write(sf::st_sf(geometry = aoi$usable), usable_path, quiet = TRUE)
   config <- list(
-    point_cloud = parameters$point_cloud, dtm = dtm_path, aoi = usable_path,
+    point_cloud = parameter_or(parameters, "voxel_point_cloud", parameters$point_cloud),
+    dtm = dtm_path, aoi = usable_path,
     temp_dir = work_directory, paths = paths, chunk_points = chunk_points,
-    source_name = basename(parameters$point_cloud),
+    source_name = basename(parameter_or(parameters, "voxel_point_cloud", parameters$point_cloud)),
     source_sha256 = parameter_or(parameters, "point_cloud_sha256", NULL),
     memory_available_gib = available
   )

@@ -1,0 +1,104 @@
+{
+  "baseline_commit": "94213020cbaac80fa8ba373842369d08aba1f9df",
+  "baseline_image": "sha256:ac2987eb5a24a9d2ed30dc3a8b4d51f938a5aac2710da0497eed7298338041bf",
+  "candidate_image": "sha256:27deaa36e6a1badcbf8bcadec8e9ec22d7ab0bfd6c2bbaac9647ea528b86fb73",
+  "runtime": "Candidate sources over the unchanged validated scientific image; fresh dependency resolution was not tested.",
+  "fixture_points": 13681,
+  "source_attribute_positions": {
+    "PredInstance": 15,
+    "PredInstance_SAT": 16,
+    "PredInstance_FM": 17,
+    "OriginalPointIndex": 18
+  },
+  "science_comparison": {
+    "comparisons": 28,
+    "csv_and_raster_bytes": "identical",
+    "geojson": "identical after the required 150 to foreststructure layer-name change"
+  },
+  "cases": {
+    "full": {
+      "status": "valid",
+      "footprint": "point_cloud_extent",
+      "reader": "indexed LAZ projection",
+      "point_accounting": {
+        "read": 13681,
+        "nonfinite": 0,
+        "excluded_domain": 82,
+        "invalid_dtm": 40,
+        "negative_height": 0,
+        "included": 13559
+      },
+      "memory_budget_gib": 3.4,
+      "threads": 2,
+      "target_points": 500
+    },
+    "aoi": {
+      "status": "valid",
+      "footprint": "audit_aoi",
+      "reader": "COPC",
+      "point_accounting": {
+        "read": 13681,
+        "nonfinite": 0,
+        "excluded_domain": 82,
+        "invalid_dtm": 40,
+        "negative_height": 0,
+        "included": 13559
+      },
+      "memory_budget_gib": 3.4,
+      "threads": 2,
+      "target_points": 50000000
+    },
+    "narrow": {
+      "status": "valid",
+      "footprint": "audit_aoi",
+      "reader": "indexed LAZ projection",
+      "point_accounting": {
+        "read": 13681,
+        "nonfinite": 0,
+        "excluded_domain": 13545,
+        "invalid_dtm": 0,
+        "negative_height": 0,
+        "included": 136
+      },
+      "memory_budget_gib": 3.4,
+      "threads": 2,
+      "target_points": 50000000
+    },
+    "missing_requested_field": {
+      "status": "rejected before analysis",
+      "message": "missing requested instance dimension(s): PredInstance_FM"
+    },
+    "no_supported_fields": {
+      "status": "rejected before analysis"
+    }
+  },
+  "additional_checks": {
+    "voxel_regressions": 11,
+    "artifact_validator_regressions": 4,
+    "resource_and_publication_regressions": "passed",
+    "plain_laz_projection_and_rerun_cli": "passed",
+    "runtime_source_byte_equality": "11 R/Python source files match",
+    "container_release_gate": "passed"
+  },
+  "limits": {
+    "cpus": 2,
+    "hard_memory_gib": 4,
+    "additional_swap_gib": 0,
+    "network": "none",
+    "gpu": false
+  },
+  "production_integration": "Galaxy allocation environment exercised locally; Galaxy server wrapper installation and image publication not performed.",
+  "source_sha256": {
+    "src/aoi_conversion.R": "e960b17ef995092156504db80bdaeaf01f4a261cb0288a16b54b0e4ab93e6025",
+    "src/artifact_publication.R": "a32f2ab3b6ea57549f96119012c7a88da1be2fa04a43a2f188d3df7f57b8c2b2",
+    "src/catalog_scheduler.R": "c0c81023150c4499c3a299d8336032daef2fc4dd311c0685f73ff3bc11b84cd7",
+    "src/convert_aoi.R": "dae8663636a938f0b79cc69943f660edc5e13747ddbb6e6d65be18abe33cfc22",
+    "src/production_contract.R": "8a6375ec27d172da40e45d4fc6c6358923ab126acde26d6854fb62b66be9ef2a",
+    "src/project_instance_dimension.py": "ebdd34206e1a17644352100ec031bae4310d2e35123ebf9d111a42f348b7eead",
+    "src/run.R": "1fd6e8334356b14e57963a05ced804c6135ed99ff17ee4ebab20267fbf9f0f08",
+    "src/run_julia_memory_safe.R": "f547fd84a98366b7c35e3fdeb2abaa55bc2df8c8e0140f71ee0ae1abe285a979",
+    "src/tile_scheduler.R": "779dc4d47b741167c0905cc7037400edfbd1dec757472eb28e3229f77b77f715",
+    "src/voxel_counts.R": "b53649009c25e24ec3873373cdb2bbfab5f4d9a12119b4f43d069159ae1f8718",
+    "src/voxel_counts.py": "98dcc382d956093786cb0cb8c7aeaa6ce646ef8228d6d557b5b4a004dc15c67f"
+  }
+}

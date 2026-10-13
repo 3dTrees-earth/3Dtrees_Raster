@@ -26,6 +26,15 @@ test-julia-memory-safe:
 	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
 	bash tests/test_julia_memory_safe.sh
 
+.PHONY: test-production-contract
+test-production-contract:
+	docker run --rm --network none --cpus 2 --memory 1g --memory-swap 1g \
+		--entrypoint Rscript --volume "$(CURDIR)/src:/opt/foreststructure:ro" \
+		--volume "$(CURDIR)/tests:/tests:ro" "$(JULIA_MEMORY_SAFE_IMAGE)" \
+		/tests/test_production_contract.R
+	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
+		bash tests/test_production_contract.sh
+
 test-original-companion-crs-fallback:
 	docker run --rm --network none \
 		--entrypoint Rscript \

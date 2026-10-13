@@ -4,7 +4,7 @@ suppressPackageStartupMessages({
 })
 
 sha256_file <- function(path) {
-  output <- system2("sha256sum", path, stdout = TRUE, stderr = TRUE)
+  output <- system2("sha256sum", shQuote(path), stdout = TRUE, stderr = TRUE)
   status <- attr(output, "status")
   if (!is.null(status) && status != 0L) {
     stop(sprintf("cannot hash %s: %s", path, paste(output, collapse = " ")))

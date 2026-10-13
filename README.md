@@ -81,7 +81,6 @@ docker run --rm --network none \
   --point-cloud /in/original.copc.laz \
   --original-point-cloud /in/original.laz \
   --aoi-geojson /in/aoi.geojson \
-  --dataset-id 150 \
   --output-dir /out \
   --temp-dir /work \
   --memory-budget-gib 25 \
@@ -94,6 +93,46 @@ Extrema are compared on each header's coordinate lattice because original writer
 can retain pre-quantization bounds. This lightweight check is not identity proof: the
 preparation validator must still verify complete point indices and fingerprints.
 Plain LAS/LAZ input is also supported directly.
+
+### Galaxy production contract
+
+Galaxy supplies one full-resolution COPC and optionally an Audit AOI in that
+COPC's metric XY coordinate system. The COPC must retain `OriginalPointIndex`
+and at least one supported instance dimension; SmartTile supplies global IDs.
+An AOI restricts the analysis domain. Without it, the runner reuses the existing
+coordinate-lattice-snapped full-extent footprint. Neither mode subsamples points.
+DTM generation and the established scientific defaults remain unchanged.
+
+`GALAXY_SLOTS` supplies the CPU allowance; `GALAXY_MEMORY_MB` supplies the job RAM
+allocation in MiB. The runner uses the smaller declared/container memory limit
+and reserves 15% headroom, subject to the existing 60 GiB default internal cap.
+An explicit internal budget may lower it (maximum request 70 GiB). Container
+CPU quotas also cap threads. `FORESTSTRUCTURE_THREADS` remains an operator cap;
+without a declared CPU allowance or quota, the safe default is one thread.
+`FORESTSTRUCTURE_CATALOG_WORKERS` defaults to one; the job destination can set a
+measured higher value within the CPU allowance. It is not a user-facing parameter.
+
+The output directory defaults to the Galaxy job working directory and scratch
+to `TMPDIR` (or R's private temp directory). A wrapper may supply `--output-dir`
+and `--temp-dir` explicitly. Stage a Galaxy dataset under an `input.copc.laz`
+symlink because this runner identifies COPC mode from that extension. Never write
+beside Galaxy's original input. No dataset ID, CPU, RAM, scratch path or voxel
+export toggle belongs in the Galaxy user form. Galaxy must enforce its job CPU,
+RAM and scratch allocations; internal estimates are not hard OS limits.
+
+```bash
+# Within a job with GALAXY_SLOTS, GALAXY_MEMORY_MB and TMPDIR assigned by Galaxy:
+Rscript /opt/foreststructure/run_julia_memory_safe.R \
+  --point-cloud input.copc.laz
+# Optionally add --aoi-geojson aoi.geojson and --instance-dimension PredInstance_SAT.
+```
+
+The container entry point already invokes that script. Both Dockerfiles now use the production runner as their default entry point.
+The production container and Galaxy wrapper still need to be released/installed
+together; these source changes do not deploy a server tool. Validate integration with
+`make test-production-contract JULIA_MEMORY_SAFE_IMAGE=<validated-baseline-image>`.
+This compares candidate sources against the pinned baseline, including 15th-field
+IDs, a late order key, AOI/full-extent equivalence and mandatory voxel products.
 
 ### Catalog and tile concurrency
 
@@ -195,8 +234,22 @@ Supported instance dimensions are:
 - `PredInstance_SAT`
 - `PredInstance_FM`
 
-Missing dimensions are skipped. Available dimensions are processed
-independently so their segment IDs and results cannot mix.
+The production runner discovers available supported dimensions when no selection
+is supplied. An explicit selection is strict: any missing or unsupported field
+fails before analysis. No supported instance fields also fails. SmartTile owns
+global instance-ID assignment; ForestStructure never renumbers or fabricates IDs.
+Available dimensions are processed independently so their results cannot mix.
+
+Instance fields may occur anywhere in the ExtraBytes schema, including position
+15. The pinned rlas COPC reader can only load the first nine extras, even with
+its all-fields selector. When a required field lies beyond nine, the production
+runner reuses the bounded, hash-verified projection helper once to create a
+compact scratch LAZ with XYZ, OriginalPointIndex and the selected instance fields.
+It builds a LAX spatial index and uses the same adaptive spatial windows and
+source-order restoration. This costs an additional full-source read, verification
+read and scratch storage. Normal low-ordinal COPCs retain their direct fast path.
+The mandatory voxel-count pass always reads the full original COPC, including
+all duplicates, rather than a reduced or subsampled source.
 
 ## Inputs and outputs
 
@@ -205,6 +258,10 @@ not reprojected. The GeoJSON-to-GeoPackage round trip must preserve topology,
 exact XY vertices, and exact bounds. An absolute area difference of at most
 `1e-6` square coordinate units is allowed solely for floating-point summation
 noise. Without an AOI, the full point-cloud extent is tiled.
+
+Production outputs use the fixed prefix `foreststructure`; no dataset ID is
+required. The legacy `--dataset-id` option remains only to replay old validation
+commands and is not a Galaxy input. Below, `<dataset>` denotes this output prefix.
 
 For each available instance dimension, the run writes:
 
@@ -326,7 +383,9 @@ diagnostics, tile GeoJSON, DTM cells, and CHM cells.
 
 ## Full-resolution voxel point-count export
 
-Add `--export-voxel-counts` to either runner. The optional
+The production (`run_julia_memory_safe.R`) runner always exports voxel counts;
+there is no opt-out. `--export-voxel-counts` remains accepted for old invocations.
+The legacy `run.R` entry point retains its opt-in flag. The optional
 `--voxel-count-chunk-points` (default 250,000) bounds the number of source records
 per count batch; the memory-safe runner lowers it further to fit its remaining
 memory allowance. Existing index/CHM filters and output schemas are unchanged.
@@ -375,7 +434,8 @@ available memory or conservative uncompressed output-space estimate is exceeded.
 These estimates are not a substitute for a container memory limit.
 
 A source with no eligible points emits a headers-only CSV and one zero/NoData
-band for 0–0.5 m. Missing or non-metric CRS fails this optional export explicitly.
+band for 0–0.5 m. Missing or non-metric CRS fails the export explicitly, and therefore fails a
+production run.
 
 Zero means no eligible recorded points, not absence of vegetation or proof of
 laser sampling. Invalid/excluded cells use UInt32 NoData `4294967295` in every

@@ -44,7 +44,9 @@ run_case() {
     --user "$(id -u):$(id -g)" \
     --volume "${fixture_dir}:/in:ro" \
     --volume "${output_dir}:/out" \
+    --entrypoint Rscript \
     "${image_name}" \
+    /opt/foreststructure/run.R \
     --point-cloud "/in/${name}.laz" \
     --aoi "/in/${name}.geojson" \
     --dataset-id "${dataset_id}" \

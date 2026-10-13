@@ -10,7 +10,7 @@ mkdir -p "${test_root}/input" "${test_root}/output" "${test_root}/work"
 if [[ "${FORESTSTRUCTURE_SKIP_BUILD:-0}" != "1" ]]; then
   docker build --file "${repo_dir}/Dockerfile.julia-memory-safe" --tag "${image_name}" "${repo_dir}"
 fi
-docker run --rm --network none --user "$(id -u):$(id -g)" --entrypoint Rscript --volume "${repo_dir}/tests:/tests:ro" --volume "${test_root}/input:/generated" "${image_name}" /tests/generate_julia_memory_safe_fixture.R /generated/high_ordinal.laz /generated/aoi.geojson
+docker run --rm --network none --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 --user "$(id -u):$(id -g)" --entrypoint Rscript --volume "${repo_dir}/tests:/tests:ro" --volume "${test_root}/input:/generated" "${image_name}" /tests/generate_julia_memory_safe_fixture.R /generated/high_ordinal.laz /generated/aoi.geojson
 
 run_candidate() {
   local bucket_count="${1:-64}"
@@ -41,7 +41,7 @@ test -z "$(find "${test_root}/work" -mindepth 1 -print -quit)"
 run_candidate 256 NA NA 70 2>&1 | tee "${test_root}/second.log"
 grep -q 'Validated and promoted' "${test_root}/second.log"
 jq -e '.segment_bucket_count == 256' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
-jq -e '.memory_budget_gib == 70' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
+jq -e '.memory_budget_gib == 3.4' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 
 failure_output="${test_root}/failure_output"
 failure_work="${test_root}/failure_work"

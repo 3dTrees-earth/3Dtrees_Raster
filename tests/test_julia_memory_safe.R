@@ -34,21 +34,11 @@ stopifnot(
     JULIA_MEMORY_SAFE_SEGMENT_SELECTION
   ) == "xyz1"
 )
-beyond_nine <- tryCatch(
-  {
-    segment_selection_from_names(
-      c(paste0("extra_", 1:9), "PredInstance"),
-      "PredInstance",
-      JULIA_MEMORY_SAFE_SEGMENT_SELECTION
-    )
-    FALSE
-  },
-  error = function(error) grepl(
-    "requires a verified streaming projection",
-    conditionMessage(error),
-    fixed = TRUE
-  )
-)
+beyond_nine <- tryCatch({
+  segment_selection_from_names(c(paste0("extra_", 1:14), "PredInstance"),
+    "PredInstance", JULIA_MEMORY_SAFE_SEGMENT_SELECTION)
+  FALSE
+}, error = function(e) grepl("verified streaming projection", conditionMessage(e)))
 stopifnot(beyond_nine)
 
 dtm_body <- paste(deparse(body(dtm_chunk)), collapse = "\n")

@@ -22,6 +22,10 @@ build-julia-memory-safe:
 test:
 	bash tests/test_container.sh
 
+.PHONY: test-galaxy-resource-request
+test-galaxy-resource-request:
+	PYTHONDONTWRITEBYTECODE=1 python3 tests/test_galaxy_resource_request.py
+
 test-julia-memory-safe:
 	FORESTSTRUCTURE_JULIA_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" \
 	bash tests/test_julia_memory_safe.sh

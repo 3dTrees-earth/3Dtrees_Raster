@@ -27,6 +27,7 @@ docker run --rm --network none "${docker_limits[@]}" \
   /workspace/tests/test_voxel_counts.py
 python3 "${repo_dir}/tests/test_output_artifact_validation.py"
 python3 "${repo_dir}/tests/test_copc_task_counts.py"
+PYTHONDONTWRITEBYTECODE=1 python3 "${repo_dir}/tests/test_galaxy_resource_request.py"
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \

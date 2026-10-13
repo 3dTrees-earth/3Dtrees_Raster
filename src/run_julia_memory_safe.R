@@ -481,7 +481,7 @@ julia_memory_safe_main <- function() {
   thread_count <- arguments$resources$threads
   worker_request <- Sys.getenv("FORESTSTRUCTURE_CATALOG_WORKERS", "")
   catalog_worker_count <- validated_catalog_worker_count(
-    if (nzchar(worker_request)) worker_request else as.character(min(4L, thread_count)),
+    if (nzchar(worker_request)) worker_request else as.character(min(10L, thread_count)),
     thread_count
   )
   message(sprintf(
@@ -692,7 +692,7 @@ julia_memory_safe_main <- function() {
     selectors = selectors,
     projections = projections,
     catalog_workers = catalog_worker_count,
-    catalog_worker_policy = if (nzchar(worker_request)) "explicit_cap" else "auto_up_to_four",
+    catalog_worker_policy = if (nzchar(worker_request)) "explicit_cap" else "auto_up_to_ten",
     resource_admission = resource_plan_reports(parameters$memory_policy),
     data_table_threads = DATA_TABLE_THREADS,
     scheduler_resources = arguments$resources,

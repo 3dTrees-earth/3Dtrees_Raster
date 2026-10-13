@@ -1,0 +1,26 @@
+# Tool-rule fragment for a site-managed TPV configuration, not a deployment.
+# Install src/galaxy_resource_request.py on the Galaxy dispatcher's Python path.
+# Replace the example tool ID and point_cloud with the installed wrapper's names.
+# Requires TPV's parameter-specific get_input_size helper (documented in 3.3).
+# Keep the site's runner/destination/container configuration and limits.
+tools:
+  '^foreststructure$':
+    cores: |
+      from galaxy_resource_request import request_resources
+      size = helpers.get_input_size(job, "point_cloud", estimate_uncompressed_size=False)
+      request_resources(round(size * 1024**3)).cpus
+    mem: |
+      from galaxy_resource_request import request_resources
+      size = helpers.get_input_size(job, "point_cloud", estimate_uncompressed_size=False)
+      request_resources(round(size * 1024**3)).memory_gib
+    gpus: 0
+    max_cores: 10
+    # 100 decimal GB rounded down to 95,367 MiB, then converted to TPV GiB.
+    max_mem: 95367 / 1024
+
+# The destination must enforce these resources and expose its final allocation
+# through GALAXY_SLOTS/GALAXY_MEMORY_MB (MiB), including any site-level clamp.
+# Do not set those variables to the pre-clamp request in this fragment.
+# Do not impose a second FORESTSTRUCTURE_CATALOG_WORKERS cap unless intentional:
+# the runtime defaults to the CPU allowance (maximum 10), then admits by memory.
+# No GPU, extra-swap allocation, instance inference, or input staging is done here.

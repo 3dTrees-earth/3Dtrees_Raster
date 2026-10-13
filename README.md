@@ -110,11 +110,13 @@ metres above the DTM. Publication does not depend on GDAL PAM sidecars.
 
 `GALAXY_SLOTS` supplies the CPU allowance; `GALAXY_MEMORY_MB` supplies the job RAM
 allocation in MiB. The runner uses the smaller declared/container memory limit
-and reserves 15% headroom, subject to the existing 60 GiB default internal cap.
-An explicit internal budget may lower it (maximum request 70 GiB). Container
-CPU quotas also cap threads. `FORESTSTRUCTURE_THREADS` remains an operator cap;
+and reserves 15% headroom, with a hard ceiling of 100 decimal GB (93.132 GiB).
+An explicit internal budget may lower it. There is no 60 GiB internal cap when
+Galaxy or the container supplies an allocation; 60 GiB remains the fallback
+when neither supplies a limit. Container CPU quotas also cap threads, with an
+overall maximum of 10 CPUs. `FORESTSTRUCTURE_THREADS` remains an operator cap;
 without a declared CPU allowance or quota, the safe default is one thread.
-Catalog concurrency defaults to the smaller of four workers and the CPU allowance.
+Catalog concurrency defaults to the smaller of ten workers and the CPU allowance.
 Memory admission may reduce it further for each wave. The job destination can set
 `FORESTSTRUCTURE_CATALOG_WORKERS` explicitly; it is not a user-facing parameter.
 
@@ -140,10 +142,51 @@ together; these source changes do not deploy a server tool. Validate integration
 This compares candidate sources against the pinned baseline, including 15th-field
 IDs, a late order key, AOI/full-extent equivalence and mandatory voxel products.
 
+### Galaxy allocation from merged COPC size
+
+`src/galaxy_resource_request.py` provides the dispatcher-side
+`request_resources(input_bytes)` policy. Supply the recorded size of the single
+merged, labelled COPC that this job receives. Do not sum original uploads or the
+optional AOI, and do not apply a decompression multiplier. The function opens no
+files and performs no COPC hierarchy traversal.
+
+| Merged COPC size (decimal GB) | CPUs | RAM target (decimal GB) | Galaxy allocation (MiB) |
+| --- | ---: | ---: | ---: |
+| Up to 1 | 8 | 30 | 28,610 |
+| Over 1, up to 5 | 10 | 30 | 28,610 |
+| Over 5, up to 10 | 10 | 60 | 57,220 |
+| Over 10 | 10 | 100 | 95,367 |
+
+The MiB conversion rounds down to respect the 100 GB ceiling. These are initial
+allocation tiers, not guarantees of peak memory: compression, point density and
+spatial extent vary. Inside the job, the existing COPC hierarchy planner checks
+each actual spatial task and reduces concurrency to fit the available memory.
+A task that cannot fit fails explicitly. The tiers have not been benchmarked
+as a complete policy; the parallel benchmark uses an explicit 30 **GiB** job
+limit, which differs from the 30 decimal **GB** tier.
+
+```bash
+python3 src/galaxy_resource_request.py --input-bytes 13332084830
+make test-galaxy-resource-request
+```
+
+[`galaxy/tpv.example.yml`](galaxy/tpv.example.yml) is an integration fragment for
+Galaxy's Total Perspective Vortex dispatcher. Install the policy module on the
+dispatcher's Python path, replace its example tool ID and `point_cloud` parameter
+with the installed wrapper's names, and merge the rule into the site's existing
+TPV configuration. The fragment uses the parameter-specific
+`helpers.get_input_size(..., estimate_uncompressed_size=False)` interface
+documented by [TPV](https://total-perspective-vortex.readthedocs.io/en/latest/topics/advanced_topics.html#input-sizes).
+TPV reports input size and RAM in GiB; the example converts these units explicitly.
+The destination must enforce the final request and supply its actual CPU and MiB
+allocation to the runtime, including any site-level reduction. The example does
+not configure a runner or deploy a tool; Galaxy supports these rules through its
+[dynamic job dispatcher](https://docs.galaxyproject.org/en/latest/admin/jobs.html#dynamic-destination-mapping).
+
 ### Catalog and tile concurrency
 
 `FORESTSTRUCTURE_CATALOG_WORKERS` accepts 1–10 workers within
-`FORESTSTRUCTURE_THREADS`; production automatically caps at four when unset. The standard
+`FORESTSTRUCTURE_THREADS`; production automatically caps at ten when unset. The standard
 CLI exposes the same upper limit through `--catalog-workers`. Tile metrics
 reuse that process count. Forked workers use one native thread each to avoid
 inherited OpenMP pool deadlocks; a sequential worker can use the full allowance.
@@ -160,18 +203,32 @@ multiplying native threads inside workers. Scientific algorithms and source
 point order are unchanged.
 
 Before dispatch, production reads COPC hierarchy metadata to bound points in each
-actual spatial read, including DTM buffers. It reserves 512 bytes per estimated
-point plus 128 MiB per task, retaining another 512 MiB inside the internal budget.
+actual spatial read, including DTM buffers. It reserves 256 bytes per estimated
+point for DTM and 512 bytes for CHM, segment and tile work, plus 128 MiB per task,
+retaining another 512 MiB inside the internal budget.
 Reservations across concurrent tasks must fit the available working set. Only
 demonstrably clean inactive file cache is treated as reclaimable. Adaptive CHM
 reserves its largest sequential child read; raster footprints remain unchanged.
-An individual task that cannot fit fails before loading points. The coefficient
-is conservative planning, not a universal allocation guarantee: keep equal hard
+An individual task that cannot fit fails before loading points. These coefficients
+are conservative planning estimates, not universal allocation guarantees: keep equal hard
 `--memory`/`--memory-swap` limits. A 30 GiB allocation allows a 25.5 GiB internal
-budget. Provenance records requested workers, actual waves, point bounds, memory
-snapshots and the raw container peak. Plain LAZ uses a conservative whole-file
+budget. Provenance records requested workers, actual waves, point bounds, phase
+coefficients, fixed allowances, memory snapshots and the raw container peak.
+Plain LAZ uses a conservative whole-file
 count fallback. COPC estimation fails explicitly above 64 MiB of hierarchy metadata
 or 100,000 read windows per phase.
+
+DTM releases the source-order column before classification and triangulation and
+does not retain voxel or segment tables. Its separate coefficient also preserves
+admission of the previously validated dense 1805 terrain geometry: the largest
+buffered window has a metadata upper bound of 185,339,618 points, reserving
+44.31 GiB at 256 bytes per point. A uniform 512-byte estimate would reserve
+88.50 GiB and reject it even under its former 70 GiB allocation, although the
+historical complete run peaked at 27.38 GiB. The revised estimate fits the
+59.5 GiB internal budget of a 70 GiB job; a 30 GiB job still rejects that oversized
+window. The historical peak supports this initial estimate for the pinned stack;
+it does not establish a bound for arbitrary point distributions or native
+allocators. The historical original-upload cloud lacks production instance labels.
 
 SAT/FM fields on the same source share one read, order restoration and terrain
 normalization. Their disk summaries and reductions remain independent. Different

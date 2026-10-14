@@ -25,11 +25,9 @@
             #if $aoi:
                 --aoi-geojson aoi.geojson
             #end if
-            #if $instance_dimension:
-                #for $dimension in str($instance_dimension).split(','):
-                    --instance-dimension '$dimension'
-                #end for
-            #end if
+            #for $dimension in str($instance_dimension).split(','):
+                --instance-dimension '$dimension'
+            #end for
             --denoise '$denoising.denoise'
             #if $denoising.denoise == 'sor':
                 --denoise-neighbors '$denoising.denoise_neighbors'
@@ -62,7 +60,7 @@ print(target)
     <inputs>
         <param name="point_cloud" type="data" format="laz,las" label="Segmented point cloud" help="One full-resolution point cloud with at least one tree instance dimension (PredInstance, PredInstance_SAT or PredInstance_FM) and a projected metric CRS. Point-noise filtering additionally requires a canonical COPC carrying OriginalPointIndex."/>
         <param name="aoi" type="data" format="geojson,json" optional="true" label="Area of interest (optional)" help="GeoJSON Polygon or MultiPolygon in the point cloud's XY coordinates. It is not reprojected. Without it, the full point-cloud extent is analysed."/>
-        <param argument="--instance-dimension" type="select" multiple="true" optional="true" label="Instance dimensions" help="Leave empty to process every supported dimension present in the point cloud. A selected dimension that is missing fails the job.">
+        <param argument="--instance-dimension" type="select" multiple="true" optional="false" label="Instance dimensions" help="Select at least one. Each selected dimension must exist in the point cloud, otherwise the job fails.">
             <option value="PredInstance">PredInstance</option>
             <option value="PredInstance_SAT">PredInstance_SAT (SegmentAnyTree)</option>
             <option value="PredInstance_FM">PredInstance_FM (ForestMamba)</option>
@@ -109,9 +107,10 @@ print(target)
         <data name="aoi_conversion" format="json" from_work_dir="output/foreststructure_aoi_conversion.json" label="${tool.name} on ${on_string}: Analysis footprint"/>
     </outputs>
     <tests>
-        <!-- Canonical COPC, default point-noise filtering, full extent, every dimension. -->
+        <!-- Canonical COPC, default point-noise filtering, full extent, all three dimensions. -->
         <test expect_num_outputs="15">
             <param name="point_cloud" value="forest_patch.copc.laz" ftype="laz"/>
+            <param name="instance_dimension" value="PredInstance,PredInstance_SAT,PredInstance_FM"/>
             <output_collection name="tile_metrics" type="list" count="3">
                 <element name="PredInstance_SAT" ftype="csv">
                     <assert_contents>
@@ -207,6 +206,7 @@ print(target)
         <!-- Point-noise filtering refuses a point cloud that cannot restore source order. -->
         <test expect_failure="true">
             <param name="point_cloud" value="forest_patch.laz" ftype="laz"/>
+            <param name="instance_dimension" value="PredInstance_SAT"/>
             <assert_stderr>
                 <has_text text="--denoise requires a canonical COPC with OriginalPointIndex"/>
             </assert_stderr>
@@ -230,8 +230,8 @@ records. No points are subsampled, and the input file is never modified.
   (ForestMamba). The tool recognizes a COPC from its file content.
 - **Area of interest** (optional): a GeoJSON polygon in the point cloud's XY
   coordinates. Only whole tiles and voxel columns inside it are reported.
-- **Instance dimensions**: leave empty to process every supported dimension
-  found in the point cloud.
+- **Instance dimensions**: the dimensions to process. Select at least one;
+  the job fails if a selected dimension is missing from the point cloud.
 - **Point-noise filtering**: statistical outlier removal (SOR) runs by default.
   It flags points whose mean distance to their nearest neighbours is extreme
   within fixed 60 m windows. The terrain model, canopy model and tile metrics

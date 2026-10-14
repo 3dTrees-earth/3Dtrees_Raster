@@ -2,3 +2,4 @@ test-results/
 .Rhistory
 .RData
 
+__pycache__/

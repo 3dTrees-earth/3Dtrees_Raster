@@ -90,8 +90,11 @@ parse_julia_memory_safe_parameters <- function() {
   parser$add_argument(
     "--instance-dimension",
     action = "append",
-    default = NULL,
-    help = "Discover supported fields by default; explicit selections must all exist"
+    required = TRUE,
+    help = paste(
+      "Required; repeat or comma-separate PredInstance, PredInstance_SAT or",
+      "PredInstance_FM. Every selected dimension must exist in the point cloud"
+    )
   )
   arguments <- parser$parse_args()
   validate_voxel_count_parameters(arguments)
@@ -101,22 +104,19 @@ parse_julia_memory_safe_parameters <- function() {
     recursive = TRUE,
     use.names = FALSE
   )
-  if (is.null(raw_instance_dimensions) ||
-      length(raw_instance_dimensions) == 0L ||
-      all(is.na(raw_instance_dimensions))) {
-    arguments$instance_dimension <- NULL
-  } else {
-    raw_instance_dimensions <- raw_instance_dimensions[
-      !is.na(raw_instance_dimensions)
-    ]
-    arguments$instance_dimension <- unique(trimws(unlist(strsplit(
-      as.character(raw_instance_dimensions),
-      ",",
-      fixed = TRUE
-    ))))
-    arguments$instance_dimension <- arguments$instance_dimension[
-      nzchar(arguments$instance_dimension)
-    ]
+  raw_instance_dimensions <- raw_instance_dimensions[
+    !is.na(raw_instance_dimensions)
+  ]
+  arguments$instance_dimension <- unique(trimws(unlist(strsplit(
+    as.character(raw_instance_dimensions),
+    ",",
+    fixed = TRUE
+  ))))
+  arguments$instance_dimension <- arguments$instance_dimension[
+    nzchar(arguments$instance_dimension)
+  ]
+  if (!length(arguments$instance_dimension)) {
+    stop("--instance-dimension must name at least one instance dimension")
   }
   if (!file.exists(arguments$point_cloud) ||
       !grepl("\\.la[sz]$", arguments$point_cloud, ignore.case = TRUE)) {

@@ -17,7 +17,7 @@ run_candidate() {
   local sensor="${2:-ULS}"
   local country="${3:-Test}"
   local memory_budget_gib="${4:-3}"
-  docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --env "FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT=${bucket_count}" --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${test_root}/output:/out" --volume "${test_root}/work:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 --output-dir /out --temp-dir /work --memory-budget-gib "${memory_budget_gib}" --sensor "${sensor}" --country "${country}"
+  docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --env "FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT=${bucket_count}" --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${test_root}/output:/out" --volume "${test_root}/work:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 --output-dir /out --temp-dir /work --memory-budget-gib "${memory_budget_gib}" --sensor "${sensor}" --country "${country}" --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 }
 
 run_candidate 2>&1 | tee "${test_root}/first.log"

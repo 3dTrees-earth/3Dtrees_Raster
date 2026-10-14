@@ -56,21 +56,19 @@ production_resources <- function(memory_budget = NULL, env = Sys.getenv,
        memory_limit_gib = if (is.finite(memory_limit)) min(memory_limit, maximum_memory_gib) else NULL)
 }
 
-# Auto mode discovers supported SmartTile attributes. Explicit requests are
-# strict, and even auto mode requires at least one segmentation dimension.
-production_instance_dimensions <- function(available, requested = NULL) {
+# Callers must name the segmentation dimensions to process; nothing is
+# discovered from the point cloud. Every request must be supported and present.
+production_instance_dimensions <- function(available, requested) {
   supported <- c("PredInstance", "PredInstance_SAT", "PredInstance_FM")
-  if (is.null(requested)) {
-    dimensions <- supported[supported %in% available]
-  } else {
-    dimensions <- unique(trimws(unlist(strsplit(as.character(requested), ",", fixed = TRUE))))
-    if (!length(dimensions) || any(!nzchar(dimensions))) stop("empty instance-dimension request")
-    if (any(!dimensions %in% supported)) stop("unsupported instance dimension requested")
-    missing <- setdiff(dimensions, available)
-    if (length(missing)) {
-      stop(paste("missing requested instance dimension(s):", paste(missing, collapse = ", ")))
-    }
+  if (missing(requested) || is.null(requested)) {
+    stop("an --instance-dimension is required")
   }
-  if (!length(dimensions)) stop("no supported instance dimensions found in the point cloud")
+  dimensions <- unique(trimws(unlist(strsplit(as.character(requested), ",", fixed = TRUE))))
+  if (!length(dimensions) || any(!nzchar(dimensions))) stop("empty instance-dimension request")
+  if (any(!dimensions %in% supported)) stop("unsupported instance dimension requested")
+  missing <- setdiff(dimensions, available)
+  if (length(missing)) {
+    stop(paste("missing requested instance dimension(s):", paste(missing, collapse = ", ")))
+  }
   dimensions
 }

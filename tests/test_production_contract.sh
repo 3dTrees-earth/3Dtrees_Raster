@@ -50,23 +50,23 @@ run() {
     "${image}" --denoise none --point-cloud "/in/${cloud}" --original-point-cloud /in/source.laz \
     "${paths[@]}" "$@" > "${root}/${name}.log" 2>&1
 }
-run oracle low.copc.laz --dataset-id 150 --aoi-geojson /in/aoi.geojson --export-voxel-counts --memory-budget-gib 3
-run full high.copc.laz --target-chunk-points 500
-run aoi low.copc.laz --aoi-geojson /in/aoi.geojson
+run oracle low.copc.laz --dataset-id 150 --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM --aoi-geojson /in/aoi.geojson --export-voxel-counts --memory-budget-gib 3
+run full high.copc.laz --target-chunk-points 500 --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
+run aoi low.copc.laz --aoi-geojson /in/aoi.geojson --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 python3 "${repo_dir}/tests/compare_production_contract.py" "${root}"
 jq -e '.voxel_counts.enabled and .footprint_source == "point_cloud_extent" and .scheduler_resources.threads == 2 and .memory_budget_gib == 3.4 and .copc_projection.dimension == ["OriginalPointIndex", "PredInstance", "PredInstance_SAT", "PredInstance_FM"] and .catalog_spatial_streaming == "indexed LAZ projection"' "${root}/full/foreststructure_julia_memory_safe_run.json"
 python3 "${repo_dir}/validation/validate_output_artifacts.py" foreststructure "${root}/full"
 cat > "${root}/input/narrow.geojson" <<'JSON'
 {"type":"Polygon","coordinates":[[[1001,2001],[1005,2001],[1005,2005],[1001,2005],[1001,2001]]]}
 JSON
-run narrow high.copc.laz --aoi-geojson /in/narrow.geojson
+run narrow high.copc.laz --aoi-geojson /in/narrow.geojson --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 jq -e '.features | length == 0' "${root}/narrow/foreststructure_PredInstance_tiles.geojson"
 jq -e '.point_accounting.included > 0 and .point_accounting.excluded_domain > 0' "${root}/narrow/foreststructure_voxel_counts.json"
 if run failure high.copc.laz --instance-dimension missing; then
   echo 'Missing dimension unexpectedly succeeded' >&2; exit 1
 fi
 for cloud in sat_only no_instances; do
-  request=()
+  request=(--instance-dimension PredInstance_SAT)
   if [[ "${cloud}" == sat_only ]]; then request=(--instance-dimension PredInstance_FM); fi
   if docker run "${limits[@]}" -v "${root}/sources:/opt/foreststructure:ro" \
     -v "${root}/input:/in:ro" -v "${root}/failure:/out" -v "${root}/work:/work" \
@@ -76,7 +76,7 @@ for cloud in sat_only no_instances; do
   fi
 done
 grep -q 'missing requested instance dimension' "${root}/sat_only.log"
-grep -q 'no supported instance dimensions' "${root}/no_instances.log"
+grep -q 'missing requested instance dimension' "${root}/no_instances.log"
 test -z "$(find "${root}/failure" -mindepth 1 -print -quit)"
 test -z "$(find "${root}/work" -mindepth 1 -print -quit)"
 echo 'Production CLI, full-extent/AOI, high-ordinal COPC and exact science parity passed'

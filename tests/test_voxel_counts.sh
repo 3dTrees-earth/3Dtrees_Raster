@@ -18,6 +18,7 @@ run() {
     --volume "${root}/input:/in:ro" --volume "${root}/${output}:/out" \
     --volume "${root}/work:/work" "${image}" \
     --denoise none --point-cloud /in/source.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 \
+    --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM \
     --output-dir /out --temp-dir /work --memory-budget-gib 3 "$@"
 }
 run baseline

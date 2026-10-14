@@ -9,9 +9,11 @@ fails <- function(expr, text) {
   stopifnot(inherits(error, "error"), grepl(text, conditionMessage(error), fixed = TRUE))
 }
 available <- c("OriginalPointIndex", "PredInstance_SAT")
-stopifnot(identical(production_instance_dimensions(available), "PredInstance_SAT"))
+stopifnot(identical(production_instance_dimensions(available, "PredInstance_SAT"), "PredInstance_SAT"))
+fails(production_instance_dimensions(available), "is required")
+fails(production_instance_dimensions(available, NULL), "is required")
 fails(production_instance_dimensions(available, "PredInstance"), "missing requested")
-fails(production_instance_dimensions(character()), "no supported")
+fails(production_instance_dimensions(character(), "PredInstance_SAT"), "missing requested")
 fails(production_instance_dimensions(available, "junk"), "unsupported")
 fails(production_instance_dimensions(available, ""), "empty")
 root <- tempfile(); dir.create(root)

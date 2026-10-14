@@ -77,6 +77,7 @@ run_case() {
     -v "${root}/input:/input:ro" -v "${case_dir}/output:/output" \
     -v "${case_dir}/scratch:/scratch" "${baseline}" \
     /opt/foreststructure/run_julia_memory_safe.R --point-cloud /input/input.copc.laz \
+    --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM \
     --memory-budget-gib 3.4 --target-chunk-points "${target}" "$@" \
     > "${case_dir}/run.log" 2>&1
   echo "$((SECONDS - started))" > "${case_dir}/elapsed_seconds.txt"

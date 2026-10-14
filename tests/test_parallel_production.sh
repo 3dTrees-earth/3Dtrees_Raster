@@ -119,6 +119,7 @@ run_case() {
     '"$@"; status=$?; python3 /record_resources.py "$status" || exit 99; exit "$status"' \
     bash Rscript /opt/foreststructure/run_julia_memory_safe.R \
     --denoise none --point-cloud /input/input.copc.laz --memory-budget-gib 3.4 \
+    --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM \
     --target-chunk-points 5000 --voxel-count-chunk-points 250000 "${aoi[@]}")
   python3 - "${case_dir}/command.json" "${command[@]}" <<'PY'
 import json, pathlib, sys

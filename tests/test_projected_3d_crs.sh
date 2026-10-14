@@ -15,7 +15,8 @@ for mode in two three; do
   docker run "${limits[@]}" --env GALAXY_SLOTS=2 --env GALAXY_MEMORY_MB=4096 \
     --env TMPDIR=/work --workdir /out -v "${root}/input/${mode}.laz:/in/input.laz:ro" \
     -v "${root}/input/aoi.geojson:/in/aoi.geojson:ro" -v "${root}/${mode}:/out" \
-    -v "${root}/work:/work" "${image}" --denoise none --point-cloud /in/input.laz --aoi-geojson /in/aoi.geojson
+    -v "${root}/work:/work" "${image}" --denoise none --point-cloud /in/input.laz --aoi-geojson /in/aoi.geojson \
+    --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 done
 docker run "${limits[@]}" --entrypoint python3 -v "${root}:/data:ro" \
   -v "${repo}/tests:/tests:ro" "${image}" /tests/compare_projected_3d_crs.py

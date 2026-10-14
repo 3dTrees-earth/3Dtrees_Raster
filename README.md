@@ -83,6 +83,7 @@ docker run --rm --network none \
   --point-cloud /in/original.copc.laz \
   --original-point-cloud /in/original.laz \
   --aoi-geojson /in/aoi.geojson \
+  --instance-dimension PredInstance_SAT \
   --output-dir /out \
   --temp-dir /work \
   --memory-budget-gib 25 \
@@ -101,7 +102,7 @@ a canonical COPC carrying `OriginalPointIndex`.
 
 Galaxy supplies one full-resolution COPC and optionally an Audit AOI in that
 COPC's metric XY coordinate system. The COPC must retain `OriginalPointIndex`
-and at least one supported instance dimension; SmartTile supplies global IDs.
+and every supported instance dimension the job requests; SmartTile supplies global IDs.
 An AOI restricts the analysis domain. Without it, the runner reuses the existing
 coordinate-lattice-snapped full-extent footprint. Neither mode subsamples points.
 The existing DTM algorithm runs on SOR-accepted points. CHM, segment and tile
@@ -137,8 +138,8 @@ RAM and scratch allocations; internal estimates are not hard OS limits.
 ```bash
 # Within a job with GALAXY_SLOTS, GALAXY_MEMORY_MB and TMPDIR assigned by Galaxy:
 Rscript /opt/foreststructure/run_julia_memory_safe.R \
-  --point-cloud input.copc.laz
-# Optionally add --aoi-geojson aoi.geojson and --instance-dimension PredInstance_SAT.
+  --point-cloud input.copc.laz --instance-dimension PredInstance_SAT
+# Optionally add --aoi-geojson aoi.geojson.
 ```
 
 The container entry point already invokes that script. Both Dockerfiles now use the production runner as their default entry point.
@@ -361,9 +362,9 @@ Supported instance dimensions are:
 - `PredInstance_SAT`
 - `PredInstance_FM`
 
-The production runner discovers available supported dimensions when no selection
-is supplied. An explicit selection is strict: any missing or unsupported field
-fails before analysis. No supported instance fields also fails. SmartTile owns
+The production runner requires `--instance-dimension` (repeat it or separate
+names with commas) and never discovers dimensions from the point cloud. The
+selection is strict: any missing or unsupported field fails before analysis. SmartTile owns
 global instance-ID assignment; ForestStructure never renumbers or fabricates IDs.
 Available dimensions are processed independently so their results cannot mix.
 
@@ -486,7 +487,7 @@ Production outputs use the fixed prefix `foreststructure`; no dataset ID is
 required. The legacy `--dataset-id` option remains only to replay old validation
 commands and is not a Galaxy input. Below, `<dataset>` denotes this output prefix.
 
-For each available instance dimension, the run writes:
+For each requested instance dimension, the run writes:
 
 - `<dataset>_<dimension>_results.csv`
 - `<dataset>_<dimension>_segment_diagnostics.csv`

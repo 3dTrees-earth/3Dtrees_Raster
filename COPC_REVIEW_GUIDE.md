@@ -148,8 +148,8 @@ to its geometry and scientific instance value without assuming physical order.
   beside its scratch projection. Voxel counts always read the original source.
 - Uses an optional AOI, otherwise the full-extent footprint; exports voxel counts
   unconditionally; defaults to the `foreststructure` output prefix. Galaxy owns
-  CPU/memory allocation and job directories. Explicit missing instance selections
-  fail, and auto discovery requires at least one supported instance field.
+  CPU/memory allocation and job directories. `--instance-dimension` is required;
+  a missing or unsupported selection fails before analysis.
 - Optionally validates an original LAS/LAZ companion by header count and bounds.
 - Records COPC use, order restoration, selectors, and companion validation in
   the run provenance JSON.

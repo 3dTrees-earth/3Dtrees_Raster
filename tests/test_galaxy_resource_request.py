@@ -7,6 +7,7 @@ import random
 import subprocess
 import sys
 import unittest
+import xml.etree.ElementTree as ET
 from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -71,7 +72,14 @@ class ResourceRequestTests(unittest.TestCase):
     @unittest.skipIf(yaml is None, "PyYAML needed to parse the TPV integration example")
     def test_tpv_example_uses_only_merged_input_and_preserves_units(self):
         config = yaml.safe_load((ROOT / "galaxy/tpv.example.yml").read_text())
-        rule = config["tools"]["^foreststructure$"]
+        pattern = ".*/3dtrees_foreststructure/3dtrees_foreststructure/.*"
+        rule = config["tools"][pattern]
+        # The rule must select the wrapper's Tool Shed GUID and sized input.
+        guid = "toolshed.g2.bx.psu.edu/repos/bgruening/3dtrees_foreststructure/3dtrees_foreststructure/2.0.0+galaxy0"
+        self.assertRegex(guid, f"^{pattern}$")
+        wrapper = ET.parse(ROOT / "galaxy/3dtrees_foreststructure/foreststructure.xml").getroot()
+        self.assertEqual(wrapper.get("id"), "3dtrees_foreststructure")
+        self.assertIsNotNone(wrapper.find("inputs/param[@name='point_cloud']"))
 
         class Helpers:
             def __init__(self, size):

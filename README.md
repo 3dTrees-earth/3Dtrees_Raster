@@ -126,9 +126,11 @@ Memory admission may reduce it further for each wave. The job destination can se
 
 The output directory defaults to the Galaxy job working directory and scratch
 to `TMPDIR` (or R's private temp directory). A wrapper may supply `--output-dir`
-and `--temp-dir` explicitly. Stage a Galaxy dataset under an `input.copc.laz`
-symlink because this runner identifies COPC mode from that extension. Never write
-beside Galaxy's original input. No dataset ID, CPU, RAM, scratch path or voxel
+and `--temp-dir` explicitly. Stage a Galaxy dataset as a hard link or copy named
+`input.copc.laz` because this runner identifies COPC mode from that extension.
+A symlink does not work: rlas resolves it and then rejects the extension-less
+Galaxy dataset file (`File not supported`); the same applies to the AOI. Never
+write beside Galaxy's original input. No dataset ID, CPU, RAM, scratch path or voxel
 export toggle belongs in the Galaxy user form. Galaxy must enforce its job CPU,
 RAM and scratch allocations; internal estimates are not hard OS limits.
 
@@ -140,6 +142,11 @@ Rscript /opt/foreststructure/run_julia_memory_safe.R \
 ```
 
 The container entry point already invokes that script. Both Dockerfiles now use the production runner as their default entry point.
+[`galaxy/3dtrees_foreststructure`](galaxy/3dtrees_foreststructure) is the Galaxy
+wrapper. It detects a COPC from its info VLR, stages the inputs as above and
+pins `ghcr.io/3dtrees-earth/3dtrees-foreststructure:<tool version>`, so that
+image tag must be published before the wrapper is installed. Run its tests with
+`planemo test --docker galaxy/3dtrees_foreststructure/foreststructure.xml`.
 The production container and Galaxy wrapper still need to be released/installed
 together; these source changes do not deploy a server tool. Validate integration with
 `make test-production-contract JULIA_MEMORY_SAFE_IMAGE=<validated-runtime-image>`.
@@ -178,9 +185,8 @@ make test-galaxy-resource-request
 
 [`galaxy/tpv.example.yml`](galaxy/tpv.example.yml) is an integration fragment for
 Galaxy's Total Perspective Vortex dispatcher. Install the policy module on the
-dispatcher's Python path, replace its example tool ID and `point_cloud` parameter
-with the installed wrapper's names, and merge the rule into the site's existing
-TPV configuration. The fragment uses the parameter-specific
+dispatcher's Python path and merge the rule into the site's existing TPV
+configuration. Its tool pattern and `point_cloud` parameter match the wrapper. The fragment uses the parameter-specific
 `helpers.get_input_size(..., estimate_uncompressed_size=False)` interface
 documented by [TPV](https://total-perspective-vortex.readthedocs.io/en/latest/topics/advanced_topics.html#input-sizes).
 TPV reports input size and RAM in GiB; the example converts these units explicitly.

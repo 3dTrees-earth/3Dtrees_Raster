@@ -1,0 +1,284 @@
+<tool id="3dtrees_foreststructure" name="3Dtrees: ForestStructure" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="24.2">
+    <description>Tile-level forest-structure metrics, terrain and canopy models and voxel point counts</description>
+    <macros>
+        <token name="@TOOL_VERSION@">2.0.0</token>
+        <token name="@VERSION_SUFFIX@">0</token>
+    </macros>
+    <creator>
+        <person name="Kilian Gerberding" email="kilian.gerberding@geosense.uni-freiburg.de" url="https://orcid.org/0009-0002-5001-2571"/>
+        <organization name="3Dtrees-Team, University of Freiburg" url="https://github.com/3dTrees-earth"/>
+    </creator>
+    <requirements>
+        <container type="docker">ghcr.io/3dtrees-earth/3dtrees-foreststructure:@TOOL_VERSION@</container>
+    </requirements>
+    <command detect_errors="exit_code"><![CDATA[
+        ## lidR resolves symlinks and then selects its reader by file extension,
+        ## so a link to Galaxy's extension-less dataset file cannot be opened.
+        ## Copy unless a hard link is possible. COPC mode is chosen by the name.
+        staged_point_cloud=\$(python3 '$stage_point_cloud' '$point_cloud' '$point_cloud.ext') &&
+        #if $aoi:
+            cp '$aoi' aoi.geojson &&
+        #end if
+        mkdir -p output &&
+        Rscript /opt/foreststructure/run_julia_memory_safe.R
+            --point-cloud "\$staged_point_cloud"
+            #if $aoi:
+                --aoi-geojson aoi.geojson
+            #end if
+            #if $instance_dimension:
+                #for $dimension in str($instance_dimension).split(','):
+                    --instance-dimension '$dimension'
+                #end for
+            #end if
+            --denoise '$denoising.denoise'
+            #if $denoising.denoise == 'sor':
+                --denoise-neighbors '$denoising.denoise_neighbors'
+                --denoise-sigma '$denoising.denoise_sigma'
+                --denoise-window-size '$denoising.denoise_window_size'
+                --denoise-buffer '$denoising.denoise_buffer'
+            #end if
+            --output-dir output
+            --temp-dir "\${TMPDIR:-\$_GALAXY_JOB_TMP_DIR}"
+    ]]></command>
+    <configfiles>
+        <configfile name="stage_point_cloud"><![CDATA[
+import os
+import shutil
+import sys
+
+source, extension = sys.argv[1], sys.argv[2]
+with open(source, "rb") as handle:
+    header = handle.read(381)
+# COPC 1.0 requires its info VLR (user ID "copc") directly after the 375-byte header.
+is_copc = header[:4] == b"LASF" and header[377:381] == b"copc"
+target = "input.copc.laz" if is_copc else "input." + extension
+try:
+    os.link(source, target)
+except OSError:
+    shutil.copyfile(source, target)
+print(target)
+]]></configfile>
+    </configfiles>
+    <inputs>
+        <param name="point_cloud" type="data" format="laz,las" label="Segmented point cloud" help="One full-resolution point cloud with at least one tree instance dimension (PredInstance, PredInstance_SAT or PredInstance_FM) and a projected metric CRS. Point-noise filtering additionally requires a canonical COPC carrying OriginalPointIndex."/>
+        <param name="aoi" type="data" format="geojson,json" optional="true" label="Area of interest (optional)" help="GeoJSON Polygon or MultiPolygon in the point cloud's XY coordinates. It is not reprojected. Without it, the full point-cloud extent is analysed."/>
+        <param argument="--instance-dimension" type="select" multiple="true" optional="true" label="Instance dimensions" help="Leave empty to process every supported dimension present in the point cloud. A selected dimension that is missing fails the job.">
+            <option value="PredInstance">PredInstance</option>
+            <option value="PredInstance_SAT">PredInstance_SAT (SegmentAnyTree)</option>
+            <option value="PredInstance_FM">PredInstance_FM (ForestMamba)</option>
+        </param>
+        <conditional name="denoising">
+            <param argument="--denoise" type="select" label="Point-noise filtering" help="Statistical outlier removal flags isolated points before the terrain model and metrics. Raw voxel counts always include every recorded point.">
+                <option value="sor" selected="true">Statistical outlier removal (requires a canonical COPC)</option>
+                <option value="none">None</option>
+            </param>
+            <when value="sor">
+                <param argument="--denoise-neighbors" type="integer" min="1" value="10" label="Neighbours" help="Nearest neighbours used for each point's mean distance."/>
+                <param argument="--denoise-sigma" type="float" min="0.001" value="12" label="Standard deviations" help="Points farther than the window mean plus this many standard deviations are flagged. The conservative default targets extreme outliers only."/>
+                <param argument="--denoise-window-size" type="float" min="0.001" value="60" label="Window size (m)" help="Width of the fixed windows that define the outlier statistics."/>
+                <param argument="--denoise-buffer" type="float" min="0.001" value="20" label="Window context (m)" help="Context around each window included in its statistics."/>
+            </when>
+            <when value="none"/>
+        </conditional>
+    </inputs>
+    <outputs>
+        <collection name="tile_metrics" type="list" label="${tool.name} on ${on_string}: Tile metrics">
+            <discover_datasets pattern="foreststructure_(?P&lt;designation&gt;PredInstance(_SAT|_FM)?)_results\.csv" directory="output" format="csv" sort_by="designation"/>
+        </collection>
+        <collection name="segment_diagnostics" type="list" label="${tool.name} on ${on_string}: Segment diagnostics">
+            <discover_datasets pattern="foreststructure_(?P&lt;designation&gt;PredInstance(_SAT|_FM)?)_segment_diagnostics\.csv" directory="output" format="csv" sort_by="designation"/>
+        </collection>
+        <collection name="tiles" type="list" label="${tool.name} on ${on_string}: Tiles">
+            <discover_datasets pattern="foreststructure_(?P&lt;designation&gt;PredInstance(_SAT|_FM)?)_tiles\.geojson" directory="output" format="geojson" sort_by="designation"/>
+        </collection>
+        <data name="dtm" format="tiff" from_work_dir="output/foreststructure_dtm.tif" label="${tool.name} on ${on_string}: DTM"/>
+        <data name="chm" format="tiff" from_work_dir="output/foreststructure_chm.tif" label="${tool.name} on ${on_string}: CHM"/>
+        <data name="tiles_overview" format="png" from_work_dir="output/foreststructure_tiles.png" label="${tool.name} on ${on_string}: Tile overview"/>
+        <data name="voxel_counts" format="csv" from_work_dir="output/foreststructure_voxel_counts.csv" label="${tool.name} on ${on_string}: Occupied voxel counts"/>
+        <data name="voxel_counts_raster" format="tiff" from_work_dir="output/foreststructure_voxel_counts.tif" label="${tool.name} on ${on_string}: Voxel count raster"/>
+        <data name="voxel_counts_validity" format="tiff" from_work_dir="output/foreststructure_voxel_counts_validity.tif" label="${tool.name} on ${on_string}: Voxel validity raster"/>
+        <data name="voxel_counts_metadata" format="json" from_work_dir="output/foreststructure_voxel_counts.json" label="${tool.name} on ${on_string}: Voxel count metadata"/>
+        <data name="noise_points" format="csv" from_work_dir="output/foreststructure_noise_points.csv" label="${tool.name} on ${on_string}: Rejected noise points">
+            <filter>denoising['denoise'] == 'sor'</filter>
+        </data>
+        <data name="denoising_report" format="json" from_work_dir="output/foreststructure_denoising.json" label="${tool.name} on ${on_string}: Denoising report">
+            <filter>denoising['denoise'] == 'sor'</filter>
+        </data>
+        <data name="run_provenance" format="json" from_work_dir="output/foreststructure_julia_memory_safe_run.json" label="${tool.name} on ${on_string}: Run provenance"/>
+        <data name="performance" format="csv" from_work_dir="output/foreststructure_performance.csv" label="${tool.name} on ${on_string}: Performance"/>
+        <data name="aoi_conversion" format="json" from_work_dir="output/foreststructure_aoi_conversion.json" label="${tool.name} on ${on_string}: Analysis footprint"/>
+    </outputs>
+    <tests>
+        <!-- Canonical COPC, default point-noise filtering, full extent, every dimension. -->
+        <test expect_num_outputs="15">
+            <param name="point_cloud" value="forest_patch.copc.laz" ftype="laz"/>
+            <output_collection name="tile_metrics" type="list" count="3">
+                <element name="PredInstance_SAT" ftype="csv">
+                    <assert_contents>
+                        <has_n_lines n="5"/>
+                        <has_text text="metric_height_upper_m"/>
+                        <has_text text="input.copc.laz"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="segment_diagnostics" type="list" count="3">
+                <element name="PredInstance_FM" ftype="csv">
+                    <assert_contents>
+                        <has_text text="apex_in_tile"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="tiles" type="list" count="3">
+                <element name="PredInstance" ftype="geojson">
+                    <assert_contents>
+                        <has_text text="EPSG::32632"/>
+                        <has_text text="tile_xmin"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output name="dtm" ftype="tiff">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="chm" ftype="tiff">
+                <assert_contents>
+                    <has_size min="1000"/>
+                </assert_contents>
+            </output>
+            <output name="voxel_counts" ftype="csv">
+                <assert_contents>
+                    <has_line line="x_center,y_center,height_lower_m,height_upper_m,point_count"/>
+                </assert_contents>
+            </output>
+            <output name="voxel_counts_metadata" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="voxel_size_m" value="[0.5, 0.5, 0.5]"/>
+                    <has_json_property_with_value property="noise_mask_applied_to_counts" value="false"/>
+                </assert_contents>
+            </output>
+            <output name="noise_points" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line line="OriginalPointIndex"/>
+                </assert_contents>
+            </output>
+            <output name="denoising_report" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="enabled" value="true"/>
+                    <has_json_property_with_value property="rejected_points" value="2"/>
+                </assert_contents>
+            </output>
+            <output name="run_provenance" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="requested_is_copc" value="true"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Plain LAZ without point-noise filtering, restricted to an AOI and one dimension. -->
+        <test expect_num_outputs="13">
+            <param name="point_cloud" value="forest_patch.laz" ftype="laz"/>
+            <param name="aoi" value="forest_patch_aoi.geojson" ftype="geojson"/>
+            <param name="instance_dimension" value="PredInstance_SAT"/>
+            <conditional name="denoising">
+                <param name="denoise" value="none"/>
+            </conditional>
+            <output_collection name="tile_metrics" type="list" count="1">
+                <element name="PredInstance_SAT" ftype="csv">
+                    <assert_contents>
+                        <has_n_lines n="3"/>
+                        <has_text text="input.laz"/>
+                    </assert_contents>
+                </element>
+            </output_collection>
+            <output_collection name="segment_diagnostics" type="list" count="1"/>
+            <output_collection name="tiles" type="list" count="1"/>
+            <output name="aoi_conversion" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="area" value="800"/>
+                </assert_contents>
+            </output>
+            <output name="run_provenance" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="requested_is_copc" value="false"/>
+                </assert_contents>
+            </output>
+        </test>
+        <!-- Point-noise filtering refuses a point cloud that cannot restore source order. -->
+        <test expect_failure="true">
+            <param name="point_cloud" value="forest_patch.laz" ftype="laz"/>
+            <assert_stderr>
+                <has_text text="--denoise requires a canonical COPC with OriginalPointIndex"/>
+            </assert_stderr>
+        </test>
+    </tests>
+    <help format="markdown"><![CDATA[
+**What it does**
+
+ForestStructure computes fixed 20 m tile metrics of forest structure from one
+segmented point cloud. It also writes a digital terrain model (DTM), a canopy
+height model (CHM), full-resolution 0.5 m voxel point counts and provenance
+records. No points are subsampled, and the input file is never modified.
+
+-----
+
+**Input**
+
+- **Segmented point cloud**: one full-resolution LAS/LAZ or COPC file with a
+  projected metric CRS and at least one supported tree instance dimension:
+  `PredInstance`, `PredInstance_SAT` (SegmentAnyTree) or `PredInstance_FM`
+  (ForestMamba). The tool recognizes a COPC from its file content.
+- **Area of interest** (optional): a GeoJSON polygon in the point cloud's XY
+  coordinates. Only whole tiles and voxel columns inside it are reported.
+- **Instance dimensions**: leave empty to process every supported dimension
+  found in the point cloud.
+- **Point-noise filtering**: statistical outlier removal (SOR) runs by default.
+  It flags points whose mean distance to their nearest neighbours is extreme
+  within fixed 60 m windows. The terrain model, canopy model and tile metrics
+  use the accepted points. SOR needs a canonical COPC that carries the
+  `OriginalPointIndex` dimension; select **None** for a plain LAS/LAZ file.
+
+CPU, memory and scratch space come from the Galaxy job allocation. The tool
+reduces its parallelism to fit the memory it is given and fails explicitly
+when a single spatial window cannot fit.
+
+-----
+
+**Outputs**
+
+Per instance dimension (collections named by dimension):
+
+- **Tile metrics**: one row per 20 m tile with vegetation density, height
+  statistics, vertical complexity, canopy roughness and tree statistics.
+- **Segment diagnostics**: the tree-acceptance checks for each segment.
+- **Tiles**: the tile metrics as GeoJSON polygons.
+
+Shared:
+
+- **DTM** and **CHM** GeoTIFFs and a PNG tile overview.
+- **Voxel point counts**: occupied 0.5 m voxels as CSV, a multiband UInt32
+  GeoTIFF (band *b* holds heights from (*b*-1)×0.5 m to *b*×0.5 m above the
+  DTM), a validity raster (0 excluded, 1 valid, 2 invalid DTM) and grid
+  metadata. Counts include every recorded point, also those flagged by SOR.
+  Zero means no recorded points; read the validity raster before
+  interpreting missing CSV rows.
+- **Rejected noise points** (with SOR): one `OriginalPointIndex` per row, and
+  a **Denoising report** with parameters and per-window accounting.
+- **Run provenance**, **Performance** and **Analysis footprint** records.
+
+Heights have no upper cutoff. Density and vertical complexity use a height
+domain derived from the tallest accepted point, recorded as
+`metric_height_upper_m` in every tile row; compare surveys with that in mind.
+    ]]></help>
+    <citations>
+        <citation type="bibtex">
+            @misc{3dtrees_foreststructure,
+              title = {3Dtrees: ForestStructure},
+              author = {{3Dtrees Project}},
+              year = {2026},
+              url = {https://github.com/3dTrees-earth/3dtrees_foreststructure}
+            }
+        </citation>
+        <citation type="doi">10.1016/j.rse.2020.112061</citation>
+    </citations>
+</tool>

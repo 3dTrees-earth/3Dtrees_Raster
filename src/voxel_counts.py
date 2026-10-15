@@ -30,6 +30,7 @@ NODATA = 4294967295
 MAX_BANDS = 65535  # TIFF SamplesPerPixel limit; fail explicitly, never truncate.
 FIXED_MEMORY_RESERVE = 192 * 1024**2
 MINIMUM_MEMORY = 256 * 1024**2
+FETCH_ROWS = 65536
 
 
 def sha256_file(path):
@@ -220,12 +221,14 @@ def accumulate(source, connection, grid, mask, dtm, chunk_points):
         keys = ((block * MAX_BANDS + iz) * (BLOCK * BLOCK) +
                 (row % BLOCK) * BLOCK + col % BLOCK)
         unique, counts = np.unique(keys, return_counts=True)
+        # Split the sorted addresses in NumPy and hand SQLite plain Python
+        # lists; per-voxel NumPy scalar arithmetic dominated dense batches.
         connection.executemany(
             "INSERT INTO counts VALUES (?,?,?,?) ON CONFLICT(block,height,cell) DO UPDATE SET n=n+excluded.n",
-            ((int(key // (MAX_BANDS * BLOCK * BLOCK)),
-              int((key // (BLOCK * BLOCK)) % MAX_BANDS),
-              int(key % (BLOCK * BLOCK)), int(n)) for key, n in zip(unique, counts)))
-        connection.commit()
+            zip((unique // (MAX_BANDS * BLOCK * BLOCK)).tolist(),
+                ((unique // (BLOCK * BLOCK)) % MAX_BANDS).tolist(),
+                (unique % (BLOCK * BLOCK)).tolist(), counts.tolist()))
+    connection.commit()
     if counters["read"] != source.header.point_count:
         raise ValueError("source header/stream point count mismatch")
     if sum(v for k, v in counters.items() if k != "read") != counters["read"]:
@@ -254,23 +257,38 @@ def write_counts(connection, paths, grid, bands, mask):
         writer.writerow(["x_center", "y_center", "height_lower_m", "height_upper_m", "point_count"])
         for block, xoff, yoff, width, height in grid_blocks(grid):
             valid = mask.GetRasterBand(1).ReadAsArray(xoff, yoff, width, height) == 1
-            cursor = iter(connection.execute(
-                "SELECT height,cell,n FROM counts WHERE block=? ORDER BY height,cell", (block,)))
-            item = next(cursor, None)
-            for k in range(bands):
-                values = np.where(valid, 0, NODATA).astype(np.uint32)
-                while item is not None and item[0] == k:
-                    _, cell, n = item
-                    row, col = divmod(cell, BLOCK)
-                    if not valid[row, col]:
-                        raise ValueError("occupied voxel outside valid mask")
-                    values[row, col] = n
-                    writer.writerow([grid["transform"][0] + (xoff + col + 0.5) * RESOLUTION,
-                                     grid["transform"][3] - (yoff + row + 0.5) * RESOLUTION,
-                                     k * RESOLUTION, (k + 1) * RESOLUTION, n])
-                    exported += n
-                    item = next(cursor, None)
-                raster.GetRasterBand(k + 1).WriteArray(values, xoff, yoff)
+            empty = np.where(valid, 0, NODATA).astype(np.uint32)
+            band_index, values = 0, None
+            cursor = connection.execute(
+                "SELECT height,cell,n FROM counts WHERE block=? ORDER BY height,cell", (block,))
+            # Bounded pieces of one block, converted to arrays: no per-voxel
+            # Python loop and no unbounded fetch for dense blocks.
+            while piece := cursor.fetchmany(FETCH_ROWS):
+                rows = np.array(piece, dtype=np.int64)
+                k, n = rows[:, 0], rows[:, 2]
+                row, col = rows[:, 1] // BLOCK, rows[:, 1] % BLOCK
+                if not valid[row, col].all():
+                    raise ValueError("occupied voxel outside valid mask")
+                # Same float64 operation order as the former scalar writer, so
+                # csv.writer formats identical Python floats.
+                writer.writerows(zip(
+                    (grid["transform"][0] + (xoff + col + 0.5) * RESOLUTION).tolist(),
+                    (grid["transform"][3] - (yoff + row + 0.5) * RESOLUTION).tolist(),
+                    (k * RESOLUTION).tolist(), ((k + 1) * RESOLUTION).tolist(), n.tolist()))
+                exported += int(n.sum())
+                edges = np.r_[0, np.flatnonzero(np.diff(k)) + 1, len(k)]
+                for first, last in zip(edges[:-1], edges[1:]):
+                    while band_index < k[first]:
+                        raster.GetRasterBand(band_index + 1).WriteArray(
+                            empty if values is None else values, xoff, yoff)
+                        band_index, values = band_index + 1, None
+                    if values is None:
+                        values = empty.copy()
+                    values[row[first:last], col[first:last]] = n[first:last]
+            while band_index < bands:
+                raster.GetRasterBand(band_index + 1).WriteArray(
+                    empty if values is None else values, xoff, yoff)
+                band_index, values = band_index + 1, None
     raster.FlushCache()
     return exported
 
@@ -349,7 +367,12 @@ def export(config):
         mask = RasterSampler(mask_ds)
         with tempfile.TemporaryDirectory(prefix="voxel_counts_", dir=config["temp_dir"]) as scratch:
             with sqlite3.connect(str(Path(scratch) / "counts.sqlite")) as connection:
-                connection.execute("PRAGMA cache_size=-16384")
+                # Scratch database: a crash discards the whole job, so skip the
+                # rollback journal and fsyncs that made dense runs I/O bound.
+                connection.execute("PRAGMA journal_mode=OFF")
+                connection.execute("PRAGMA synchronous=OFF")
+                connection.execute("PRAGMA locking_mode=EXCLUSIVE")
+                connection.execute("PRAGMA cache_size=-65536")
                 connection.execute("PRAGMA temp_store=FILE")
                 bands, counters, occupied, peak = accumulate(source, connection, grid, mask, terrain, chunk_points)
                 raster_resources = check_raster_budget(grid, bands, budget, mask_bookkeeping)

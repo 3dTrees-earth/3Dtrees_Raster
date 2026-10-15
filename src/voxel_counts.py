@@ -358,8 +358,10 @@ def export(config):
         mask_bookkeeping = raster_memory_bytes(grid, 1)
         check_raster_budget(grid, 1, budget)
         # Reserve GDAL/SQLite caches, raster directories and batch temporaries.
-        chunk_points = min(int(config.get("chunk_points", 250000)),
-                           int((budget - FIXED_MEMORY_RESERVE - mask_bookkeeping) / (2 * source.header.point_format.size + 320)))
+        # Dataset 226 batches measured ~670 B of RSS per point; admit four
+        # records plus 400 B of float/int64 temporaries per point.
+        chunk_points = min(int(config.get("chunk_points", 2_000_000)),
+                           int((budget - FIXED_MEMORY_RESERVE - mask_bookkeeping) / (4 * source.header.point_format.size + 400)))
         if chunk_points < 1:
             raise ValueError("chunk_points must be positive within the memory budget")
         terrain = RasterSampler(dtm_ds)

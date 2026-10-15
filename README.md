@@ -612,9 +612,12 @@ diagnostics, tile GeoJSON, DTM cells, and CHM cells.
 The production (`run_julia_memory_safe.R`) runner always exports voxel counts;
 there is no opt-out. `--export-voxel-counts` remains accepted for old invocations.
 The legacy `run.R` entry point retains its opt-in flag. The optional
-`--voxel-count-chunk-points` (default 250,000) bounds the number of source records
+`--voxel-count-chunk-points` (default 2,000,000) bounds the number of source records
 per count batch; the memory-safe runner lowers it further to fit its remaining
-memory allowance. Existing index/CHM filters and output schemas are unchanged.
+memory allowance. Larger batches keep LAZ decompression parallel: on dataset 226
+(451M points, SSD) 2M-point batches cut the pass from 323 s to 222 s for about
+1.3 GiB more memory; 8M was no faster.
+Existing index/CHM filters and output schemas are unchanged.
 
 The export reuses the generated global DTM and usable Audit AOI. Supply the
 original full-resolution LAS/LAZ or a lossless COPC with verified conversion

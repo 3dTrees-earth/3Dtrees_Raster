@@ -10,8 +10,8 @@ add_voxel_count_arguments <- function(parser, mandatory = FALSE) {
   parser$add_argument("--export-voxel-counts", action = "store_true", default = mandatory,
                       help = if (mandatory) "Already enabled; accepted for compatibility" else
                         "Export full-source 0.5 m point counts as CSV and GeoTIFF")
-  parser$add_argument("--voxel-count-chunk-points", type = "integer", default = 250000L,
-                      help = "Maximum source records per voxel-count batch (default: 250000)")
+  parser$add_argument("--voxel-count-chunk-points", type = "integer", default = 2000000L,
+                      help = "Maximum source records per voxel-count batch (default: 2000000)")
 }
 
 validate_voxel_count_parameters <- function(parameters) {
@@ -26,7 +26,7 @@ write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
   dir.create(staging)
   on.exit(unlink(staging, recursive = TRUE, force = TRUE), add = TRUE)
   paths <- voxel_count_paths(staging, parameters$dataset_id)
-  chunk_points <- parameter_or(parameters, "voxel_count_chunk_points", 250000L)
+  chunk_points <- parameter_or(parameters, "voxel_count_chunk_points", 2000000L)
   if (!is.finite(chunk_points) || chunk_points < 1L) {
     stop("--voxel-count-chunk-points must be positive")
   }

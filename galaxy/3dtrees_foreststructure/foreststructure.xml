@@ -257,7 +257,7 @@ Shared:
 
 - **DTM** and **CHM** GeoTIFFs and a PNG tile overview.
 - **Voxel point counts**: occupied 0.5 m voxels as CSV, a multiband UInt32
-  GeoTIFF (band *b* holds heights from (*b*-1)×0.5 m to *b*×0.5 m above the
+  GeoTIFF (band b holds heights from (b-1)×0.5 m to b×0.5 m above the
   DTM), a validity raster (0 excluded, 1 valid, 2 invalid DTM) and grid
   metadata. Counts include every recorded point, also those flagged by SOR.
   Zero means no recorded points; read the validity raster before

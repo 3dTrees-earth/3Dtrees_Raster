@@ -1,7 +1,7 @@
 # Galaxy wrapper
 
 `foreststructure.xml` wraps the production runner for Galaxy. It pins
-`ghcr.io/3dtrees-earth/3dtrees-foreststructure:@TOOL_VERSION@`; publish that
+`ghcr.io/3dtrees-earth/3dtrees_raster:@TOOL_VERSION@`; publish that
 image tag (push the matching `v<version>` Git tag) before installing the tool.
 
 Run the tests from the repository root:

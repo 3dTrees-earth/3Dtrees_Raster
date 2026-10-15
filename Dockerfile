@@ -43,7 +43,7 @@ RUN apt-get update \
       laspy==2.6.1 lazrs==0.7.0 pyproj==3.7.2 \
     && python3 -c 'import laspy, lazrs, pyproj; from osgeo import gdal, ogr, osr'
 
-LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3dtrees_foreststructure" \
+LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_Raster" \
       org.opencontainers.image.description="Audit-aware forest-structure metrics for LAS/LAZ point clouds" \
       org.opencontainers.image.licenses="GPL-3.0" \
       org.opencontainers.image.revision="${VCS_REF}" \

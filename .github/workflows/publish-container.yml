@@ -20,7 +20,7 @@ permissions:
   packages: write
 
 env:
-  IMAGE_NAME: ghcr.io/3dtrees-earth/3dtrees-foreststructure
+  IMAGE_NAME: ghcr.io/3dtrees-earth/3dtrees_raster
   FORESTSTRUCTURE_CPUS: "4"
   FORESTSTRUCTURE_MEMORY: 12g
 

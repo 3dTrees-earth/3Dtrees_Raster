@@ -75,7 +75,7 @@ class ResourceRequestTests(unittest.TestCase):
         pattern = ".*/3dtrees_foreststructure/3dtrees_foreststructure/.*"
         rule = config["tools"][pattern]
         # The rule must select the wrapper's Tool Shed GUID and sized input.
-        guid = "toolshed.g2.bx.psu.edu/repos/bgruening/3dtrees_foreststructure/3dtrees_foreststructure/2.0.0+galaxy0"
+        guid = "toolshed.g2.bx.psu.edu/repos/bgruening/3dtrees_foreststructure/3dtrees_foreststructure/1.0.0+galaxy0"
         self.assertRegex(guid, f"^{pattern}$")
         wrapper = ET.parse(ROOT / "galaxy/3dtrees_foreststructure/foreststructure.xml").getroot()
         self.assertEqual(wrapper.get("id"), "3dtrees_foreststructure")

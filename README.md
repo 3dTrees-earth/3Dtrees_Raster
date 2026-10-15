@@ -147,7 +147,7 @@ Arguments that start with a flag go to the runner; any other command, such as
 Galaxy's `docker run IMAGE /bin/bash tool_script.sh`, runs as given.
 [`galaxy/3dtrees_foreststructure`](galaxy/3dtrees_foreststructure) is the Galaxy
 wrapper. It detects a COPC from its info VLR, stages the inputs as above and
-pins `ghcr.io/3dtrees-earth/3dtrees-foreststructure:<tool version>`, so that
+pins `ghcr.io/3dtrees-earth/3dtrees_raster:<tool version>`, so that
 image tag must be published before the wrapper is installed. Run its tests with
 `planemo test --docker galaxy/3dtrees_foreststructure/foreststructure.xml`.
 The production container and Galaxy wrapper still need to be released/installed

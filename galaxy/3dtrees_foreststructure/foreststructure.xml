@@ -1,7 +1,7 @@
 <tool id="3dtrees_foreststructure" name="3Dtrees: ForestStructure" version="@TOOL_VERSION@+galaxy@VERSION_SUFFIX@" profile="24.2">
     <description>Tile-level forest-structure metrics, terrain and canopy models and voxel point counts</description>
     <macros>
-        <token name="@TOOL_VERSION@">2.0.0</token>
+        <token name="@TOOL_VERSION@">1.0.0</token>
         <token name="@VERSION_SUFFIX@">0</token>
     </macros>
     <creator>
@@ -9,7 +9,7 @@
         <organization name="3Dtrees-Team, University of Freiburg" url="https://github.com/3dTrees-earth"/>
     </creator>
     <requirements>
-        <container type="docker">ghcr.io/3dtrees-earth/3dtrees-foreststructure:@TOOL_VERSION@</container>
+        <container type="docker">ghcr.io/3dtrees-earth/3dtrees_raster:@TOOL_VERSION@</container>
     </requirements>
     <command detect_errors="exit_code"><![CDATA[
         ## lidR resolves symlinks and then selects its reader by file extension,
@@ -276,7 +276,7 @@ domain derived from the tallest accepted point, recorded as
               title = {3Dtrees: ForestStructure},
               author = {{3Dtrees Project}},
               year = {2026},
-              url = {https://github.com/3dTrees-earth/3dtrees_foreststructure}
+              url = {https://github.com/3dTrees-earth/3Dtrees_Raster}
             }
         </citation>
         <citation type="doi">10.1016/j.rse.2020.112061</citation>

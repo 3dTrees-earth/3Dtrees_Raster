@@ -143,6 +143,8 @@ Rscript /opt/foreststructure/run_julia_memory_safe.R \
 ```
 
 The container entry point already invokes that script. Both Dockerfiles now use the production runner as their default entry point.
+Arguments that start with a flag go to the runner; any other command, such as
+Galaxy's `docker run IMAGE /bin/bash tool_script.sh`, runs as given.
 [`galaxy/3dtrees_foreststructure`](galaxy/3dtrees_foreststructure) is the Galaxy
 wrapper. It detects a COPC from its info VLR, stages the inputs as above and
 pins `ghcr.io/3dtrees-earth/3dtrees-foreststructure:<tool version>`, so that

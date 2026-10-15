@@ -128,6 +128,21 @@ for expected_help in \
   fi
 done
 
+# Galaxy's Docker runner passes `/bin/bash tool_script.sh` as the command; it
+# must run as given while flag-only runs still reach the production runner.
+galaxy_command="$(docker run --rm --network none "${docker_limits[@]}" \
+  --user "$(id -u):$(id -g)" "${image_name}" /bin/bash -c 'echo galaxy-command-ok')"
+if [[ "${galaxy_command}" != "galaxy-command-ok" ]]; then
+  echo "Image did not run an explicit command: ${galaxy_command}" >&2
+  exit 1
+fi
+docker run --rm --network none "${docker_limits[@]}" --user "$(id -u):$(id -g)" \
+  "${image_name}" --help > "${results_dir}/runner_help.txt"
+if ! grep -Fq -- "--instance-dimension" "${results_dir}/runner_help.txt"; then
+  echo "Flag-only run did not reach the production runner" >&2
+  exit 1
+fi
+
 run_failure_case() {
   local name="$1"
   local expected_message="$2"

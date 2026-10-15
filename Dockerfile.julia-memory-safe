@@ -33,7 +33,8 @@ RUN apt-get update \
 # intentionally inherited unchanged from v0.1.2.
 COPY src /opt/foreststructure
 # Permit arbitrary host UIDs to execute/read the copied sources in restricted runs.
-RUN chmod -R a+rX /opt/foreststructure
+RUN chmod -R a+rX /opt/foreststructure \
+    && chmod a+rx /opt/foreststructure/container_entrypoint.sh
 
 # Labels make the COPC/order/resource contract inspectable without starting the
 # image and preserve a direct link back to the exact reviewed source revision.
@@ -55,6 +56,6 @@ LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3dtrees_
       earth.3dtrees.reference.sha256="746d57b4c937001af31e4ccd1b9f14edb5cebb15d46154ad9e20d0ce39f78226" \
       earth.3dtrees.instance-dimensions="PredInstance,PredInstance_SAT,PredInstance_FM"
 
-# Keep one explicit entry point so every run receives the same validation,
+# Keep one default runner so every flag-only run receives the same validation,
 # provenance, atomic-promotion, and COPC-order-restoration guards.
-ENTRYPOINT ["Rscript", "/opt/foreststructure/run_julia_memory_safe.R"]
+ENTRYPOINT ["/opt/foreststructure/container_entrypoint.sh"]

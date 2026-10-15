@@ -56,6 +56,7 @@ LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3dtrees_
       earth.3dtrees.instance-dimensions="PredInstance,PredInstance_SAT,PredInstance_FM"
 
 COPY src /opt/foreststructure
-RUN chmod -R a+rX /opt/foreststructure
+RUN chmod -R a+rX /opt/foreststructure \
+    && chmod a+rx /opt/foreststructure/container_entrypoint.sh
 
-ENTRYPOINT ["Rscript", "/opt/foreststructure/run_julia_memory_safe.R"]
+ENTRYPOINT ["/opt/foreststructure/container_entrypoint.sh"]

@@ -41,5 +41,19 @@ run narrow --export-voxel-counts --aoi-geojson /in/narrow.geojson
 jq -e '.features | length == 0' "${root}/narrow/150_PredInstance_tiles.geojson"
 jq -e '.point_accounting.included > 0' "${root}/narrow/150_voxel_counts.json"
 python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/narrow"
+# Advanced scientific parameters reach the analysis, the voxel export and provenance.
+mkdir -p "${root}/custom" "${root}/invalid"
+run custom --export-voxel-counts --voxel-count-resolution 1 --voxel-resolution 0.25 \
+  --tile-size 10 --chm-resolution 1 --minimum-tree-voxels 50
+jq -e '.voxel_size_m == [1, 1, 1]' "${root}/custom/150_voxel_counts.json"
+jq -e '.scientific_parameters | .tile_size == 10 and .voxel_resolution == 0.25
+  and .voxel_count_resolution == 1 and .chm_resolution == 1 and .minimum_tree_voxels == 50
+  and .dtm_resolution == 1' "${root}/custom/150_julia_memory_safe_run.json"
+python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/custom"
+if run invalid --export-voxel-counts --tile-size 0 2>"${root}/invalid.log"; then
+  echo "--tile-size 0 was accepted" >&2
+  exit 1
+fi
+grep -q -- "--tile-size must be greater than zero" "${root}/invalid.log"
 test -z "$(find "${root}/work" -mindepth 1 -print -quit)"
 echo "voxel-count CLI, publication and unchanged-science acceptance passed"

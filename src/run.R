@@ -3726,7 +3726,8 @@ run_standard_analysis <- function(parameters) {
                  if (isTRUE(parameters$performance_report)) common$performance)
   if (isTRUE(parameters$export_voxel_counts)) {
     artifacts <- c(artifacts,
-      validate_voxel_count_artifacts(staging, parameters$dataset_id))
+      validate_voxel_count_artifacts(staging, parameters$dataset_id,
+        parameter_or(parameters, "voxel_count_resolution", 0.5)))
   }
   if (any(!file.exists(artifacts)) || any(file.info(artifacts)$size <= 0)) {
     stop("incoming analysis artifacts missing or empty")

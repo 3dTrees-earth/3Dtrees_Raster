@@ -15,6 +15,65 @@ is_copc_point_cloud <- function(path) {
 # The original LAZ is optional at runtime and is never used for computation.
 # Reject incompatible companions without re-scanning the source. Lossless
 # preparation validation (indices and fingerprints) remains the identity proof.
+# Scientific settings exposed on the command line. Defaults are the published
+# production contract; every run records the values it used in its provenance.
+SCIENTIFIC_DEFAULTS <- list(
+  tile_size = 20,
+  grid_search_step = 0.5,
+  ptd_resolution = 20,
+  dtm_resolution = 1,
+  chm_resolution = 0.5,
+  voxel_resolution = 0.2,
+  vegetation_minimum_height = 0.5,
+  gap_height_threshold = 3,
+  minimum_tree_voxels = 100,
+  apex_minimum_height = 3,
+  minimum_tree_thickness = 0.5,
+  minimum_occupied_layers = 3,
+  voxel_count_resolution = 0.5
+)
+SCIENTIFIC_HELP <- list(
+  tile_size = "Analysis tile width in metres",
+  grid_search_step = "Tile-grid offset-search step in metres",
+  ptd_resolution = "PTD ground-seed resolution in metres",
+  dtm_resolution = "DTM resolution in metres",
+  chm_resolution = "CHM resolution in metres",
+  voxel_resolution = "Voxel edge length in metres for tile and tree metrics",
+  vegetation_minimum_height = "Minimum vegetation height in metres",
+  gap_height_threshold = "CHM gap-height threshold in metres",
+  minimum_tree_voxels = "Minimum occupied voxels for an accepted tree",
+  apex_minimum_height = "Strict minimum tree-apex height in metres",
+  minimum_tree_thickness = "Minimum smallest PCA extent of a tree in metres",
+  minimum_occupied_layers = "Minimum occupied one-metre height layers of a tree",
+  voxel_count_resolution = "Voxel edge length in metres for the voxel point counts"
+)
+
+validate_scientific_parameters <- function(arguments) {
+  value <- function(name) arguments[[name]]
+  for (name in c("tile_size", "grid_search_step", "ptd_resolution", "dtm_resolution",
+                 "chm_resolution", "voxel_resolution", "voxel_count_resolution")) {
+    if (!is.finite(value(name)) || value(name) <= 0) {
+      stop(sprintf("--%s must be greater than zero", gsub("_", "-", name)))
+    }
+  }
+  for (name in c("vegetation_minimum_height", "gap_height_threshold",
+                 "apex_minimum_height", "minimum_tree_thickness")) {
+    if (!is.finite(value(name)) || value(name) < 0) {
+      stop(sprintf("--%s must be zero or greater", gsub("_", "-", name)))
+    }
+  }
+  for (name in c("minimum_tree_voxels", "minimum_occupied_layers")) {
+    if (!is.finite(value(name)) || value(name) < 1 || value(name) != round(value(name))) {
+      stop(sprintf("--%s must be a whole number of at least one", gsub("_", "-", name)))
+    }
+    arguments[[name]] <- as.integer(value(name))
+  }
+  if (arguments$grid_search_step > arguments$tile_size) {
+    stop("--grid-search-step must not exceed --tile-size")
+  }
+  arguments
+}
+
 validate_original_companion <- function(requested_point_cloud, point_cloud) {
   # Compare header counts without paying the cost of two full point scans.
   requested_count <- point_count_from_las_header(requested_point_cloud)
@@ -85,6 +144,14 @@ parse_julia_memory_safe_parameters <- function() {
       "adaptive sizing (default: 50000000)"
     )
   )
+  for (name in names(SCIENTIFIC_DEFAULTS)) {
+    parser$add_argument(
+      paste0("--", gsub("_", "-", name)),
+      type = "double",
+      default = SCIENTIFIC_DEFAULTS[[name]],
+      help = sprintf("%s (default: %s)", SCIENTIFIC_HELP[[name]], SCIENTIFIC_DEFAULTS[[name]])
+    )
+  }
   parser$add_argument("--sensor", default = "NA")
   parser$add_argument("--country", default = "NA")
   parser$add_argument(
@@ -164,7 +231,7 @@ parse_julia_memory_safe_parameters <- function() {
       arguments$target_chunk_points < 0) {
     stop("--target-chunk-points must be zero or greater")
   }
-  arguments
+  validate_scientific_parameters(arguments)
 }
 
 extra_byte_definitions <- function(point_cloud) {
@@ -246,7 +313,9 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
                                         memory_budget_gib, source_point_count,
                                         point_cloud_name, sensor, country, voxel_counts = FALSE,
                                         memory_limit_gib = memory_budget_gib,
-                                        denoising = FALSE) {
+                                        denoising = FALSE, dtm_resolution = 1,
+                                        chm_resolution = 0.5,
+                                        voxel_count_resolution = 0.5) {
   matches_label <- function(values, expected) {
     if (identical(expected, "NA")) {
       return(all(is.na(values) | as.character(values) == "NA"))
@@ -254,7 +323,7 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
     all(!is.na(values) & as.character(values) == expected)
   }
   paths <- expected_artifacts(directory, dataset_id, dimensions, voxel_counts, denoising)
-  if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id)
+  if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id, voxel_count_resolution)
   absent <- paths[!file.exists(paths) | file.info(paths)$size <= 0]
   if (length(absent) > 0L) {
     stop(sprintf(
@@ -279,8 +348,8 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
   dtm <- terra::rast(file.path(directory, paste0(dataset_id, "_dtm.tif")))
   chm <- terra::rast(file.path(directory, paste0(dataset_id, "_chm.tif")))
   if (terra::inMemory(dtm) || terra::inMemory(chm) ||
-      any(abs(terra::res(dtm) - c(1, 1)) > 1e-9) ||
-      any(abs(terra::res(chm) - c(0.5, 0.5)) > 1e-9) ||
+      any(abs(terra::res(dtm) - dtm_resolution) > 1e-9) ||
+      any(abs(terra::res(chm) - chm_resolution) > 1e-9) ||
       !identical(terra::crs(dtm), terra::crs(chm))) {
     stop("incoming raster resolution, storage mode, or CRS validation failed")
   }
@@ -612,19 +681,20 @@ julia_memory_safe_main <- function() {
     adaptive_spatial_input = requested_is_copc,
     export_voxel_counts = arguments$export_voxel_counts,
     voxel_count_chunk_points = arguments$voxel_count_chunk_points,
+    voxel_count_resolution = arguments$voxel_count_resolution,
     dataset_id = arguments$dataset_id,
     aoi = generated_gpkg,
     output_dir = incoming_directory,
     temp_dir = job_directory,
-    tile_size = 20,
-    grid_search_step = 0.5,
-    ptd_resolution = 20,
-    dtm_resolution = 1,
+    tile_size = arguments$tile_size,
+    grid_search_step = arguments$grid_search_step,
+    ptd_resolution = arguments$ptd_resolution,
+    dtm_resolution = arguments$dtm_resolution,
     maximum_height = Inf,
-    voxel_resolution = 0.2,
-    vegetation_minimum_height = 0.5,
-    chm_resolution = 0.5,
-    gap_height_threshold = 3,
+    voxel_resolution = arguments$voxel_resolution,
+    vegetation_minimum_height = arguments$vegetation_minimum_height,
+    chm_resolution = arguments$chm_resolution,
+    gap_height_threshold = arguments$gap_height_threshold,
     dtm_chunk_size = 60,
     chunk_size = 60,
     target_chunk_points = arguments$target_chunk_points,
@@ -634,10 +704,10 @@ julia_memory_safe_main <- function() {
     performance_report = TRUE,
     instance_dimension = arguments$instance_dimension,
     segment_diagnostics = TRUE,
-    minimum_tree_voxels = 100L,
-    apex_minimum_height = 3,
-    minimum_tree_thickness = 0.5,
-    minimum_occupied_layers = 3L,
+    minimum_tree_voxels = arguments$minimum_tree_voxels,
+    apex_minimum_height = arguments$apex_minimum_height,
+    minimum_tree_thickness = arguments$minimum_tree_thickness,
+    minimum_occupied_layers = arguments$minimum_occupied_layers,
     sensor = arguments$sensor,
     country = arguments$country,
     memory_budget_gib = arguments$memory_budget_gib,
@@ -788,27 +858,28 @@ julia_memory_safe_main <- function() {
       )
     ),
     scientific_parameters = list(
-      tile_size = 20,
-      grid_search_step = 0.5,
-      ptd_resolution = 20,
-      dtm_resolution = 1,
+      tile_size = arguments$tile_size,
+      grid_search_step = arguments$grid_search_step,
+      ptd_resolution = arguments$ptd_resolution,
+      dtm_resolution = arguments$dtm_resolution,
       dtm_chunk_size = 60,
       dtm_buffer = 20,
       segment_chunk_size = performance$adaptive_chunk_size_m[[1]],
-      voxel_resolution = 0.2,
+      voxel_resolution = arguments$voxel_resolution,
+      voxel_count_resolution = arguments$voxel_count_resolution,
       maximum_height = NULL,
       normalized_height_policy = "finite_nonnegative_without_upper_cutoff",
       metric_height_policy = performance$metric_height_policy[[1]],
       metric_height_upper_m = performance$metric_height_upper_m[[1]],
       observed_maximum_voxel_height_m = performance$observed_maximum_voxel_height_m[[1]],
       observed_maximum_voxel_height_m_exact = performance$observed_maximum_voxel_height_m_exact[[1]],
-      vegetation_minimum_height = 0.5,
-      chm_resolution = 0.5,
-      gap_height_threshold = 3,
-      minimum_tree_voxels = 100,
-      apex_minimum_height = 3,
-      minimum_tree_thickness = 0.5,
-      minimum_occupied_layers = 3,
+      vegetation_minimum_height = arguments$vegetation_minimum_height,
+      chm_resolution = arguments$chm_resolution,
+      gap_height_threshold = arguments$gap_height_threshold,
+      minimum_tree_voxels = arguments$minimum_tree_voxels,
+      apex_minimum_height = arguments$apex_minimum_height,
+      minimum_tree_thickness = arguments$minimum_tree_thickness,
+      minimum_occupied_layers = arguments$minimum_occupied_layers,
       classify_ground_last_returns = FALSE
     ),
     package_versions = package_versions(),
@@ -838,7 +909,10 @@ julia_memory_safe_main <- function() {
     memory_limit_gib = if (is.null(arguments$resources$memory_limit_gib)) {
       arguments$memory_budget_gib
     } else arguments$resources$memory_limit_gib,
-    denoising = !is.null(parameters$denoising)
+    denoising = !is.null(parameters$denoising),
+    dtm_resolution = arguments$dtm_resolution,
+    chm_resolution = arguments$chm_resolution,
+    voxel_count_resolution = arguments$voxel_count_resolution
   )
   message("FORESTSTRUCTURE_STAGE stage=internal_validation status=completed")
   run_provenance$status <- "valid"

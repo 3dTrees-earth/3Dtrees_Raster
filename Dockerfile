@@ -44,7 +44,8 @@ RUN apt-get update \
     && python3 -c 'import laspy, lazrs, pyproj; from osgeo import gdal, ogr, osr'
 
 LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_Raster" \
-      org.opencontainers.image.description="Audit-aware forest-structure metrics for LAS/LAZ point clouds" \
+      org.opencontainers.image.title="3Dtrees: Raster" \
+      org.opencontainers.image.description="DTM, CHM, voxel point counts and tile-level forest-structure metrics from segmented LAS/LAZ/COPC point clouds" \
       org.opencontainers.image.licenses="GPL-3.0" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.version="${IMAGE_VERSION}" \

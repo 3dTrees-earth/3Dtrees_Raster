@@ -1,0 +1,13 @@
+name: 3dtrees_raster
+owner: bgruening
+description: DTM, CHM, voxel point counts and tile-level forest-structure metrics from segmented point clouds.
+homepage_url: https://github.com/3dTrees-earth/3Dtrees_Raster
+long_description: |
+  Computes a DTM and CHM, full-resolution voxel point counts (0.5 m by default)
+  and fixed-size tile metrics of forest structure (20 m by default) for each
+  requested instance dimension of a segmented LAS/LAZ or COPC point cloud,
+  with optional statistical outlier removal and an optional area of interest.
+remote_repository_url: https://github.com/3dTrees-earth/galaxytools/tree/master/tools/3dtrees_raster
+type: unrestricted
+categories:
+- "Geo Science"

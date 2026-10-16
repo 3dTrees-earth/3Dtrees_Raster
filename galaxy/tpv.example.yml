@@ -1,11 +1,11 @@
 # Tool-rule fragment for a site-managed TPV configuration, not a deployment.
 # Install src/galaxy_resource_request.py on the Galaxy dispatcher's Python path.
-# The tool ID and point_cloud input match galaxy/3dtrees_foreststructure; the
+# The tool ID and point_cloud input match galaxy/3dtrees_raster; the
 # pattern covers Tool Shed GUIDs of every installed version.
 # Requires TPV's parameter-specific get_input_size helper (documented in 3.3).
 # Keep the site's runner/destination/container configuration and limits.
 tools:
-  '.*/3dtrees_foreststructure/3dtrees_foreststructure/.*':
+  '.*/3dtrees_raster/3dtrees_raster/.*':
     cores: |
       from galaxy_resource_request import request_resources
       size = helpers.get_input_size(job, "point_cloud", estimate_uncompressed_size=False)

@@ -71,6 +71,21 @@ validate_scientific_parameters <- function(arguments) {
   if (arguments$grid_search_step > arguments$tile_size) {
     stop("--grid-search-step must not exceed --tile-size")
   }
+  # CHM and segment reads use whole-metre windows and DTM uses 60 m chunks; a
+  # cell must never straddle a window edge, or it would be split between reads.
+  divides <- function(total, step) {
+    ratio <- total / step
+    abs(ratio - round(ratio)) <= 1e-9 * max(1, ratio)
+  }
+  for (name in c("voxel_resolution", "chm_resolution")) {
+    if (!divides(1, value(name))) {
+      stop(sprintf("--%s must divide 1 m evenly (for example 0.1, 0.2, 0.25, 0.5 or 1)",
+                   gsub("_", "-", name)))
+    }
+  }
+  if (!divides(60, arguments$dtm_resolution)) {
+    stop("--dtm-resolution must divide 60 m evenly (for example 0.5, 1, 2 or 5)")
+  }
   arguments
 }
 
@@ -117,7 +132,7 @@ source(file.path(script_directory, "production_contract.R"))
 parse_julia_memory_safe_parameters <- function() {
   parser <- ArgumentParser(
     description = paste(
-      "ForestStructure analysis with uncapped heights, selective ExtraBytes",
+      "3Dtrees: Raster analysis with uncapped heights, selective ExtraBytes",
       "and disk-backed memory guards"
     )
   )

@@ -71,7 +71,9 @@ totals to performance and provenance artifacts.
 
 CHM and segmentation retain zero buffer. Their catalogs share the absolute
 origin `(0, 0)` and whole-metre window widths, so boundaries stay aligned with
-both the 0.2 m voxel lattice and the 0.5 m CHM raster. CHM produces one raster
+the voxel lattice and the CHM raster (0.2 m and 0.5 m by default). The runner
+therefore rejects voxel and CHM resolutions that do not divide 1 m evenly, and
+DTM resolutions that do not divide its 60 m chunks. CHM produces one raster
 per window and streams their VRT mosaic to the unchanged dataset-level CHM.
 Segmentation writes only compact voxel, layer, and apex summaries to SSD, drops
 the raw LAS and temporary tables before the next read, and reuses the existing
@@ -297,7 +299,7 @@ The complete structured evidence is stored in
 Build the image:
 
 ```bash
-make build-julia-memory-safe JULIA_MEMORY_SAFE_IMAGE=3dtrees-foreststructure:copc-local
+make build-julia-memory-safe JULIA_MEMORY_SAFE_IMAGE=3dtrees_raster:copc-local
 ```
 
 Run the controlled three-dimension differential:

@@ -1,9 +1,251 @@
-# 3Dtrees ForestStructure
+# 3Dtrees: Raster
 
-ForestStructure calculates fixed-tile forest metrics from one canonical COPC
-point cloud and an optional audited area of interest. It produces tile metrics,
-segment diagnostics, vector tiles, a DTM, a CHM, a tile overview, raw voxel-count
-products, and point-noise quality-control records.
+3Dtrees: Raster turns one segmented forest point cloud into raster and tile
+products of forest structure:
+
+- a digital terrain model (DTM) and a canopy height model (CHM),
+- full-resolution voxel point counts as a multiband GeoTIFF and a CSV,
+- fixed-size tile metrics (vegetation density, height distribution, vertical
+  complexity, canopy roughness, gaps and tree statistics) for each tree
+  instance dimension,
+- point-noise records and provenance for every run.
+
+It reads every point (no subsampling) and never modifies the input file. It
+runs as a Docker image, and is the raster step of the
+[3Dtrees](https://github.com/3dTrees-earth) platform.
+
+| | |
+| --- | --- |
+| Image | `ghcr.io/3dtrees-earth/3dtrees_raster:1.0.0` (public) |
+| Licence | GPL-3.0 |
+
+> **Naming.** The project was developed as *ForestStructure*. For compatibility
+> the image keeps that name internally: the runner lives in
+> `/opt/foreststructure`, operator settings use `FORESTSTRUCTURE_*` variables,
+> and output files start with `foreststructure_`.
+
+## Quick start
+
+Put the point cloud (and optionally an area of interest) in one folder and run:
+
+```bash
+docker run --rm --network none \
+  --cpus 8 --memory 30g --memory-swap 30g \
+  --user "$(id -u):$(id -g)" \
+  --volume "$PWD/data:/data" \
+  ghcr.io/3dtrees-earth/3dtrees_raster:1.0.0 \
+  --point-cloud /data/input.copc.laz \
+  --instance-dimension PredInstance_SAT \
+  --aoi-geojson /data/aoi.geojson \
+  --output-dir /data/output \
+  --temp-dir /data/work
+```
+
+- The point cloud needs a projected metric CRS and at least one of the instance
+  dimensions `PredInstance`, `PredInstance_SAT` (SegmentAnyTree) or
+  `PredInstance_FM` (ForestMamba). Name one or more with
+  `--instance-dimension` (repeat the option or separate names with commas);
+  a missing dimension fails the run before any analysis.
+- Point-noise filtering (`--denoise sor`, the default) works on a canonical
+  COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex` is
+  numbered in its own record order, which costs one extra read and a scratch
+  copy of XYZ and the instance dimensions. Add `--denoise none` to skip it.
+- A COPC is recognised by its `.copc.laz` file name.
+- Without `--aoi-geojson` the whole point-cloud extent is analysed.
+- Without `--output-dir` and `--temp-dir`, outputs go to the working directory
+  and scratch to `TMPDIR`.
+
+The run publishes its outputs only after they validate as a complete set; a
+failed run leaves no partial results.
+
+## Parameters
+
+### Scientific parameters
+
+The defaults are the published 3Dtrees settings. Keep them to stay comparable
+with other 3Dtrees products. Every run records the values it used under
+`scientific_parameters` in its run provenance.
+
+| Option | Default | Meaning | Allowed values |
+| --- | --- | --- | --- |
+| `--tile-size` | `20` | Width of the square analysis tiles in metres | > 0 |
+| `--grid-search-step` | `0.5` | Step of the offset search that places the tile grid inside an AOI, in metres | > 0 and ≤ tile size |
+| `--voxel-resolution` | `0.2` | Voxel edge length in metres for the tile and tree metrics | Must divide 1 m evenly, e.g. 0.1, 0.2, 0.25, 0.5, 1 |
+| `--voxel-count-resolution` | `0.5` | Voxel edge length in metres of the voxel point counts, horizontal and vertical | > 0 |
+| `--dtm-resolution` | `1` | DTM resolution in metres | Must divide 60 m evenly, e.g. 0.5, 1, 2, 5 |
+| `--chm-resolution` | `0.5` | CHM resolution in metres | Must divide 1 m evenly |
+| `--ptd-resolution` | `20` | Seed resolution in metres of the progressive TIN densification (PTD) ground classification | > 0 |
+| `--vegetation-minimum-height` | `0.5` | Voxels at or below this height (m) are not vegetation for the tile metrics | ≥ 0 |
+| `--gap-height-threshold` | `3` | CHM cells below this height (m) count as canopy gap | ≥ 0 |
+| `--minimum-tree-voxels` | `100` | Occupied metric voxels a segment needs to count as a tree | Whole number ≥ 1 |
+| `--apex-minimum-height` | `3` | A tree's highest voxel must be strictly above this height (m) | ≥ 0 |
+| `--minimum-tree-thickness` | `0.5` | Smallest PCA extent (m) a tree must reach | ≥ 0 |
+| `--minimum-occupied-layers` | `3` | One-metre height layers a tree must occupy | Whole number ≥ 1 |
+
+The size rules exist because the CHM and segment passes read the cloud in
+whole-metre windows and the DTM in 60 m chunks; a cell must never straddle a
+window edge. The runner rejects other values before reading any points.
+
+### Point-noise filtering
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--denoise` | `sor` | `sor` runs statistical outlier removal before the terrain model; `none` disables it |
+| `--denoise-neighbors` | `10` | Nearest neighbours used for each point's mean distance |
+| `--denoise-sigma` | `12` | Points farther than the window mean plus this many standard deviations are flagged |
+| `--denoise-window-size` | `60` | Width in metres of the fixed windows that define the statistics |
+| `--denoise-buffer` | `20` | Context in metres around each window included in its statistics |
+
+See [Point-noise classification and uncapped heights](#point-noise-classification-and-uncapped-heights)
+for the method and its limits.
+
+### Run options
+
+| Option | Meaning |
+| --- | --- |
+| `--point-cloud` | Input LAS/LAZ, or a canonical COPC named `*.copc.laz` (required) |
+| `--instance-dimension` | Instance dimensions to process (required) |
+| `--aoi-geojson` | Optional area of interest in the point cloud's XY coordinates; not reprojected |
+| `--original-point-cloud` | Optional original LAS/LAZ of a COPC, used only for header and provenance checks |
+| `--output-dir`, `--temp-dir` | Output and scratch directories |
+| `--memory-budget-gib` | Optional lower internal memory budget; the container or Galaxy limit is used otherwise |
+| `--target-chunk-points` | Approximate points per COPC CHM/segment read window (default 50,000,000; `0` uses fixed windows) |
+| `--voxel-count-chunk-points` | Maximum records per voxel-count batch (default 2,000,000) |
+| `--sensor`, `--country` | Optional labels copied into the result rows (default `NA`) |
+
+CPU and memory come from `GALAXY_SLOTS`/`GALAXY_MEMORY_MB` or the container's
+limits; see [Galaxy production contract](#galaxy-production-contract) for the
+operator variables. `--dataset-id` and `--export-voxel-counts` are still accepted
+for old commands but are not needed.
+
+## Outputs
+
+All files start with the prefix `foreststructure`. Per requested instance
+dimension `<dimension>`:
+
+| File | Contents |
+| --- | --- |
+| `foreststructure_<dimension>_results.csv` | One row of [tile metrics](#tile-metrics) per tile |
+| `foreststructure_<dimension>_segment_diagnostics.csv` | One row per segment with the tree-acceptance checks |
+| `foreststructure_<dimension>_tiles.geojson` | The tile metrics as polygons |
+
+Shared by all dimensions:
+
+| File | Contents |
+| --- | --- |
+| `foreststructure_dtm.tif` | DTM GeoTIFF |
+| `foreststructure_chm.tif` | CHM GeoTIFF |
+| `foreststructure_tiles.png` | Tile overview map |
+| `foreststructure_voxel_counts.csv` | Occupied voxels: `x_center,y_center,height_lower_m,height_upper_m,point_count` |
+| `foreststructure_voxel_counts.tif` | UInt32 point counts; with voxel size *s*, band *b* holds heights `[(b-1)·s, b·s)` m above the DTM |
+| `foreststructure_voxel_counts_validity.tif` | 0 excluded (outside the AOI or on its boundary), 1 valid, 2 invalid DTM |
+| `foreststructure_voxel_counts.json` | Grid, CRS, source and DTM hashes, policies and point accounting |
+| `foreststructure_noise_points.csv` | With SOR only: one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
+| `foreststructure_denoising.json` | With SOR only: parameters and per-window point accounting |
+| `foreststructure_julia_memory_safe_run.json` | Run provenance: inputs, parameters, versions, resources |
+| `foreststructure_performance.csv` | Stage timings and memory observations |
+| `foreststructure_aoi_conversion.json` | The analysed footprint and its AOI conversion checks |
+
+Voxel counts include every recorded point, also those flagged as noise. Zero
+means no recorded points, not absence of vegetation; read the validity raster
+before interpreting missing CSV rows. See
+[Full-resolution voxel point-count export](#full-resolution-voxel-point-count-export).
+
+### Tile metrics
+
+Within an AOI the tile grid is shifted in `--grid-search-step` increments to fit
+the most complete tiles, and only whole tiles inside the AOI are reported.
+Without an AOI, tiles cover the full extent and edge tiles can be partial.
+The metric columns are computed from occupied voxels of size
+`--voxel-resolution`, with heights above the DTM. *H* is the shared height
+domain `metric_height_upper_m` (the tallest accepted voxel, rounded up to a
+whole metre); vegetation voxels are those above `--vegetation-minimum-height`.
+
+| Column | Meaning |
+| --- | --- |
+| `file`, `sensor`, `country` | Input file name and the optional labels |
+| `tile_id`, `tile_xmin`, `tile_ymin` | Tile number and its lower-left corner |
+| `edge_tile` | `TRUE` when any of the eight neighbouring tiles is missing |
+| `n_tiles_plot` | Number of tiles in the run |
+| `vox_filled`, `vox_total` | Occupied vegetation voxels, and all voxels of the tile volume between the vegetation minimum height and *H* |
+| `metric_height_upper_m` | Height domain *H* in metres |
+| `veg_density` | `vox_filled / vox_total` |
+| `zsd`, `zskew`, `zkurt`, `zq90` | Standard deviation, skewness, kurtosis and 90th percentile of vegetation voxel heights |
+| `box_dim_fixed` | Box-counting (fractal) dimension of the vegetation voxels |
+| `vci` | Vertical complexity index: Shannon entropy of vegetation voxels over one-metre layers, divided by log(*H*) |
+| `rumple` | Rumple index of the tile CHM (surface area / ground area) |
+| `gap_fraction` | Share of tile CHM cells below `--gap-height-threshold` |
+| `chm_sd`, `chm_cv` | Standard deviation and coefficient of variation of the tile CHM |
+| `height_max`, `height_mean` | Maximum and mean voxel height |
+| `n_seg_total`, `n_trees` | Segments with their apex in the tile, and those accepted as trees |
+| `tree_height_max`, `tree_height_mean`, `tree_height_gini` | Apex heights of the accepted trees |
+| `tree_crownarea_mean`, `tree_crownarea_max`, `tree_crownarea_gini` | Crown area: occupied XY voxel columns × voxel size² |
+| `tree_volume_mean`, `tree_volume_max`, `tree_volume_gini` | Voxel volume: occupied voxels × voxel size³ |
+
+A segment is a tree when it has at least `--minimum-tree-voxels` voxels, its
+apex is above `--apex-minimum-height`, its smallest PCA extent reaches
+`--minimum-tree-thickness` and it occupies at least `--minimum-occupied-layers`
+one-metre layers. The segment diagnostics list each check (`pass_vox`,
+`pass_apex`, `pass_thick`, `pass_zlayer`) with the underlying values.
+
+## Releases
+
+Images are published to `ghcr.io/3dtrees-earth/3dtrees_raster` by
+[`publish-container.yml`](.github/workflows/publish-container.yml) after the
+container test suite passes:
+
+| Trigger | Tags |
+| --- | --- |
+| Push to `main` | `latest`, `sha-<commit>` |
+| Tag `v<X.Y.Z>` (for example a GitHub release) | `<X.Y.Z>`, `sha-<commit>` |
+| Manual run with `release_tag` | that tag, `sha-<commit>` |
+
+To release, create a GitHub release with a new tag `v<X.Y.Z>` on `main`. Do
+not reuse a version for different code: run provenance records the image
+version, and users identify results by it.
+
+| Version | Notes |
+| --- | --- |
+| 1.0.0 | First release: tile metrics, DTM, CHM, voxel counts, point-noise filtering and adjustable scientific parameters |
+
+## Build from source
+
+```bash
+make build IMAGE=3dtrees_raster:local
+```
+
+`Dockerfile` is the published image. `Dockerfile.julia-memory-safe` builds
+the ordered-COPC development image used by several test targets:
+
+```bash
+make build-julia-memory-safe JULIA_MEMORY_SAFE_IMAGE=3dtrees_raster:copc-local
+```
+
+## Prepare a canonical COPC
+
+Do not use an arbitrary COPC. Build it from the ordered LAS/LAZ so it contains
+the validated `OriginalPointIndex` needed to restore source record order:
+
+```bash
+FORESTSTRUCTURE_JULIA_IMAGE=3dtrees_raster:copc-local \
+FORESTSTRUCTURE_TEST_CPUS=10 \
+FORESTSTRUCTURE_TEST_MEMORY_GIB=30 \
+bash tests/build_original_order_copc.sh \
+  /data/original.laz \
+  /data/original.copc.laz \
+  /data/original.copc.order.json
+```
+
+The builder preserves all point values, places the supported instance
+dimensions in selectively readable positions, validates every source index,
+and publishes the COPC only after validation succeeds.
+
+## Technical reference
+
+The rest of this document explains the implementation, its validation and its
+limits in detail.
+
+### Method notes
 
 The production workflow uses a canonical COPC for spatial streaming and source
 record-order preservation. Native lidR denoising is enabled by default, and
@@ -34,36 +276,7 @@ faithful to the measured point cloud. See
 [`COPC_REVIEW_GUIDE.md`](COPC_REVIEW_GUIDE.md) and the machine-readable
 validation record in `benchmarks/results/` before promoting this retry strategy.
 
-## Build
-
-Build the base image and the ordered-COPC image:
-
-```bash
-make build IMAGE=3dtrees-foreststructure:v0.1.2
-make build-julia-memory-safe \
-  JULIA_MEMORY_SAFE_IMAGE=3dtrees-foreststructure:copc-local
-```
-
-## Prepare a canonical COPC
-
-Do not use an arbitrary COPC. Build it from the ordered LAS/LAZ so it contains
-the validated `OriginalPointIndex` needed to restore source record order:
-
-```bash
-FORESTSTRUCTURE_JULIA_IMAGE=3dtrees-foreststructure:copc-local \
-FORESTSTRUCTURE_TEST_CPUS=10 \
-FORESTSTRUCTURE_TEST_MEMORY_GIB=30 \
-bash tests/build_original_order_copc.sh \
-  /data/original.laz \
-  /data/original.copc.laz \
-  /data/original.copc.order.json
-```
-
-The builder preserves all point values, places the supported instance
-dimensions in selectively readable positions, validates every source index,
-and publishes the COPC only after validation succeeds.
-
-## Run
+### Resource-limited run
 
 One conservative validated profile is 10 CPUs, a 30 GiB hard memory limit, a
 25 GiB internal budget, and one LAScatalog worker:
@@ -79,7 +292,7 @@ docker run --rm --network none \
   --volume /local/input:/in:ro \
   --volume /local/output:/out \
   --volume /local/work:/work \
-  3dtrees-foreststructure:copc-local \
+  ghcr.io/3dtrees-earth/3dtrees_raster:1.0.0 \
   --point-cloud /in/original.copc.laz \
   --original-point-cloud /in/original.laz \
   --aoi-geojson /in/aoi.geojson \
@@ -95,36 +308,15 @@ header compatibility and provenance checks; scientific point reads still use COP
 Extrema are compared on each header's coordinate lattice because original writers
 can retain pre-quantization bounds. This lightweight check is not identity proof: the
 preparation validator must still verify complete point indices and fingerprints.
-Plain LAS/LAZ input is supported with `--denoise none`; default denoising requires
-a canonical COPC carrying `OriginalPointIndex`.
-
-### Scientific parameters
-
-The production runner accepts these settings. The defaults are the published
-3Dtrees contract and reproduce 1.0.0 outputs byte for byte; every run records the
-values it used under `scientific_parameters` in its run provenance.
-
-| Option | Default | Meaning |
-| --- | --- | --- |
-| `--tile-size` | `20` | Analysis tile width in metres |
-| `--grid-search-step` | `0.5` | Tile-grid offset-search step in metres; at most the tile size |
-| `--voxel-resolution` | `0.2` | Voxel edge length in metres for tile and tree metrics |
-| `--voxel-count-resolution` | `0.5` | Voxel edge length in metres for the voxel point counts (XY and height bands) |
-| `--dtm-resolution` | `1` | DTM resolution in metres |
-| `--chm-resolution` | `0.5` | CHM resolution in metres |
-| `--ptd-resolution` | `20` | PTD ground-seed resolution in metres |
-| `--vegetation-minimum-height` | `0.5` | Minimum vegetation height in metres |
-| `--gap-height-threshold` | `3` | CHM gap-height threshold in metres |
-| `--minimum-tree-voxels` | `100` | Minimum occupied voxels for an accepted tree |
-| `--apex-minimum-height` | `3` | Strict minimum tree-apex height in metres |
-| `--minimum-tree-thickness` | `0.5` | Minimum smallest PCA extent of a tree in metres |
-| `--minimum-occupied-layers` | `3` | Minimum occupied one-metre height layers of a tree |
+Plain LAS/LAZ input is supported with and without denoising.
 
 ### Galaxy production contract
 
-Galaxy supplies one full-resolution COPC and optionally an Audit AOI in that
-COPC's metric XY coordinate system. The COPC must retain `OriginalPointIndex`
-and every supported instance dimension the job requests; SmartTile supplies global IDs.
+In the 3Dtrees pipeline Galaxy supplies one full-resolution COPC and optionally
+an Audit AOI in that COPC's metric XY coordinate system. The COPC must retain
+`OriginalPointIndex` and every supported instance dimension the job requests;
+SmartTile supplies global IDs. A plain LAS/LAZ also runs, with point-noise
+filtering disabled.
 An AOI restricts the analysis domain. Without it, the runner reuses the existing
 coordinate-lattice-snapped full-extent footprint. Neither mode subsamples points.
 The existing DTM algorithm runs on SOR-accepted points. CHM, segment and tile
@@ -313,8 +505,9 @@ policy: the real benchmark's 30 GiB limit differs from the 30 decimal GB tier.
 
 The full-resolution study benchmarks use ten workers for datasets 647/2080 and
 three for dense dataset 1805, all under 10 CPUs, a 70 GiB hard limit and a
-60 GiB internal budget. See the [measured profiles and exact-parity evidence](
-benchmarks/results/2026-10-12-voxel-optimization.json). These are measured
+60 GiB internal budget. See the
+[measured profiles and exact-parity evidence](benchmarks/results/2026-10-12-voxel-optimization.json).
+These are measured
 dataset profiles rather than a fixed RAM-per-compressed-GB rule.
 
 | Dataset | Original GB | Million points | Baseline minutes | Optimized minutes | Peak GiB |
@@ -352,11 +545,12 @@ estimated count, observed minimum/maximum counts, and oversize count in the
 performance CSV and run-provenance JSON.
 
 CHM and segmentation use zero buffer and an absolute one-metre chunk alignment.
-This alignment is compatible with the 0.2 m voxel and 0.5 m CHM grids. CHM
+The runner therefore only accepts voxel and CHM resolutions that divide 1 m
+evenly, so no cell straddles a read edge (the defaults are 0.2 m and 0.5 m). CHM
 reads adapt, but its raster footprints retain the configured baseline size
 (normally 60 m). Each read uses the unchanged normalization and voxelization;
 only the maximum voxel height at each exact XY is retained across reads
-(about 90,000 XY columns per 60 m parent at 0.2 m resolution). Raw points and
+(about 90,000 XY columns per 60 m parent at the default 0.2 m resolution). Raw points and
 3D voxels are released before the next read. The parent is then rasterized
 once with the original numeric-resolution `p2r()` and written to disk for the
 VRT merge. This preserves lidR's occupied-extent edge assignment: rasterizing
@@ -373,6 +567,7 @@ PCA. Output artifact names and schemas are unchanged.
 DTM is deliberately outside this policy. It still uses 60 m chunks and its
 existing 20 m buffer because terrain interpolation needs neighboring ground
 points and was not the memory-failure stage addressed by adaptive chunking.
+DTM resolutions must therefore divide 60 m evenly.
 For COPC, DTM still restores Julia's source-point order first; it then releases
 the now-redundant `OriginalPointIndex` column before PTD/TIN. Its checks for
 three non-collinear input and ground points scan fixed-size blocks instead of
@@ -389,7 +584,7 @@ Supported instance dimensions are:
 The production runner requires `--instance-dimension` (repeat it or separate
 names with commas) and never discovers dimensions from the point cloud. The
 selection is strict: any missing or unsupported field fails before analysis. SmartTile owns
-global instance-ID assignment; ForestStructure never renumbers or fabricates IDs.
+global instance-ID assignment; this tool never renumbers or fabricates IDs.
 Available dimensions are processed independently so their results cannot mix.
 
 Instance fields may occur anywhere in the ExtraBytes schema, including position
@@ -407,8 +602,11 @@ all duplicates, rather than a reduced or subsampled source.
 
 The production runner defaults to `--denoise sor`, using native lidR 4.3.2
 statistical outlier removal before terrain estimation. Use `--denoise none` to
-disable it. Enabled denoising requires a canonical COPC carrying
-`OriginalPointIndex`; late ExtraByte positions use the existing projection path.
+disable it. Rejected points are named by `OriginalPointIndex`. A canonical COPC
+carries it; a plain LAS/LAZ that lacks it is first streamed into a compact,
+hash-verified scratch LAZ that numbers the records in file order (0-based),
+so the noise list names each record's position in the input file. Late
+ExtraByte positions use the existing projection path.
 Input coordinates, classifications and instance IDs are unchanged.
 
 SOR measures each point's mean distance to its nearest neighbours and rejects
@@ -453,11 +651,16 @@ A synthetic sensitivity check at sigma 6/8/10/12/15 rejected 36/4/2/2/2 points
 from the earlier 56,057-point fixture. Sigma 12 retained every ordinary return;
 sigma 15 missed a high outlier in the separate 568-point fixture. These checks
 justify the chosen starting value, not an accuracy claim for real surveys.
+For comparison, lidR's own `sor()` default is k = 10, m = 3, and the PCL tutorial
+uses k = 50 with one standard deviation. These are much stricter: in close-range
+(TLS, MLS, ULS) scans point spacing grows with distance from the scanner, so they
+can flag real upper-crown and stand-edge points. Pass `--denoise-sigma 3` to use
+lidR's stricter threshold.
 
 CHM, segment and tile processing retain all accepted points with finite,
-nonnegative normalized heights, including heights above 70 m. The 0.5 m
-vegetation threshold remains part of the existing tile indices; the raw voxel
-export still includes the 0–0.5 m layer. Point retention has no upper height
+nonnegative normalized heights, including heights above 70 m. The vegetation
+minimum height (0.5 m by default) remains part of the existing tile indices; the
+raw voxel export still includes the layers below it. Point retention has no upper height
 cutoff. Metric denominators and vertical-complexity normalization use one shared
 height domain: `H = max(1, ceiling(maximum accepted normalized voxel height))` metres over the
 full source cloud, even when an AOI restricts reported tiles. The value is recorded
@@ -499,7 +702,7 @@ on a CHM or segment catalog edge, changing results with execution-window size.
 The dedicated boundary regression checks this correction; outputs for those
 previously affected inputs can change even with denoising disabled.
 
-## Inputs and outputs
+### AOI handling
 
 The AOI is interpreted in the point cloud's local XY coordinate space and is
 not reprojected. The GeoJSON-to-GeoPackage round trip must preserve topology,
@@ -507,29 +710,7 @@ exact XY vertices, and exact bounds. An absolute area difference of at most
 `1e-6` square coordinate units is allowed solely for floating-point summation
 noise. Without an AOI, the full point-cloud extent is tiled.
 
-Production outputs use the fixed prefix `foreststructure`; no dataset ID is
-required. The legacy `--dataset-id` option remains only to replay old validation
-commands and is not a Galaxy input. Below, `<dataset>` denotes this output prefix.
-
-For each requested instance dimension, the run writes:
-
-- `<dataset>_<dimension>_results.csv`
-- `<dataset>_<dimension>_segment_diagnostics.csv`
-- `<dataset>_<dimension>_tiles.geojson`
-
-Shared outputs are:
-
-- `<dataset>_dtm.tif`
-- `<dataset>_chm.tif`
-- `<dataset>_tiles.png`
-- `<dataset>_aoi_conversion.json`
-- `<dataset>_julia_memory_safe_run.json`
-- `<dataset>_performance.csv`
-
-Outputs are computed in a staging directory, validated as a complete set, and
-then promoted. A failed run does not publish a partial result set.
-
-## Validation tools
+### Validation tools
 
 Reusable acceptance checks live in `validation/`; `tests/` contains regression
 and integration orchestration. Validators return a nonzero exit code on an
@@ -553,7 +734,7 @@ docker run --rm --network none \
   --entrypoint Rscript \
   --volume "$PWD:/repo:ro" \
   --volume /data/aoi.geojson:/in/aoi.geojson:ro \
-  3dtrees-foreststructure:copc-local \
+  ghcr.io/3dtrees-earth/3dtrees_raster:1.0.0 \
   /repo/validation/validate_aoi_roundtrip.R \
   /in/aoi.geojson
 ```
@@ -588,14 +769,129 @@ For zero-tolerance comparison against `valid_updated`, use
 `validation/compare_valid_updated_science.py` for CSV and GeoJSON outputs and
 `validation/compare_valid_updated_raster.R` for DTM and CHM rasters.
 
+### Full-resolution voxel point-count export
+
+The production (`run_julia_memory_safe.R`) runner always exports voxel counts;
+there is no opt-out. `--export-voxel-counts` remains accepted for old invocations.
+The legacy `run.R` entry point retains its opt-in flag. The optional
+`--voxel-count-chunk-points` (default 2,000,000) bounds the number of source records
+per count batch; the memory-safe runner lowers it further to fit its remaining
+memory allowance. Larger batches keep LAZ decompression parallel: on dataset 226
+(451M points, SSD) 2M-point batches cut the pass from 323 s to 222 s for about
+1.3 GiB more memory; 8M was no faster.
+Existing index/CHM filters and output schemas are unchanged.
+
+The export reuses the generated global DTM and usable Audit AOI. Supply the
+original full-resolution LAS/LAZ or a lossless COPC with verified conversion
+provenance. Every record is read, including repeated coordinates; no point
+sampling or COPC level-of-detail restriction is applied. The original companion
+argument is still provenance evidence, not an alternative scientific input.
+
+The four voxel files are listed under [Outputs](#outputs). Below, *s* is the
+voxel-count size `--voxel-count-resolution` (0.5 m by default); it applies to
+both the XY cells and the height bands, and is recorded as `voxel_size_m` in the
+metadata JSON.
+
+The lattice is anchored at `(0,0,0)` in a verified projected metric CRS. XY and
+height bins use increasing-coordinate `[lower,upper)` ownership. Raster rows
+run north to south; CSV centres identify the same cells. Whole *s* cells must
+be contained in the usable AOI, including exclusion boundaries. This deliberately
+excludes partially covered cells instead of assigning partial observations to a
+full voxel. The export does not depend on complete analysis tiles.
+
+Normalization subtracts the containing DTM cell from source elevation, using
+the existing terrain model. Unlike the legacy index path it does not fill DTM
+gaps with nearest neighbors or re-quantize normalized heights to LAS scale.
+A voxel column is valid only when its full XY cell has finite DTM support.
+Finite negative heights are excluded and counted, never clamped into the first
+layer. There is no vegetation cutoff, 70 m ceiling or automatic high-point
+outlier rejection. Review anomalous heights using the accounting metadata;
+exceeding TIFF's 65,535-band capacity fails rather than silently truncating.
+The grid covers the usable AOI independently of LAS header extrema. Without an
+explicit AOI, the standard runner derives its fallback footprint from header
+extrema snapped to the stored coordinate lattice; this corrects pre-quantization
+rounding but does not certify arbitrarily corrupted headers. Both entry
+points stage and validate the complete voxel quartet before replacing existing
+voxel products. Cells require finite support from every intersecting DTM pixel,
+including interior pixels when the DTM resolution is finer than *s*.
+
+Admission accounts for raster tile directories outside GDAL's cache as well as
+bounded point batches. Extremely wide or tall cubes fail explicitly if the
+available memory or conservative uncompressed output-space estimate is exceeded.
+These estimates are not a substitute for a container memory limit.
+
+A source with no eligible points emits a headers-only CSV and one zero/NoData
+band for `[0, s)`. Missing or non-metric CRS fails the export explicitly, and therefore fails a
+production run.
+
+Zero means no eligible recorded points, not absence of vegetation or proof of
+laser sampling. Invalid/excluded cells use UInt32 NoData `4294967295` in every
+band. Sparse CSV omissions can only be interpreted with the grid and validity
+mask. These counts are not GEDI PAVD/PAI. At the default 0.5 m, summing ten aligned
+height bands gives a 5 m point-count interval; waveform comparison needs
+additional methods.
+
+#### Consumer read-through
+
+In the validated dataset-647 export (EPSG:25832, default 0.5 m voxels), zero-based column 93, row 2
+has centre `(474838.25, 5463373.75)`. This bounded GDAL read returns five points
+in band 1, representing heights `[0,0.5)` m above the DTM:
+
+```bash
+gdal_translate -q -of XYZ -b 1 -srcwin 93 2 1 1 \
+  647_voxel_counts.tif /vsistdout/
+# 474838.25 5463373.75 5
+```
+
+At the same XY cell, bands 1–10 contain `[5,0,0,0,0,0,0,1,0,0]`: six points
+over `[0,5)` m, exactly matching the sum of CSV rows at that centre with
+`0 <= height_lower_m < 5`. The adjacent row 3, column 93 has zero in band 1
+and validity 1; row 0, column 0 has NoData and validity 0. Always read the
+validity mask before interpreting absent CSV rows or aggregating raster bands.
+Use UInt64 or a wider accumulator for sums across many cells/bands.
+
+#### Scaling and validation
+
+Counting reuses the existing laspy/lazrs streaming stack. Record batches avoid
+the unbounded local density of spatial reads. Counts are grouped per batch and
+summed in an indexed SQLite scratch database with a fixed cache; each output
+raster block/band is written separately through GDAL. No complete cloud, DTM or
+dense 3D cube is loaded. Temporary disk and final output still scale with the
+number of occupied voxels and the requested raster volume. SQLite sorting and
+count reduction trade additional disk I/O for bounded memory. Ensure sufficient
+scratch/output disk; write failures prevent promotion in both runners.
+
+The JSON records source/read/included/rejected point accounting, peak batch
+size, occupied voxels, scratch bytes and duration. Band height bounds and units
+are also embedded in the TIFF, so GDAL PAM sidecars are unnecessary. The
+memory-safe runner validates and promotes all four artifacts together with its
+existing outputs; the external artifact validator recognizes the optional set.
+
+Run `make test-voxel-counts` for known-count, missing-terrain, height-range,
+batch/order invariance, million-point streaming, CLI publication and unchanged
+legacy-output tests. `make test-copc-all-instance-dimensions` also compares
+voxel CSV and rasters between the original LAZ and lossless COPC.
+
 ## Tests
 
-Run the core container tests:
+Run the core container tests (CI runs `make test` before publishing an image):
 
 ```bash
 make test
 make test-julia-memory-safe
 ```
+
+Parameters, voxel counts, point-noise filtering and the Galaxy contract have
+their own targets:
+
+```bash
+make test-voxel-counts            # includes custom and invalid scientific parameters
+make test-denoising
+make test-production-contract
+make test-galaxy-resource-request
+```
+
+Most targets take the image under test as `JULIA_MEMORY_SAFE_IMAGE=<image>`.
 
 Verify ordered LAZ and COPC equality for all three instance dimensions:
 
@@ -621,116 +917,12 @@ diagnostics, tile GeoJSON, DTM cells, and CHM cells.
 ## Repository layout
 
 - `src/` — analysis and container entrypoint code
+- `galaxy/` — Galaxy wrapper and the TPV resource-rule example
 - `validation/` — reusable COPC, AOI, artifact, and oracle validators
 - `tests/` — regression and integration test orchestration
 - `reference/` — unchanged scientific reference script
 - `benchmarks/` — benchmark scripts and compact result data
-- `Dockerfile.julia-memory-safe` — ordered-COPC image
+- `Dockerfile` — published image
+- `Dockerfile.julia-memory-safe` — ordered-COPC development image
+- `.github/workflows/publish-container.yml` — test and publish the image
 - `COPC_REVIEW_GUIDE.md` — detailed implementation explanation
-
-
-## Full-resolution voxel point-count export
-
-The production (`run_julia_memory_safe.R`) runner always exports voxel counts;
-there is no opt-out. `--export-voxel-counts` remains accepted for old invocations.
-The legacy `run.R` entry point retains its opt-in flag. The optional
-`--voxel-count-chunk-points` (default 2,000,000) bounds the number of source records
-per count batch; the memory-safe runner lowers it further to fit its remaining
-memory allowance. Larger batches keep LAZ decompression parallel: on dataset 226
-(451M points, SSD) 2M-point batches cut the pass from 323 s to 222 s for about
-1.3 GiB more memory; 8M was no faster.
-Existing index/CHM filters and output schemas are unchanged.
-
-The export reuses the generated global DTM and usable Audit AOI. Supply the
-original full-resolution LAS/LAZ or a lossless COPC with verified conversion
-provenance. Every record is read, including repeated coordinates; no point
-sampling or COPC level-of-detail restriction is applied. The original companion
-argument is still provenance evidence, not an alternative scientific input.
-
-For dataset 150 the additional artifacts are:
-
-| File | Contents |
-| --- | --- |
-| `150_voxel_counts.csv` | Occupied voxels: `x_center,y_center,height_lower_m,height_upper_m,point_count` |
-| `150_voxel_counts.tif` | UInt32 counts, 0.5 m XY pixels; band b contains heights `[(b-1)*0.5,b*0.5)` metres above DTM |
-| `150_voxel_counts_validity.tif` | 0: excluded AOI/boundary cell; 1: valid domain; 2: invalid DTM |
-| `150_voxel_counts.json` | Grid/CRS, source and DTM hashes, policies, point accounting and resource observations |
-
-The lattice is anchored at `(0,0,0)` in a verified projected metric CRS. XY and
-height bins use increasing-coordinate `[lower,upper)` ownership. Raster rows
-run north to south; CSV centres identify the same cells. Whole 0.5 m cells must
-be contained in the usable AOI, including exclusion boundaries. This deliberately
-excludes partially covered cells instead of assigning partial observations to a
-full voxel. The export does not depend on complete 20 m Analysis Tiles.
-
-Normalization subtracts the containing DTM cell from source elevation, using
-the existing terrain model. Unlike the legacy index path it does not fill DTM
-gaps with nearest neighbors or re-quantize normalized heights to LAS scale.
-A voxel column is valid only when its full XY cell has finite DTM support.
-Finite negative heights are excluded and counted, never clamped into the first
-layer. There is no 0.5 m vegetation cutoff, 70 m ceiling or automatic high-point
-outlier rejection. Review anomalous heights using the accounting metadata;
-exceeding TIFF's 65,535-band capacity fails rather than silently truncating.
-The grid covers the usable AOI independently of LAS header extrema. Without an
-explicit AOI, the standard runner derives its fallback footprint from header
-extrema snapped to the stored coordinate lattice; this corrects pre-quantization
-rounding but does not certify arbitrarily corrupted headers. Both entry
-points stage and validate the complete voxel quartet before replacing existing
-voxel products. Cells require finite support from every intersecting DTM pixel,
-including interior pixels when the DTM resolution is finer than 0.5 m.
-
-Admission accounts for raster tile directories outside GDAL's cache as well as
-bounded point batches. Extremely wide or tall cubes fail explicitly if the
-available memory or conservative uncompressed output-space estimate is exceeded.
-These estimates are not a substitute for a container memory limit.
-
-A source with no eligible points emits a headers-only CSV and one zero/NoData
-band for 0–0.5 m. Missing or non-metric CRS fails the export explicitly, and therefore fails a
-production run.
-
-Zero means no eligible recorded points, not absence of vegetation or proof of
-laser sampling. Invalid/excluded cells use UInt32 NoData `4294967295` in every
-band. Sparse CSV omissions can only be interpreted with the grid and validity
-mask. These counts are not GEDI PAVD/PAI. Summing ten aligned height bands gives
-a 5 m point-count interval; waveform comparison needs additional methods.
-
-### Consumer read-through
-
-In the validated dataset-647 export (EPSG:25832), zero-based column 93, row 2
-has centre `(474838.25, 5463373.75)`. This bounded GDAL read returns five points
-in band 1, representing heights `[0,0.5)` m above the DTM:
-
-```bash
-gdal_translate -q -of XYZ -b 1 -srcwin 93 2 1 1 \
-  647_voxel_counts.tif /vsistdout/
-# 474838.25 5463373.75 5
-```
-
-At the same XY cell, bands 1–10 contain `[5,0,0,0,0,0,0,1,0,0]`: six points
-over `[0,5)` m, exactly matching the sum of CSV rows at that centre with
-`0 <= height_lower_m < 5`. The adjacent row 3, column 93 has zero in band 1
-and validity 1; row 0, column 0 has NoData and validity 0. Always read the
-validity mask before interpreting absent CSV rows or aggregating raster bands.
-Use UInt64 or a wider accumulator for sums across many cells/bands.
-
-### Scaling and validation
-
-Counting reuses the existing laspy/lazrs streaming stack. Record batches avoid
-the unbounded local density of spatial reads. Counts are grouped per batch and
-summed in an indexed SQLite scratch database with a fixed cache; each output
-raster block/band is written separately through GDAL. No complete cloud, DTM or
-dense 3D cube is loaded. Temporary disk and final output still scale with the
-number of occupied voxels and the requested raster volume. SQLite sorting and
-count reduction trade additional disk I/O for bounded memory. Ensure sufficient
-scratch/output disk; write failures prevent promotion in both runners.
-
-The JSON records source/read/included/rejected point accounting, peak batch
-size, occupied voxels, scratch bytes and duration. Band height bounds and units
-are also embedded in the TIFF, so GDAL PAM sidecars are unnecessary. The
-memory-safe runner validates and promotes all four artifacts together with its
-existing outputs; the external artifact validator recognizes the optional set.
-
-Run `make test-voxel-counts` for known-count, missing-terrain, height-range,
-batch/order invariance, million-point streaming, CLI publication and unchanged
-legacy-output tests. `make test-copc-all-instance-dimensions` also compares
-voxel CSV and rasters between the original LAZ and lossless COPC.

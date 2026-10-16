@@ -39,7 +39,7 @@ RUN chmod -R a+rX /opt/foreststructure \
 # Labels make the COPC/order/resource contract inspectable without starting the
 # image and preserve a direct link back to the exact reviewed source revision.
 LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_Raster" \
-      org.opencontainers.image.title="3Dtrees ForestStructure ordered-COPC" \
+      org.opencontainers.image.title="3Dtrees: Raster ordered-COPC" \
       org.opencontainers.image.description="Julia-parity forest metrics with COPC spatial streaming and OriginalPointIndex order restoration" \
       org.opencontainers.image.documentation="https://github.com/3dTrees-earth/3Dtrees_Raster/blob/main/COPC_REVIEW_GUIDE.md" \
       org.opencontainers.image.revision="${VCS_REF}" \

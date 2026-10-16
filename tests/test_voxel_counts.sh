@@ -55,5 +55,10 @@ if run invalid --export-voxel-counts --tile-size 0 2>"${root}/invalid.log"; then
   exit 1
 fi
 grep -q -- "--tile-size must be greater than zero" "${root}/invalid.log"
+if run invalid --export-voxel-counts --voxel-resolution 0.3 2>"${root}/invalid.log"; then
+  echo "--voxel-resolution 0.3 was accepted" >&2
+  exit 1
+fi
+grep -q -- "--voxel-resolution must divide 1 m evenly" "${root}/invalid.log"
 test -z "$(find "${root}/work" -mindepth 1 -print -quit)"
 echo "voxel-count CLI, publication and unchanged-science acceptance passed"

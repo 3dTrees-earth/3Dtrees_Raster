@@ -159,8 +159,9 @@ def make_validity_mask(path, grid, geometry, dtm):
         transform = dtm.dataset.GetGeoTransform()
         # Spacing no larger than a DTM pixel visits every intersected pixel,
         # regardless of lattice alignment. Corners alone miss interior holes.
-        dxs = np.linspace(-0.25, 0.25, max(1, math.ceil(RESOLUTION / transform[1])) + 1)
-        dys = np.linspace(-0.25, 0.25, max(1, math.ceil(RESOLUTION / -transform[5])) + 1)
+        half = RESOLUTION / 2
+        dxs = np.linspace(-half, half, max(1, math.ceil(RESOLUTION / transform[1])) + 1)
+        dys = np.linspace(-half, half, max(1, math.ceil(RESOLUTION / -transform[5])) + 1)
         for dx in dxs:
             for dy in dys:
                 x = np.nextafter(xx.ravel() + dx, xx.ravel())
@@ -249,7 +250,7 @@ def write_counts(connection, paths, grid, bands, mask):
         band.SetMetadata({"height_lower_m": str(k * RESOLUTION),
                           "height_upper_m": str((k + 1) * RESOLUTION),
                           "height_reference": "DTM", "interval": "[lower,upper)"})
-    raster.SetMetadata({"metric": "point_count", "voxel_size_m": "0.5",
+    raster.SetMetadata({"metric": "point_count", "voxel_size_m": f"{RESOLUTION:g}",
                         "height_reference": "DTM", "zero": "no recorded eligible points"})
     exported = 0
     with open(paths["csv"], "w", newline="", encoding="utf-8") as output:
@@ -316,6 +317,11 @@ def check_raster_budget(grid, bands, budget, other_raster_bytes=0):
 
 
 def export(config):
+    # One voxel edge length for XY cells and height bands, fixed per run.
+    global RESOLUTION
+    RESOLUTION = float(config.get("resolution", 0.5))
+    if not math.isfinite(RESOLUTION) or RESOLUTION <= 0:
+        raise ValueError("voxel-count resolution must be finite and positive")
     started = time.monotonic()
     gdal.UseExceptions()
     ogr.UseExceptions()
@@ -388,13 +394,13 @@ def export(config):
                 disk_bytes = sum(p.stat().st_size for p in Path(scratch).iterdir())
         source_crs = source.header.parse_crs()
         metadata = dict(
-            schema_version=1, metric="point_count", units="count", voxel_size_m=[0.5]*3,
+            schema_version=1, metric="point_count", units="count", voxel_size_m=[RESOLUTION]*3,
             grid=grid, band_count=bands, height_reference="metres above DTM",
-            height_interval="[lower,upper)", band_bounds_formula="band b (1-based): [(b-1)*0.5,b*0.5)",
+            height_interval="[lower,upper)", band_bounds_formula=f"band b (1-based): [(b-1)*{RESOLUTION:g},b*{RESOLUTION:g})",
             normalization="source Z minus containing DTM cell; no height re-quantization or gap filling",
             negative_height_policy="exclude and count; never clamp to zero",
             outlier_policy="exclude nonfinite only; retain all finite nonnegative heights; fail if TIFF band capacity exceeded",
-            boundary_policy="only whole 0.5 m cells contained in usable AOI; half-open XY grid",
+            boundary_policy=f"only whole {RESOLUTION:g} m cells contained in usable AOI; half-open XY grid",
             zero="no recorded eligible points; not proof of vegetation absence or sampling coverage",
             nodata=NODATA, validity_mask={"0": "excluded AOI/boundary", "1": "valid", "2": "invalid DTM"},
             source=dict(name=config.get("source_name", Path(config["point_cloud"]).name),

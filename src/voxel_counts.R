@@ -9,7 +9,7 @@ voxel_count_paths <- function(directory, dataset_id) {
 add_voxel_count_arguments <- function(parser, mandatory = FALSE) {
   parser$add_argument("--export-voxel-counts", action = "store_true", default = mandatory,
                       help = if (mandatory) "Already enabled; accepted for compatibility" else
-                        "Export full-source 0.5 m point counts as CSV and GeoTIFF")
+                        "Export full-source voxel point counts as CSV and GeoTIFF")
   parser$add_argument("--voxel-count-chunk-points", type = "integer", default = 2000000L,
                       help = "Maximum source records per voxel-count batch (default: 2000000)")
 }
@@ -43,21 +43,23 @@ write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
     source_name = basename(parameter_or(parameters, "voxel_point_cloud", parameters$point_cloud)),
     source_sha256 = parameter_or(parameters, "point_cloud_sha256", NULL),
     dtm_denoising = if (is.null(parameters$denoising)) NULL else parameters$denoising$summary,
-    memory_available_gib = available
+    memory_available_gib = available,
+    resolution = parameter_or(parameters, "voxel_count_resolution", 0.5)
   )
   config_path <- file.path(work_directory, "voxel_config.json")
   jsonlite::write_json(config, config_path, auto_unbox = TRUE, null = "null")
   status <- system2("python3", c(shQuote(file.path(script_directory, "voxel_counts.py")),
                                  shQuote(config_path)))
   if (!identical(status, 0L)) stop("voxel point-count export failed")
-  artifacts <- validate_voxel_count_artifacts(staging, parameters$dataset_id)
+  artifacts <- validate_voxel_count_artifacts(staging, parameters$dataset_id,
+    parameter_or(parameters, "voxel_count_resolution", 0.5))
   metadata <- jsonlite::read_json(paths$metadata, simplifyVector = TRUE)
   promote_artifacts(artifacts, parameters$output_dir, parameters$dataset_id,
                     replace_dataset = FALSE)
   metadata
 }
 
-validate_voxel_count_artifacts <- function(directory, dataset_id) {
+validate_voxel_count_artifacts <- function(directory, dataset_id, resolution = 0.5) {
   paths <- voxel_count_paths(directory, dataset_id)
   if (any(!file.exists(unlist(paths))) || any(file.info(unlist(paths))$size <= 0)) {
     stop("voxel-count artifacts missing or empty")
@@ -69,7 +71,8 @@ validate_voxel_count_artifacts <- function(directory, dataset_id) {
     stop("voxel-count GeoTIFF CRS is missing; it must persist without sidecars")
   }
   if (terra::nlyr(cube) != metadata$band_count ||
-      any(abs(terra::res(cube) - 0.5) > 1e-9) ||
+      any(abs(terra::res(cube) - resolution) > 1e-9) ||
+      any(abs(unlist(metadata$voxel_size_m) - resolution) > 1e-9) ||
       !terra::compareGeom(cube[[1]], mask, stopOnError = FALSE) ||
       !nzchar(terra::crs(cube)) ||
       metadata$point_accounting$read != metadata$source$point_count ||

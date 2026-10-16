@@ -98,6 +98,28 @@ preparation validator must still verify complete point indices and fingerprints.
 Plain LAS/LAZ input is supported with `--denoise none`; default denoising requires
 a canonical COPC carrying `OriginalPointIndex`.
 
+### Scientific parameters
+
+The production runner accepts these settings. The defaults are the published
+3Dtrees contract and reproduce 1.0.0 outputs byte for byte; every run records the
+values it used under `scientific_parameters` in its run provenance.
+
+| Option | Default | Meaning |
+| --- | --- | --- |
+| `--tile-size` | `20` | Analysis tile width in metres |
+| `--grid-search-step` | `0.5` | Tile-grid offset-search step in metres; at most the tile size |
+| `--voxel-resolution` | `0.2` | Voxel edge length in metres for tile and tree metrics |
+| `--voxel-count-resolution` | `0.5` | Voxel edge length in metres for the voxel point counts (XY and height bands) |
+| `--dtm-resolution` | `1` | DTM resolution in metres |
+| `--chm-resolution` | `0.5` | CHM resolution in metres |
+| `--ptd-resolution` | `20` | PTD ground-seed resolution in metres |
+| `--vegetation-minimum-height` | `0.5` | Minimum vegetation height in metres |
+| `--gap-height-threshold` | `3` | CHM gap-height threshold in metres |
+| `--minimum-tree-voxels` | `100` | Minimum occupied voxels for an accepted tree |
+| `--apex-minimum-height` | `3` | Strict minimum tree-apex height in metres |
+| `--minimum-tree-thickness` | `0.5` | Minimum smallest PCA extent of a tree in metres |
+| `--minimum-occupied-layers` | `3` | Minimum occupied one-metre height layers of a tree |
+
 ### Galaxy production contract
 
 Galaxy supplies one full-resolution COPC and optionally an Audit AOI in that

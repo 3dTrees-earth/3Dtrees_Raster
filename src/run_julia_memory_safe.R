@@ -132,24 +132,29 @@ source(file.path(script_directory, "production_contract.R"))
 parse_julia_memory_safe_parameters <- function() {
   parser <- ArgumentParser(
     description = paste(
-      "3Dtrees: Raster analysis with uncapped heights, selective ExtraBytes",
-      "and disk-backed memory guards"
+      "3Dtrees: Raster. DTM, CHM, voxel point counts and tile-level",
+      "forest-structure metrics from one segmented point cloud"
     )
   )
   add_voxel_count_arguments(parser, mandatory = TRUE)
   add_denoising_arguments(parser)
   # ``--point-cloud`` is the sole scientific input and may now be canonical COPC.
-  parser$add_argument("--point-cloud", required = TRUE)
+  parser$add_argument("--point-cloud", required = TRUE,
+    help = "Input LAS/LAZ, or a canonical COPC named *.copc.laz (required)")
   # ``--original-point-cloud`` is optional identity/provenance evidence only.
-  parser$add_argument("--original-point-cloud", default = NULL)
+  parser$add_argument("--original-point-cloud", default = NULL,
+    help = "Optional original LAS/LAZ of a COPC, used only for header and provenance checks")
   parser$add_argument("--aoi-geojson", default = NULL,
     help = "Optional Audit AOI in source XY coordinates; otherwise use the full extent")
   # Retain old batch invocations without exposing database identifiers to Galaxy.
   parser$add_argument("--dataset-id", type = "integer", default = NULL,
     help = "Deprecated output-prefix compatibility; not needed for production jobs")
-  parser$add_argument("--output-dir", default = getwd())
-  parser$add_argument("--temp-dir", default = Sys.getenv("TMPDIR", tempdir()))
-  parser$add_argument("--memory-budget-gib", type = "double", default = NULL)
+  parser$add_argument("--output-dir", default = getwd(),
+    help = "Directory for the published outputs (default: working directory)")
+  parser$add_argument("--temp-dir", default = Sys.getenv("TMPDIR", tempdir()),
+    help = "Scratch directory (default: TMPDIR)")
+  parser$add_argument("--memory-budget-gib", type = "double", default = NULL,
+    help = "Optional lower internal memory budget in GiB; otherwise derived from the job or container limit")
   parser$add_argument(
     "--target-chunk-points",
     type = "double",
@@ -167,8 +172,10 @@ parse_julia_memory_safe_parameters <- function() {
       help = sprintf("%s (default: %s)", SCIENTIFIC_HELP[[name]], SCIENTIFIC_DEFAULTS[[name]])
     )
   }
-  parser$add_argument("--sensor", default = "NA")
-  parser$add_argument("--country", default = "NA")
+  parser$add_argument("--sensor", default = "NA",
+    help = "Optional label copied into the result rows (default: NA)")
+  parser$add_argument("--country", default = "NA",
+    help = "Optional label copied into the result rows (default: NA)")
   parser$add_argument(
     "--instance-dimension",
     action = "append",

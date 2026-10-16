@@ -11,14 +11,12 @@ products of forest structure:
 - point-noise records and provenance for every run.
 
 It reads every point (no subsampling) and never modifies the input file. It
-runs as a Docker image and as the Galaxy tool **3Dtrees: Raster**
-(`3dtrees_raster`), and is the raster step of the [3Dtrees](https://github.com/3dTrees-earth)
-platform.
+runs as a Docker image, and is the raster step of the
+[3Dtrees](https://github.com/3dTrees-earth) platform.
 
 | | |
 | --- | --- |
 | Image | `ghcr.io/3dtrees-earth/3dtrees_raster:1.0.0` (public) |
-| Galaxy tool | `tools/3dtrees_raster` in [3dtrees-earth/galaxytools](https://github.com/3dTrees-earth/galaxytools) (in review), mirrored in [`galaxy/3dtrees_raster`](galaxy/3dtrees_raster) |
 | Licence | GPL-3.0 |
 
 > **Naming.** The project was developed as *ForestStructure*. For compatibility
@@ -58,26 +56,6 @@ docker run --rm --network none \
 
 The run publishes its outputs only after they validate as a complete set; a
 failed run leaves no partial results.
-
-## Galaxy tool
-
-The Galaxy wrapper exposes the same runner. Its form has:
-
-| Field | Meaning |
-| --- | --- |
-| Segmented point cloud | One LAS/LAZ or COPC dataset. A COPC is recognised from its content. |
-| Area of interest (optional) | GeoJSON polygon in the point cloud's XY coordinates. |
-| Instance dimensions | Typed, comma-separated: `PredInstance`, `PredInstance_SAT`, `PredInstance_FM`. |
-| Point-noise filtering | Statistical outlier removal (default, needs a canonical COPC) or None, with its four SOR settings. |
-| Advanced parameters | The [scientific parameters](#scientific-parameters) below, collapsed by default. |
-
-CPU, memory and scratch space come from the Galaxy job allocation, never from
-the form. Tile metrics, segment diagnostics and tiles arrive as collections
-with one element per instance dimension. The wrapper pins the image tag equal
-to its tool version, so `3dtrees_raster` 1.0.0 runs
-`ghcr.io/3dtrees-earth/3dtrees_raster:1.0.0`. Site administrators can size
-jobs with [`galaxy/tpv.example.yml`](galaxy/tpv.example.yml) (see
-[Galaxy allocation](#galaxy-allocation-from-merged-copc-size)).
 
 ## Parameters
 
@@ -221,9 +199,9 @@ container test suite passes:
 | Tag `v<X.Y.Z>` (for example a GitHub release) | `<X.Y.Z>`, `sha-<commit>` |
 | Manual run with `release_tag` | that tag, `sha-<commit>` |
 
-To release, create a GitHub release with a new tag `v<X.Y.Z>` on `main`, then
-set the Galaxy wrapper's `@TOOL_VERSION@` to `X.Y.Z`. Do not reuse a version
-for different code: the Galaxy tool and its users identify results by it.
+To release, create a GitHub release with a new tag `v<X.Y.Z>` on `main`. Do
+not reuse a version for different code: run provenance records the image
+version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
@@ -378,15 +356,16 @@ Rscript /opt/foreststructure/run_julia_memory_safe.R \
 # Optionally add --aoi-geojson aoi.geojson.
 ```
 
-The container entry point already invokes that script; both Dockerfiles use the
-production runner as their default entry point. Arguments that start with a
-flag go to the runner; any other command, such as Galaxy's
-`docker run IMAGE /bin/bash tool_script.sh`, runs as given.
-[`galaxy/3dtrees_raster`](galaxy/3dtrees_raster) mirrors the Galaxy wrapper. It
-detects a COPC from its info VLR, stages the inputs as above and pins
-`ghcr.io/3dtrees-earth/3dtrees_raster:<tool version>`, so that image tag must be
-published before the wrapper is installed. Run its tests with
-`planemo test --docker galaxy/3dtrees_raster/raster.xml`. Validate integration with
+The container entry point already invokes that script. Both Dockerfiles now use the production runner as their default entry point.
+Arguments that start with a flag go to the runner; any other command, such as
+Galaxy's `docker run IMAGE /bin/bash tool_script.sh`, runs as given.
+[`galaxy/3dtrees_foreststructure`](galaxy/3dtrees_foreststructure) is the Galaxy
+wrapper. It detects a COPC from its info VLR, stages the inputs as above and
+pins `ghcr.io/3dtrees-earth/3dtrees_raster:<tool version>`, so that
+image tag must be published before the wrapper is installed. Run its tests with
+`planemo test --docker galaxy/3dtrees_foreststructure/foreststructure.xml`.
+The production container and Galaxy wrapper still need to be released/installed
+together; these source changes do not deploy a server tool. Validate integration with
 `make test-production-contract JULIA_MEMORY_SAFE_IMAGE=<validated-runtime-image>`.
 This compares input layouts and AOI/full-extent behavior using identical current
 sources with denoising explicitly disabled, including 15th-field IDs, a late
@@ -930,7 +909,7 @@ diagnostics, tile GeoJSON, DTM cells, and CHM cells.
 ## Repository layout
 
 - `src/` — analysis and container entrypoint code
-- `galaxy/` — mirrored Galaxy wrapper and the TPV resource-rule example
+- `galaxy/` — Galaxy wrapper and the TPV resource-rule example
 - `validation/` — reusable COPC, AOI, artifact, and oracle validators
 - `tests/` — regression and integration test orchestration
 - `reference/` — unchanged scientific reference script

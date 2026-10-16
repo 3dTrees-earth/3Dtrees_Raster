@@ -648,6 +648,11 @@ A synthetic sensitivity check at sigma 6/8/10/12/15 rejected 36/4/2/2/2 points
 from the earlier 56,057-point fixture. Sigma 12 retained every ordinary return;
 sigma 15 missed a high outlier in the separate 568-point fixture. These checks
 justify the chosen starting value, not an accuracy claim for real surveys.
+For comparison, lidR's own `sor()` default is k = 10, m = 3, and the PCL tutorial
+uses k = 50 with one standard deviation. These are much stricter: in close-range
+(TLS, MLS, ULS) scans point spacing grows with distance from the scanner, so they
+can flag real upper-crown and stand-edge points. Pass `--denoise-sigma 3` to use
+lidR's stricter threshold.
 
 CHM, segment and tile processing retain all accepted points with finite,
 nonnegative normalized heights, including heights above 70 m. The vegetation

@@ -212,9 +212,6 @@ parse_julia_memory_safe_parameters <- function() {
     stop("--point-cloud must be exactly one existing LAS/LAZ file")
   }
   # COPC accepts an optional non-COPC companion; computation still reads COPC.
-  if (arguments$denoise != "none" && !is_copc_point_cloud(arguments$point_cloud)) {
-    stop("--denoise requires a canonical COPC with OriginalPointIndex")
-  }
   if (is_copc_point_cloud(arguments$point_cloud)) {
     # Reject a missing, wrongly typed, or second-COPC companion before staging.
     if (!is.null(arguments$original_point_cloud) &&
@@ -270,14 +267,15 @@ extra_byte_definitions <- function(point_cloud) {
   })
 }
 
-run_projection <- function(source, output, dimension) {
+run_projection <- function(source, output, dimension, add_index = FALSE) {
   output_lines <- system2(
     "python3",
     c(
       shQuote(file.path(script_directory, "project_instance_dimension.py")),
       "--source", shQuote(source),
       "--output", shQuote(output),
-      unlist(lapply(dimension, function(name) c("--dimension", shQuote(name))))
+      unlist(lapply(dimension, function(name) c("--dimension", shQuote(name)))),
+      if (add_index) "--add-original-point-index"
     ),
     stdout = TRUE,
     stderr = TRUE
@@ -477,7 +475,8 @@ julia_memory_safe_main <- function() {
     basename(original_point_cloud)
   }
   # Non-COPC records are already ordered; COPC must be sorted per chunk by key.
-  point_order_dimension <- if (requested_is_copc) {
+  # Point-noise filtering names every record by this key on either input.
+  point_order_dimension <- if (requested_is_copc || arguments$denoise != "none") {
     POINT_ORDER_DIMENSION
   } else {
     NULL
@@ -556,7 +555,19 @@ julia_memory_safe_main <- function() {
   }
   copc_projection <- NULL
   required_dimensions <- unique(c(point_order_dimension, dimensions))
-  if (requested_is_copc && any(match(required_dimensions, available) > 9L)) {
+  if (!requested_is_copc && !is.null(point_order_dimension) &&
+      !POINT_ORDER_DIMENSION %in% available) {
+    # Plain LAS/LAZ records are already in source order; number them once in a
+    # compact scratch projection so noise decisions can name each record.
+    projected <- file.path(job_directory, "analysis_projection.laz")
+    copc_projection <- run_projection(
+      staged_point_cloud, projected, dimensions, add_index = TRUE
+    )
+    staged_point_cloud <- projected
+    definitions <- extra_byte_definitions(staged_point_cloud)
+    available <- vapply(definitions, function(definition) definition$name, character(1))
+  } else if (!is.null(point_order_dimension) &&
+             any(match(required_dimensions, available) > 9L)) {
     # Pinned rlas truncates COPC ExtraBytes after field nine even with selector 0.
     # Reuse the verified bounded projection once, retaining the source-order key
     # and all selected IDs, then spatially index that compact scratch LAZ.
@@ -635,8 +646,9 @@ julia_memory_safe_main <- function() {
     # ExtraByte ordinal maps directly to lidR selector digits 1-9.
     ordinal <- match(dimension, available)
     definition <- definitions[[ordinal]]
-    # Plain LAZ retains its existing verified streaming projection fallback.
-    if (ordinal <= 9L || requested_is_copc) {
+    # Unordered plain LAZ retains its verified streaming projection fallback;
+    # an order-keyed input keeps the key beside every segmentation field.
+    if (ordinal <= 9L || !is.null(point_order_dimension)) {
       dimension_sources[[dimension]] <- staged_point_cloud
       selector <- catalog_selection_for_dimensions(staged_point_cloud,
         c(point_order_dimension, dimension), "xyz")

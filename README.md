@@ -46,9 +46,10 @@ docker run --rm --network none \
   `PredInstance_FM` (ForestMamba). Name one or more with
   `--instance-dimension` (repeat the option or separate names with commas);
   a missing dimension fails the run before any analysis.
-- Point-noise filtering (`--denoise sor`, the default) needs a canonical COPC
-  that carries `OriginalPointIndex` (see [Prepare a canonical COPC](#prepare-a-canonical-copc)).
-  For a plain LAS/LAZ file add `--denoise none`.
+- Point-noise filtering (`--denoise sor`, the default) works on a canonical
+  COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex` is
+  numbered in its own record order, which costs one extra read and a scratch
+  copy of XYZ and the instance dimensions. Add `--denoise none` to skip it.
 - A COPC is recognised by its `.copc.laz` file name.
 - Without `--aoi-geojson` the whole point-cloud extent is analysed.
 - Without `--output-dir` and `--temp-dir`, outputs go to the working directory
@@ -139,7 +140,7 @@ Shared by all dimensions:
 | `foreststructure_voxel_counts.tif` | UInt32 point counts; with voxel size *s*, band *b* holds heights `[(b-1)·s, b·s)` m above the DTM |
 | `foreststructure_voxel_counts_validity.tif` | 0 excluded (outside the AOI or on its boundary), 1 valid, 2 invalid DTM |
 | `foreststructure_voxel_counts.json` | Grid, CRS, source and DTM hashes, policies and point accounting |
-| `foreststructure_noise_points.csv` | With SOR only: one rejected `OriginalPointIndex` per row |
+| `foreststructure_noise_points.csv` | With SOR only: one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
 | `foreststructure_denoising.json` | With SOR only: parameters and per-window point accounting |
 | `foreststructure_julia_memory_safe_run.json` | Run provenance: inputs, parameters, versions, resources |
 | `foreststructure_performance.csv` | Stage timings and memory observations |
@@ -307,8 +308,7 @@ header compatibility and provenance checks; scientific point reads still use COP
 Extrema are compared on each header's coordinate lattice because original writers
 can retain pre-quantization bounds. This lightweight check is not identity proof: the
 preparation validator must still verify complete point indices and fingerprints.
-Plain LAS/LAZ input is supported with `--denoise none`; default denoising requires
-a canonical COPC carrying `OriginalPointIndex`.
+Plain LAS/LAZ input is supported with and without denoising.
 
 ### Galaxy production contract
 
@@ -602,8 +602,11 @@ all duplicates, rather than a reduced or subsampled source.
 
 The production runner defaults to `--denoise sor`, using native lidR 4.3.2
 statistical outlier removal before terrain estimation. Use `--denoise none` to
-disable it. Enabled denoising requires a canonical COPC carrying
-`OriginalPointIndex`; late ExtraByte positions use the existing projection path.
+disable it. Rejected points are named by `OriginalPointIndex`. A canonical COPC
+carries it; a plain LAS/LAZ that lacks it is first streamed into a compact,
+hash-verified scratch LAZ that numbers the records in file order (0-based),
+so the noise list names each record's position in the input file. Late
+ExtraByte positions use the existing projection path.
 Input coordinates, classifications and instance IDs are unchanged.
 
 SOR measures each point's mean distance to its nearest neighbours and rejects

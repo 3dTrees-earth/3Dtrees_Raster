@@ -58,7 +58,7 @@ print(target)
 ]]></configfile>
     </configfiles>
     <inputs>
-        <param name="point_cloud" type="data" format="laz,las" label="Segmented point cloud" help="One full-resolution point cloud with at least one tree instance dimension (PredInstance, PredInstance_SAT or PredInstance_FM) and a projected metric CRS. Point-noise filtering additionally requires a canonical COPC carrying OriginalPointIndex."/>
+        <param name="point_cloud" type="data" format="laz,las" label="Segmented point cloud" help="One full-resolution point cloud with at least one tree instance dimension (PredInstance, PredInstance_SAT or PredInstance_FM) and a projected metric CRS."/>
         <param name="aoi" type="data" format="geojson,json" optional="true" label="Area of interest (optional)" help="GeoJSON Polygon or MultiPolygon in the point cloud's XY coordinates. It is not reprojected. Without it, the full point-cloud extent is analysed."/>
         <param argument="--instance-dimension" type="select" multiple="true" optional="false" label="Instance dimensions" help="Select at least one. Each selected dimension must exist in the point cloud, otherwise the job fails.">
             <option value="PredInstance">PredInstance</option>
@@ -67,7 +67,7 @@ print(target)
         </param>
         <conditional name="denoising">
             <param argument="--denoise" type="select" label="Point-noise filtering" help="Statistical outlier removal flags isolated points before the terrain model and metrics. Raw voxel counts always include every recorded point.">
-                <option value="sor" selected="true">Statistical outlier removal (requires a canonical COPC)</option>
+                <option value="sor" selected="true">Statistical outlier removal</option>
                 <option value="none">None</option>
             </param>
             <when value="sor">
@@ -203,13 +203,30 @@ print(target)
                 </assert_contents>
             </output>
         </test>
-        <!-- Point-noise filtering refuses a point cloud that cannot restore source order. -->
-        <test expect_failure="true">
+        <!-- Plain LAZ with default point-noise filtering, numbered in file record order. -->
+        <test expect_num_outputs="15">
             <param name="point_cloud" value="forest_patch.laz" ftype="laz"/>
             <param name="instance_dimension" value="PredInstance_SAT"/>
-            <assert_stderr>
-                <has_text text="--denoise requires a canonical COPC with OriginalPointIndex"/>
-            </assert_stderr>
+            <output_collection name="tile_metrics" type="list" count="1"/>
+            <output_collection name="segment_diagnostics" type="list" count="1"/>
+            <output_collection name="tiles" type="list" count="1"/>
+            <output name="noise_points" ftype="csv">
+                <assert_contents>
+                    <has_n_lines n="3"/>
+                    <has_line line="OriginalPointIndex"/>
+                </assert_contents>
+            </output>
+            <output name="denoising_report" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="enabled" value="true"/>
+                    <has_json_property_with_value property="rejected_points" value="2"/>
+                </assert_contents>
+            </output>
+            <output name="run_provenance" ftype="json">
+                <assert_contents>
+                    <has_json_property_with_value property="requested_is_copc" value="false"/>
+                </assert_contents>
+            </output>
         </test>
     </tests>
     <help format="markdown"><![CDATA[
@@ -235,8 +252,8 @@ records. No points are subsampled, and the input file is never modified.
 - **Point-noise filtering**: statistical outlier removal (SOR) runs by default.
   It flags points whose mean distance to their nearest neighbours is extreme
   within fixed 60 m windows. The terrain model, canopy model and tile metrics
-  use the accepted points. SOR needs a canonical COPC that carries the
-  `OriginalPointIndex` dimension; select **None** for a plain LAS/LAZ file.
+  use the accepted points. It works on canonical COPC and plain LAS/LAZ; a
+  plain file is numbered in its own record order. Select **None** to skip it.
 
 CPU, memory and scratch space come from the Galaxy job allocation. The tool
 reduces its parallelism to fit the memory it is given and fails explicitly

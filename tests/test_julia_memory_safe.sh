@@ -43,6 +43,17 @@ grep -q 'Validated and promoted' "${test_root}/second.log"
 jq -e '.segment_bucket_count == 256' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 jq -e '.memory_budget_gib == 3.4' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 
+# Default point-noise filtering on plain LAZ numbers records in file order.
+sor_output="${test_root}/sor_output"
+sor_work="${test_root}/sor_work"
+mkdir -p "${sor_output}" "${sor_work}"
+docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${sor_output}:/out" --volume "${sor_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 152 --output-dir /out --temp-dir /work --memory-budget-gib 3 --instance-dimension PredInstance,PredInstance_SAT 2>&1 | tee "${test_root}/sor.log"
+test "$(head -n 1 "${sor_output}/152_noise_points.csv")" = "OriginalPointIndex"
+jq -e '.enabled == true' "${sor_output}/152_denoising.json" >/dev/null
+jq -e '.requested_is_copc == false and .copc_projection.original_point_index_added == true' "${sor_output}/152_julia_memory_safe_run.json" >/dev/null
+cmp "${sor_output}/152_PredInstance_results.csv" "${sor_output}/152_PredInstance_SAT_results.csv"
+test -z "$(find "${sor_work}" -mindepth 1 -print -quit)"
+
 failure_output="${test_root}/failure_output"
 failure_work="${test_root}/failure_work"
 mkdir -p "${failure_output}" "${failure_work}"

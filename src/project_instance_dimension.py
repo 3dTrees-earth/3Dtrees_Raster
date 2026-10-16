@@ -47,11 +47,17 @@ def stored_bounds(header: laspy.LasHeader, bounds: np.ndarray) -> np.ndarray:
     return np.rint((bounds - header.offsets) / header.scales)
 
 
+# Plain LAS/LAZ records are already in source order; a projection made for
+# point-noise filtering numbers them so noise decisions can name each record.
+ORDER_DIMENSION = "OriginalPointIndex"
+
+
 def stream_projection(
     source_path: pathlib.Path,
     output_path: pathlib.Path,
     dimension_name: str | list[str],
     chunk_points: int,
+    add_original_point_index: bool = False,
 ) -> dict[str, object]:
     source_digest = hashlib.sha256()
     projected_digest = hashlib.sha256()
@@ -62,6 +68,8 @@ def stream_projection(
         if not names or len(names) != len(set(names)):
             raise ValueError("projection requires unique dimension names")
         dimensions = [extra_dimension(source_header, name) for name in names]
+        if add_original_point_index and ORDER_DIMENSION in names:
+            raise ValueError(f"{ORDER_DIMENSION} already exists in the source")
         output_header = laspy.LasHeader(
             point_format=0,
             version=str(source_header.version),
@@ -72,8 +80,13 @@ def stream_projection(
         source_crs = source_header.parse_crs()
         if source_crs is not None:
             output_header.add_crs(source_crs, keep_compatibility=False)
+        if add_original_point_index:
+            output_header.add_extra_dim(
+                laspy.ExtraBytesParams(name=ORDER_DIMENSION, type=np.uint64)
+            )
         for dimension in dimensions:
             output_header.add_extra_dim(extra_params(dimension))
+        output_names = ([ORDER_DIMENSION] if add_original_point_index else []) + names
 
         output_path.parent.mkdir(parents=True, exist_ok=True)
         descriptor, temporary_name = tempfile.mkstemp(
@@ -90,6 +103,7 @@ def stream_projection(
                 header=output_header,
                 do_compress=True,
             ) as writer:
+                ordinal = 0
                 for points in source.chunk_iterator(chunk_points):
                     projected = laspy.ScaleAwarePointRecord.zeros(
                         len(points),
@@ -98,6 +112,11 @@ def stream_projection(
                     projected.X = points.X
                     projected.Y = points.Y
                     projected.Z = points.Z
+                    if add_original_point_index:
+                        projected.array[ORDER_DIMENSION] = np.arange(
+                            ordinal, ordinal + len(points), dtype=np.uint64
+                        )
+                    ordinal += len(points)
                     for name in names:
                         projected.array[name] = points.array[name]
                     for values in (
@@ -110,7 +129,15 @@ def stream_projection(
                     writer.write_points(projected)
 
             with laspy.open(temporary_path) as projected_source:
+                expected_ordinal = 0
                 for points in projected_source.chunk_iterator(chunk_points):
+                    if add_original_point_index:
+                        expected = np.arange(
+                            expected_ordinal, expected_ordinal + len(points), dtype=np.uint64
+                        )
+                        if not np.array_equal(points.array[ORDER_DIMENSION], expected):
+                            raise RuntimeError(f"{ORDER_DIMENSION} is not the record order")
+                    expected_ordinal += len(points)
                     for values in (
                         points.X,
                         points.Y,
@@ -136,7 +163,7 @@ def stream_projection(
                 raise RuntimeError("XYZ maximum bounds differ after projection")
             if source_header.parse_crs() != projected_header.parse_crs():
                 raise RuntimeError("CRS differs after projection")
-            if [item.name for item in projected_header.point_format.extra_dimensions] != names:
+            if [item.name for item in projected_header.point_format.extra_dimensions] != output_names:
                 raise RuntimeError("projection contains an unexpected ExtraByte set")
             os.replace(temporary_path, output_path)
         except BaseException:
@@ -159,7 +186,8 @@ def stream_projection(
         "chunk_points": chunk_points,
         "point_count": source_header.point_count,
         "xyz_instance_ordered_sha256": source_digest.hexdigest(),
-        "projection_selector": "xyz" + "".join(str(i + 1) for i in range(len(names))),
+        "projection_selector": "xyz" + "".join(str(i + 1) for i in range(len(output_names))),
+        "original_point_index_added": add_original_point_index,
     }
 
 
@@ -169,6 +197,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", required=True, type=pathlib.Path)
     parser.add_argument("--dimension", required=True, action="append")
     parser.add_argument("--chunk-points", type=int, default=250_000)
+    parser.add_argument(
+        "--add-original-point-index",
+        action="store_true",
+        help=f"Number the records in source order as a leading {ORDER_DIMENSION} ExtraByte",
+    )
     return parser.parse_args()
 
 
@@ -181,6 +214,7 @@ def main() -> None:
         args.output,
         args.dimension,
         args.chunk_points,
+        args.add_original_point_index,
     )
     print(json.dumps(provenance, sort_keys=True))
 

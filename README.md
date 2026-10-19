@@ -50,7 +50,7 @@ docker run --rm --network none \
   COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex` is
   numbered in its own record order, which costs one extra read and a scratch
   copy of XYZ and the instance dimensions. Add `--denoise none` to skip it.
-- A COPC is recognised by its `.copc.laz` file name.
+- A COPC is recognised from its content (the `copc` info VLR), whatever its file name.
 - Without `--aoi-geojson` the whole point-cloud extent is analysed.
 - Without `--output-dir` and `--temp-dir`, outputs go to the working directory
   and scratch to `TMPDIR`.
@@ -103,7 +103,7 @@ for the method and its limits.
 
 | Option | Meaning |
 | --- | --- |
-| `--point-cloud` | Input LAS/LAZ, or a canonical COPC named `*.copc.laz` (required) |
+| `--point-cloud` | Input LAS/LAZ or canonical COPC, recognised from its content (required) |
 | `--instance-dimension` | Instance dimensions to process (required) |
 | `--aoi-geojson` | Optional area of interest in the point cloud's XY coordinates; not reprojected |
 | `--original-point-cloud` | Optional original LAS/LAZ of a COPC, used only for header and provenance checks |

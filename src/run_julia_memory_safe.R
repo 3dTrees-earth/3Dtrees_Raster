@@ -8,8 +8,13 @@ suppressPackageStartupMessages({
 POINT_ORDER_DIMENSION <- "OriginalPointIndex"
 
 # Identify COPC from the standard double extension while accepting case variants.
+# COPC 1.0 places its info VLR (user ID "copc") directly after the 375-byte
+# LAS 1.4 header, so the file content identifies a COPC whatever its name.
 is_copc_point_cloud <- function(path) {
-  grepl("\\.copc\\.laz$", path, ignore.case = TRUE)
+  header <- readBin(path, "raw", n = 381L)
+  length(header) == 381L &&
+    identical(header[1:4], charToRaw("LASF")) &&
+    identical(header[378:381], charToRaw("copc"))
 }
 
 # The original LAZ is optional at runtime and is never used for computation.
@@ -140,7 +145,7 @@ parse_julia_memory_safe_parameters <- function() {
   add_denoising_arguments(parser)
   # ``--point-cloud`` is the sole scientific input and may now be canonical COPC.
   parser$add_argument("--point-cloud", required = TRUE,
-    help = "Input LAS/LAZ, or a canonical COPC named *.copc.laz (required)")
+    help = "Input LAS/LAZ or canonical COPC, recognised from its content (required)")
   # ``--original-point-cloud`` is optional identity/provenance evidence only.
   parser$add_argument("--original-point-cloud", default = NULL,
     help = "Optional original LAS/LAZ of a COPC, used only for header and provenance checks")

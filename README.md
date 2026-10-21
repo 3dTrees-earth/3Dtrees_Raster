@@ -108,6 +108,8 @@ for the method and its limits.
 | `--aoi-geojson` | Optional area of interest in the point cloud's XY coordinates; not reprojected |
 | `--original-point-cloud` | Optional original LAS/LAZ of a COPC, used only for header and provenance checks |
 | `--output-dir`, `--temp-dir` | Output and scratch directories |
+| `--collection-directories` | Write the per-dimension files into `tile_metrics/`, `segment_diagnostics/` and `tiles/`, named `<dimension>.csv` or `<dimension>.geojson` (used by the Galaxy wrapper) |
+| `--version` | Print the tool version and exit |
 | `--memory-budget-gib` | Optional lower internal memory budget; the container or Galaxy limit is used otherwise |
 | `--target-chunk-points` | Approximate points per COPC CHM/segment read window (default 50,000,000; `0` uses fixed windows) |
 | `--voxel-count-chunk-points` | Maximum records per voxel-count batch (default 2,000,000) |
@@ -128,6 +130,10 @@ dimension `<dimension>`:
 | `foreststructure_<dimension>_results.csv` | One row of [tile metrics](#tile-metrics) per tile |
 | `foreststructure_<dimension>_segment_diagnostics.csv` | One row per segment with the tree-acceptance checks |
 | `foreststructure_<dimension>_tiles.geojson` | The tile metrics as polygons |
+
+With `--collection-directories` these three files are
+`tile_metrics/<dimension>.csv`, `segment_diagnostics/<dimension>.csv` and
+`tiles/<dimension>.geojson` instead.
 
 Shared by all dimensions:
 

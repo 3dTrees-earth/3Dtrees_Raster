@@ -108,6 +108,7 @@ for the method and its limits.
 | `--aoi-geojson` | Optional area of interest in the point cloud's XY coordinates; not reprojected |
 | `--original-point-cloud` | Optional original LAS/LAZ of a COPC, used only for header and provenance checks |
 | `--output-dir`, `--temp-dir` | Output and scratch directories |
+| `--raster-format` | `COG` (default) or `GTiff` for the DTM, CHM and voxel-count rasters |
 | `--version` | Print the tool version and exit |
 | `--memory-budget-gib` | Optional lower internal memory budget; the container or Galaxy limit is used otherwise |
 | `--target-chunk-points` | Approximate points per COPC CHM/segment read window (default 50,000,000; `0` uses fixed windows) |
@@ -126,16 +127,16 @@ folders:
 
 | File | Contents |
 | --- | --- |
-| `tile_metrics/<dimension>.csv` | One row of [tile metrics](#tile-metrics) per tile |
-| `segment_diagnostics/<dimension>.csv` | One row per segment with the tree-acceptance checks |
-| `tiles/<dimension>.geojson` | The tile metrics as polygons |
+| `tile_metrics/<dimension>_tile_metrics.csv` | One row of [tile metrics](#tile-metrics) per tile |
+| `segment_diagnostics/<dimension>_segment_diagnostics.csv` | One row per segment with the tree-acceptance checks |
+| `tiles/<dimension>_tiles.geojson` | The tile metrics as polygons |
 
 Shared by all dimensions, each starting with the prefix `foreststructure`:
 
 | File | Contents |
 | --- | --- |
-| `foreststructure_dtm.tif` | DTM GeoTIFF |
-| `foreststructure_chm.tif` | CHM GeoTIFF |
+| `foreststructure_dtm.tif` | DTM GeoTIFF (Cloud Optimized by default) |
+| `foreststructure_chm.tif` | CHM GeoTIFF (Cloud Optimized by default) |
 | `foreststructure_tiles.png` | Tile overview map |
 | `foreststructure_voxel_counts.csv` | Occupied voxels: `x_center,y_center,height_lower_m,height_upper_m,point_count` |
 | `foreststructure_voxel_counts.tif` | UInt32 point counts; with voxel size *s*, band *b* holds heights `[(b-1)·s, b·s)` m above the DTM |

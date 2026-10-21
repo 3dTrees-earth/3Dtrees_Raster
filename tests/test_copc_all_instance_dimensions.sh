@@ -101,7 +101,7 @@ run_foreststructure \
 
 # Require byte identity for every tabular/vector artifact in all three dimensions.
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
-  for artifact in "tile_metrics/${dimension}.csv" "segment_diagnostics/${dimension}.csv" "tiles/${dimension}.geojson"; do
+  for artifact in "tile_metrics/${dimension}_tile_metrics.csv" "segment_diagnostics/${dimension}_segment_diagnostics.csv" "tiles/${dimension}_tiles.geojson"; do
     cmp \
       "${test_root}/ordered-output/${artifact}" \
       "${test_root}/copc-output/${artifact}"
@@ -124,15 +124,15 @@ done
 # Guard fixture quality: distinct dimension inputs must not collapse to the same
 # results, otherwise the equality checks above would not prove dimension routing.
 if cmp -s \
-  "${test_root}/copc-output/tile_metrics/PredInstance.csv" \
-  "${test_root}/copc-output/tile_metrics/PredInstance_SAT.csv"; then
+  "${test_root}/copc-output/tile_metrics/PredInstance_tile_metrics.csv" \
+  "${test_root}/copc-output/tile_metrics/PredInstance_SAT_tile_metrics.csv"; then
   echo "PredInstance and PredInstance_SAT unexpectedly produced identical results" >&2
   exit 1
 fi
 # Apply the same fixture-quality guard to SAT versus foundation-model values.
 if cmp -s \
-  "${test_root}/copc-output/tile_metrics/PredInstance_SAT.csv" \
-  "${test_root}/copc-output/tile_metrics/PredInstance_FM.csv"; then
+  "${test_root}/copc-output/tile_metrics/PredInstance_SAT_tile_metrics.csv" \
+  "${test_root}/copc-output/tile_metrics/PredInstance_FM_tile_metrics.csv"; then
   echo "PredInstance_SAT and PredInstance_FM unexpectedly produced identical results" >&2
   exit 1
 fi

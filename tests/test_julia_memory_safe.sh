@@ -25,15 +25,25 @@ test "$(docker run --rm --network none "${image_name}" --version)" = "1.0.0"
 run_candidate 2>&1 | tee "${test_root}/first.log"
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
   grep -q "dimension=${dimension} .*selector=xyz1" "${test_root}/first.log"
-  test -s "${test_root}/output/tile_metrics/${dimension}.csv"
-  test -s "${test_root}/output/segment_diagnostics/${dimension}.csv"
-  test -s "${test_root}/output/tiles/${dimension}.geojson"
+  test -s "${test_root}/output/tile_metrics/${dimension}_tile_metrics.csv"
+  test -s "${test_root}/output/segment_diagnostics/${dimension}_segment_diagnostics.csv"
+  test -s "${test_root}/output/tiles/${dimension}_tiles.geojson"
 done
-cmp "${test_root}/output/tile_metrics/PredInstance.csv" "${test_root}/output/tile_metrics/PredInstance_SAT.csv"
-cmp "${test_root}/output/tile_metrics/PredInstance.csv" "${test_root}/output/tile_metrics/PredInstance_FM.csv"
-cmp "${test_root}/output/segment_diagnostics/PredInstance.csv" "${test_root}/output/segment_diagnostics/PredInstance_SAT.csv"
-cmp "${test_root}/output/segment_diagnostics/PredInstance.csv" "${test_root}/output/segment_diagnostics/PredInstance_FM.csv"
+cmp "${test_root}/output/tile_metrics/PredInstance_tile_metrics.csv" "${test_root}/output/tile_metrics/PredInstance_SAT_tile_metrics.csv"
+cmp "${test_root}/output/tile_metrics/PredInstance_tile_metrics.csv" "${test_root}/output/tile_metrics/PredInstance_FM_tile_metrics.csv"
+cmp "${test_root}/output/segment_diagnostics/PredInstance_segment_diagnostics.csv" "${test_root}/output/segment_diagnostics/PredInstance_SAT_segment_diagnostics.csv"
+cmp "${test_root}/output/segment_diagnostics/PredInstance_segment_diagnostics.csv" "${test_root}/output/segment_diagnostics/PredInstance_FM_segment_diagnostics.csv"
 jq -e '.processed_instance_dimensions | length == 3' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
+jq -e '.raster_format == "COG"' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
+raster_layouts() {
+  docker run --rm --network none --entrypoint python3 --volume "$1:/check:ro" "${image_name}" -c '
+import sys
+from osgeo import gdal
+for name in sys.argv[1:]:
+    print(gdal.Info("/check/" + name, format="json").get("metadata", {}).get("IMAGE_STRUCTURE", {}).get("LAYOUT", "GTiff"))
+' "${@:2}"
+}
+test "$(raster_layouts "${test_root}/output" 150_dtm.tif 150_chm.tif | sort -u)" = "COG"
 jq -e '.projections | length == 3' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 jq -e '.adaptive_chunking.enabled == false and .adaptive_chunking.target_points == 50000000' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 test -z "$(find "${test_root}/work" -mindepth 1 -print -quit)"
@@ -49,17 +59,18 @@ jq -e '.memory_budget_gib == 3.4' "${test_root}/output/150_julia_memory_safe_run
 sor_output="${test_root}/sor_output"
 sor_work="${test_root}/sor_work"
 mkdir -p "${sor_output}" "${sor_work}"
-docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${sor_output}:/out" --volume "${sor_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 152 --output-dir /out --temp-dir /work --memory-budget-gib 3 --instance-dimension PredInstance,PredInstance_SAT 2>&1 | tee "${test_root}/sor.log"
+docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${sor_output}:/out" --volume "${sor_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 152 --output-dir /out --temp-dir /work --memory-budget-gib 3 --raster-format GTiff --instance-dimension PredInstance,PredInstance_SAT 2>&1 | tee "${test_root}/sor.log"
 test "$(head -n 1 "${sor_output}/152_noise_points.csv")" = "OriginalPointIndex"
 jq -e '.enabled == true' "${sor_output}/152_denoising.json" >/dev/null
+test "$(raster_layouts "${sor_output}" 152_dtm.tif 152_chm.tif 152_voxel_counts.tif 152_voxel_counts_validity.tif | sort -u)" = "GTiff"
 jq -e '.requested_is_copc == false and .copc_projection.original_point_index_added == true' "${sor_output}/152_julia_memory_safe_run.json" >/dev/null
 for dimension in PredInstance PredInstance_SAT; do
-  test -s "${sor_output}/tile_metrics/${dimension}.csv"
-  test -s "${sor_output}/segment_diagnostics/${dimension}.csv"
-  test -s "${sor_output}/tiles/${dimension}.geojson"
+  test -s "${sor_output}/tile_metrics/${dimension}_tile_metrics.csv"
+  test -s "${sor_output}/segment_diagnostics/${dimension}_segment_diagnostics.csv"
+  test -s "${sor_output}/tiles/${dimension}_tiles.geojson"
 done
 test -z "$(find "${sor_output}" -maxdepth 1 -name '152_PredInstance*' -print -quit)"
-cmp "${sor_output}/tile_metrics/PredInstance.csv" "${sor_output}/tile_metrics/PredInstance_SAT.csv"
+cmp "${sor_output}/tile_metrics/PredInstance_tile_metrics.csv" "${sor_output}/tile_metrics/PredInstance_SAT_tile_metrics.csv"
 test -z "$(find "${sor_work}" -mindepth 1 -print -quit)"
 
 failure_output="${test_root}/failure_output"

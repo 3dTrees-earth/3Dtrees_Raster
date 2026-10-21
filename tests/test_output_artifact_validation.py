@@ -53,7 +53,7 @@ class OutputArtifactValidationTest(unittest.TestCase):
             "2001_aoi_conversion.json",
         ]
         dimension_files = [
-            f"{folder}/{dimension}.{extension}"
+            f"{folder}/{dimension}_{folder}.{extension}"
             for dimension in ("PredInstance_SAT", "PredInstance_FM")
             for folder, extension in (
                 ("tile_metrics", "csv"),

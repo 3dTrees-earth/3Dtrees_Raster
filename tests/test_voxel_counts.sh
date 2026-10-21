@@ -24,7 +24,7 @@ run() {
 run baseline
 run counts --export-voxel-counts --voxel-count-chunk-points 257
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
-  for file in "tile_metrics/${dimension}.csv" "segment_diagnostics/${dimension}.csv" "tiles/${dimension}.geojson"; do
+  for file in "tile_metrics/${dimension}_tile_metrics.csv" "segment_diagnostics/${dimension}_segment_diagnostics.csv" "tiles/${dimension}_tiles.geojson"; do
     cmp "${root}/baseline/${file}" "${root}/counts/${file}"
   done
 done
@@ -33,12 +33,17 @@ for suffix in dtm.tif chm.tif; do
 done
 python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/counts"
 jq -e '.voxel_counts.enabled == true' "${root}/counts/150_julia_memory_safe_run.json"
+docker run --rm --network none --entrypoint python3 --volume "${root}/counts:/check:ro" "${image}" -c '
+from osgeo import gdal
+for name in ("150_voxel_counts.tif", "150_voxel_counts_validity.tif"):
+    assert gdal.Info("/check/" + name, format="json")["metadata"]["IMAGE_STRUCTURE"]["LAYOUT"] == "COG", name
+'
 jq -e '.point_accounting.included > 0 and .peak_batch_points <= 257' "${root}/counts/150_voxel_counts.json"
 cat > "${root}/input/narrow.geojson" <<'JSON'
 {"type":"Polygon","coordinates":[[[1001,2001],[1005,2001],[1005,2005],[1001,2005],[1001,2001]]]}
 JSON
 run narrow --export-voxel-counts --aoi-geojson /in/narrow.geojson
-jq -e '.features | length == 0' "${root}/narrow/tiles/PredInstance.geojson"
+jq -e '.features | length == 0' "${root}/narrow/tiles/PredInstance_tiles.geojson"
 jq -e '.point_accounting.included > 0' "${root}/narrow/150_voxel_counts.json"
 python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/narrow"
 # Advanced scientific parameters reach the analysis, the voxel export and provenance.

@@ -22,7 +22,7 @@ SUPPORTED_DIMENSIONS = (
     "PredInstance_FM",
 )
 VALIDATION_REPORT = "forest_structure.validation.json"
-# Per-dimension products live in one folder per kind, named <dimension>.<ext>.
+# Per-dimension products live in one folder per kind, named <dimension>_<folder>.<ext>.
 COLLECTION_FILES = (
     ("tile_metrics", "results", "csv"),
     ("segment_diagnostics", "segment_diagnostics", "csv"),
@@ -53,7 +53,7 @@ def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_c
         f"{dataset_id}_julia_memory_safe_run.json",
     }
     for dimension in processed:
-        names.update(f"{folder}/{dimension}.{extension}" for folder, _, extension in COLLECTION_FILES)
+        names.update(f"{folder}/{dimension}_{folder}.{extension}" for folder, _, extension in COLLECTION_FILES)
     if not processed:
         names.update(f"{dataset_id}_{kind}.{extension}" for _, kind, extension in COLLECTION_FILES)
     if voxel_counts:

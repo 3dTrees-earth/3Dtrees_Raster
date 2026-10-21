@@ -13,6 +13,7 @@ import csv
 import hashlib
 import json
 import math
+import os
 from pathlib import Path
 import sqlite3
 import shutil
@@ -96,6 +97,19 @@ def create_raster(path, grid, bands, datatype, nodata=None):
         for band in range(1, bands + 1):
             ds.GetRasterBand(band).SetNoDataValue(nodata)
     return ds
+
+
+def convert_raster_format(path, resampling):
+    """Rewrite a finished GeoTIFF as a COG when FORESTSTRUCTURE_RASTER_FORMAT=COG."""
+    if os.environ.get("FORESTSTRUCTURE_RASTER_FORMAT", "GTiff") != "COG":
+        return
+    partial = f"{path}.partial.tif"
+    converted = gdal.Translate(partial, str(path), format="COG", creationOptions=[
+        "COMPRESS=LZW", "BIGTIFF=IF_SAFER", f"RESAMPLING={resampling}"])
+    if converted is None:
+        raise ValueError(f"could not write {Path(path).name} as a COG")
+    converted = None
+    os.replace(partial, path)
 
 
 def grid_blocks(grid):
@@ -392,6 +406,9 @@ def export(config):
                 if write_counts(connection, paths, grid, bands, mask_ds) != counters["included"]:
                     raise ValueError("CSV/raster export lost counts")
                 disk_bytes = sum(p.stat().st_size for p in Path(scratch).iterdir())
+        mask = mask_ds = None
+        convert_raster_format(paths["raster"], "AVERAGE")
+        convert_raster_format(paths["mask"], "NEAREST")
         source_crs = source.header.parse_crs()
         metadata = dict(
             schema_version=1, metric="point_count", units="count", voxel_size_m=[RESOLUTION]*3,

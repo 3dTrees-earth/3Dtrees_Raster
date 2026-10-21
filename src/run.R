@@ -1482,7 +1482,35 @@ stream_virtual_raster <- function(result, output_path, label,
     stop(sprintf("could not atomically publish the global %s GeoTIFF", label))
   }
   align_raster_file_crs(output_path, source_crs, label)
-  invisible(output_path)
+  convert_raster_format(output_path, label)
+}
+
+# FORESTSTRUCTURE_RASTER_FORMAT=COG rewrites a finished GeoTIFF as a Cloud
+# Optimized GeoTIFF; the CRS is aligned first because editing a COG in place
+# would break its layout.
+convert_raster_format <- function(path, label, resampling = "AVERAGE") {
+  if (!identical(Sys.getenv("FORESTSTRUCTURE_RASTER_FORMAT", "GTiff"), "COG")) {
+    return(invisible(path))
+  }
+  partial_path <- paste0(path, ".partial.tif")
+  unlink(partial_path, force = TRUE)
+  on.exit(unlink(partial_path, force = TRUE), add = TRUE)
+  status <- system2(
+    "gdal_translate",
+    c(
+      "-of", "COG",
+      "-co", "COMPRESS=LZW",
+      "-co", "BIGTIFF=IF_SAFER",
+      "-co", paste0("RESAMPLING=", resampling),
+      shQuote(path),
+      shQuote(partial_path)
+    )
+  )
+  if (!identical(status, 0L) || !file.exists(partial_path) ||
+      !file.rename(partial_path, path)) {
+    stop(sprintf("could not write the global %s raster as a COG", label))
+  }
+  invisible(path)
 }
 
 align_grid_coordinate <- function(value, resolution, direction) {

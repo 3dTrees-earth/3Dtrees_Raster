@@ -138,7 +138,8 @@ def artifact_path(directory: pathlib.Path, stem: str, dimension: str, kind: str,
                   extension: str) -> pathlib.Path:
     """Return the collection-folder file, or the flat legacy name."""
 
-    folder_path = directory / COLLECTION_FOLDERS[kind] / f"{dimension}.{extension}"
+    folder = COLLECTION_FOLDERS[kind]
+    folder_path = directory / folder / f"{dimension}_{folder}.{extension}"
     return folder_path if folder_path.exists() else directory / f"{stem}_{kind}.{extension}"
 
 

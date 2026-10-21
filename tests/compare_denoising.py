@@ -89,7 +89,7 @@ def main() -> None:
         assert scientific["metric_height_upper_m"] == float(performance["metric_height_upper_m"]) == expected_domain
         assert float(performance["maximum_height"]) == math.inf
         for dimension in fixture["supported_instance_ids"]:
-            tile_rows = csv_rows(output / "tile_metrics" / f"{dimension}.csv")
+            tile_rows = csv_rows(output / "tile_metrics" / f"{dimension}_tile_metrics.csv")
             assert tile_rows and {float(row["metric_height_upper_m"]) for row in tile_rows} == {expected_domain}
         height_domains[name] = expected_domain
         observed_height_maxima[name] = observed_maximum
@@ -159,7 +159,7 @@ def main() -> None:
         assert len(matches) == 1 and int(matches[0]["point_count"]) == 1, (name, matches)
         assert supported_lower < maximum(output / "foreststructure_chm.tif") < supported_upper
         for dimension, target_id in fixture["supported_instance_ids"].items():
-            diagnostics_name = f"segment_diagnostics/{dimension}.csv"
+            diagnostics_name = f"segment_diagnostics/{dimension}_segment_diagnostics.csv"
             before = csv_rows(outputs["none"] / diagnostics_name)
             after = csv_rows(output / diagnostics_name)
             # The established diagnostic schema names this column PredInstance

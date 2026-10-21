@@ -157,6 +157,8 @@ parse_julia_memory_safe_parameters <- function() {
     help = "Deprecated output-prefix compatibility; not needed for production jobs")
   parser$add_argument("--output-dir", default = getwd(),
     help = "Directory for the published outputs (default: working directory)")
+  parser$add_argument("--raster-format", default = "COG", choices = c("COG", "GTiff"),
+    help = "Format of the DTM, CHM and voxel-count rasters (default: COG)")
   parser$add_argument("--version", action = "store_true",
     help = "Print the tool version and exit")
   parser$add_argument("--temp-dir", default = Sys.getenv("TMPDIR", tempdir()),
@@ -475,7 +477,7 @@ move_to_collection_directories <- function(paths, output_directory, dataset_id,
       )
       target <- file.path(
         target_directory,
-        paste0(dimension, ".", tools::file_ext(kinds[[directory]]))
+        paste0(dimension, "_", directory, ".", tools::file_ext(kinds[[directory]]))
       )
       if (!file.rename(source, target)) {
         stop(sprintf("cannot move %s to %s", basename(source), directory))
@@ -493,6 +495,7 @@ julia_memory_safe_main <- function() {
   }
   # Parse and validate every external path/resource setting before creating work.
   arguments <- parse_julia_memory_safe_parameters()
+  Sys.setenv(FORESTSTRUCTURE_RASTER_FORMAT = arguments$raster_format)
   message("FORESTSTRUCTURE_STAGE stage=preflight status=started")
   # Retain the user-requested path separately from later local staging paths.
   requested_point_cloud <- normalizePath(arguments$point_cloud, mustWork = TRUE)
@@ -852,6 +855,7 @@ julia_memory_safe_main <- function() {
     voxel_counts = list(enabled = arguments$export_voxel_counts,
       metadata = if (arguments$export_voxel_counts) paste0(arguments$dataset_id, "_voxel_counts.json") else NULL),
     rerun_policy = "always_recompute_then_replace_after_validation",
+    raster_format = arguments$raster_format,
     source_point_cloud = normalizePath(point_cloud, mustWork = TRUE),
     source_point_cloud_sha256 = input_sha256,
     source_point_count = point_count_from_las_header(point_cloud),

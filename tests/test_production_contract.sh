@@ -60,7 +60,7 @@ cat > "${root}/input/narrow.geojson" <<'JSON'
 {"type":"Polygon","coordinates":[[[1001,2001],[1005,2001],[1005,2005],[1001,2005],[1001,2001]]]}
 JSON
 run narrow high.copc.laz --aoi-geojson /in/narrow.geojson --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
-jq -e '.features | length == 0' "${root}/narrow/tiles/PredInstance.geojson"
+jq -e '.features | length == 0' "${root}/narrow/tiles/PredInstance_tiles.geojson"
 jq -e '.point_accounting.included > 0 and .point_accounting.excluded_domain > 0' "${root}/narrow/foreststructure_voxel_counts.json"
 if run failure high.copc.laz --instance-dimension missing; then
   echo 'Missing dimension unexpectedly succeeded' >&2; exit 1

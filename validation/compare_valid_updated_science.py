@@ -127,6 +127,21 @@ def compare_geojson(
     }
 
 
+COLLECTION_FOLDERS = {
+    "results": "tile_metrics",
+    "segment_diagnostics": "segment_diagnostics",
+    "tiles": "tiles",
+}
+
+
+def artifact_path(directory: pathlib.Path, stem: str, dimension: str, kind: str,
+                  extension: str) -> pathlib.Path:
+    """Return the collection-folder file, or the flat legacy name."""
+
+    folder_path = directory / COLLECTION_FOLDERS[kind] / f"{dimension}.{extension}"
+    return folder_path if folder_path.exists() else directory / f"{stem}_{kind}.{extension}"
+
+
 def main() -> None:
     """Compare all scientific artifacts and write one machine-readable verdict."""
 
@@ -149,16 +164,16 @@ def main() -> None:
     # report identifies the exact failing artifact class.
     comparisons = {
         "results_csv": compare_csv(
-            expected_dir / f"{stem}_results.csv",
-            actual_dir / f"{stem}_results.csv",
+            artifact_path(expected_dir, stem, dimension, "results", "csv"),
+            artifact_path(actual_dir, stem, dimension, "results", "csv"),
         ),
         "segment_diagnostics_csv": compare_csv(
-            expected_dir / f"{stem}_segment_diagnostics.csv",
-            actual_dir / f"{stem}_segment_diagnostics.csv",
+            artifact_path(expected_dir, stem, dimension, "segment_diagnostics", "csv"),
+            artifact_path(actual_dir, stem, dimension, "segment_diagnostics", "csv"),
         ),
         "tiles_geojson": compare_geojson(
-            expected_dir / f"{stem}_tiles.geojson",
-            actual_dir / f"{stem}_tiles.geojson",
+            artifact_path(expected_dir, stem, dimension, "tiles", "geojson"),
+            artifact_path(actual_dir, stem, dimension, "tiles", "geojson"),
         ),
     }
     # The dataset passes only when every scientific artifact passes.

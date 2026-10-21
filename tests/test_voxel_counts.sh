@@ -24,8 +24,8 @@ run() {
 run baseline
 run counts --export-voxel-counts --voxel-count-chunk-points 257
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
-  for suffix in results.csv segment_diagnostics.csv tiles.geojson; do
-    cmp "${root}/baseline/150_${dimension}_${suffix}" "${root}/counts/150_${dimension}_${suffix}"
+  for file in "tile_metrics/${dimension}.csv" "segment_diagnostics/${dimension}.csv" "tiles/${dimension}.geojson"; do
+    cmp "${root}/baseline/${file}" "${root}/counts/${file}"
   done
 done
 for suffix in dtm.tif chm.tif; do
@@ -38,7 +38,7 @@ cat > "${root}/input/narrow.geojson" <<'JSON'
 {"type":"Polygon","coordinates":[[[1001,2001],[1005,2001],[1005,2005],[1001,2005],[1001,2001]]]}
 JSON
 run narrow --export-voxel-counts --aoi-geojson /in/narrow.geojson
-jq -e '.features | length == 0' "${root}/narrow/150_PredInstance_tiles.geojson"
+jq -e '.features | length == 0' "${root}/narrow/tiles/PredInstance.geojson"
 jq -e '.point_accounting.included > 0' "${root}/narrow/150_voxel_counts.json"
 python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/narrow"
 # Advanced scientific parameters reach the analysis, the voxel export and provenance.

@@ -22,6 +22,12 @@ SUPPORTED_DIMENSIONS = (
     "PredInstance_FM",
 )
 VALIDATION_REPORT = "forest_structure.validation.json"
+# Per-dimension products live in one folder per kind, named <dimension>.<ext>.
+COLLECTION_FILES = (
+    ("tile_metrics", "results", "csv"),
+    ("segment_diagnostics", "segment_diagnostics", "csv"),
+    ("tiles", "tiles", "geojson"),
+)
 
 
 def as_list(value: Any) -> list[Any]:
@@ -46,15 +52,10 @@ def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_c
         f"{dataset_id}_aoi_conversion.json",
         f"{dataset_id}_julia_memory_safe_run.json",
     }
-    for dimension in processed or [""]:
-        prefix = f"{dataset_id}_{dimension}" if dimension else str(dataset_id)
-        names.update(
-            {
-                f"{prefix}_results.csv",
-                f"{prefix}_segment_diagnostics.csv",
-                f"{prefix}_tiles.geojson",
-            }
-        )
+    for dimension in processed:
+        names.update(f"{folder}/{dimension}.{extension}" for folder, _, extension in COLLECTION_FILES)
+    if not processed:
+        names.update(f"{dataset_id}_{kind}.{extension}" for _, kind, extension in COLLECTION_FILES)
     if voxel_counts:
         names.update(f"{dataset_id}_voxel_counts{suffix}" for suffix in (".csv", ".tif", ".json", "_validity.tif"))
     if denoising:
@@ -109,7 +110,7 @@ def validate_output_directory(dataset_id: int | str, output: Path) -> dict[str, 
     expected = expected_artifact_names(dataset_id, processed,
         provenance.get("voxel_counts", {}).get("enabled", False),
         provenance.get("denoising", {}).get("enabled", False))
-    present = {path.name for path in output.iterdir() if path.is_file()}
+    present = {path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()}
     allowed_sidecars = allowed_gdal_sidecar_names(dataset_id)
     ignored_sidecars = sorted(present & allowed_sidecars)
     optional_metadata = {VALIDATION_REPORT}

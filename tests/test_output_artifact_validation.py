@@ -53,15 +53,16 @@ class OutputArtifactValidationTest(unittest.TestCase):
             "2001_aoi_conversion.json",
         ]
         dimension_files = [
-            f"2001_{dimension}_{suffix}"
+            f"{folder}/{dimension}.{extension}"
             for dimension in ("PredInstance_SAT", "PredInstance_FM")
-            for suffix in (
-                "results.csv",
-                "segment_diagnostics.csv",
-                "tiles.geojson",
+            for folder, extension in (
+                ("tile_metrics", "csv"),
+                ("segment_diagnostics", "csv"),
+                ("tiles", "geojson"),
             )
         ]
         for name in shared + dimension_files:
+            (self.output / name).parent.mkdir(exist_ok=True)
             (self.output / name).write_bytes(b"non-empty")
 
     def tearDown(self) -> None:
@@ -108,6 +109,14 @@ class OutputArtifactValidationTest(unittest.TestCase):
         for suffix in (".csv", ".tif", ".json", "_validity.tif"):
             (self.output / f"2001_voxel_counts{suffix}").write_bytes(b"non-empty")
         self.assertEqual(validator.validate_output_directory(2001, self.output)["status"], "valid")
+
+    def test_flat_dimension_file_is_rejected(self) -> None:
+        validator = load_validator()
+        (self.output / "2001_PredInstance_SAT_results.csv").write_bytes(b"non-empty")
+
+        report = validator.validate_output_directory(self.dataset_id, self.output)
+
+        self.assertEqual(report["status"], "invalid")
 
     def test_unsegmented_source_uses_existing_unsuffixed_outputs(self) -> None:
         names = load_validator().expected_artifact_names(2001, [], True)

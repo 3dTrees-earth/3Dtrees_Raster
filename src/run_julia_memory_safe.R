@@ -157,12 +157,6 @@ parse_julia_memory_safe_parameters <- function() {
     help = "Deprecated output-prefix compatibility; not needed for production jobs")
   parser$add_argument("--output-dir", default = getwd(),
     help = "Directory for the published outputs (default: working directory)")
-  parser$add_argument("--collection-directories", action = "store_true",
-    help = paste(
-      "Write tile metrics, segment diagnostics and tile GeoJSON to the",
-      "tile_metrics, segment_diagnostics and tiles subdirectories of",
-      "--output-dir, named <dimension>.csv or <dimension>.geojson"
-    ))
   parser$add_argument("--version", action = "store_true",
     help = "Print the tool version and exit")
   parser$add_argument("--temp-dir", default = Sys.getenv("TMPDIR", tempdir()),
@@ -1012,14 +1006,12 @@ julia_memory_safe_main <- function() {
     arguments$output_dir,
     arguments$dataset_id
   )
-  if (arguments$collection_directories) {
-    promoted <- move_to_collection_directories(
-      promoted,
-      arguments$output_dir,
-      arguments$dataset_id,
-      dimensions
-    )
-  }
+  promoted <- move_to_collection_directories(
+    promoted,
+    arguments$output_dir,
+    arguments$dataset_id,
+    dimensions
+  )
   message("FORESTSTRUCTURE_STAGE stage=artifact_promotion status=completed")
   message(sprintf(
     "Validated and promoted %d freshly recomputed artifact(s) for dataset %s",

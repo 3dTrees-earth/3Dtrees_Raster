@@ -20,6 +20,7 @@ is_copc_point_cloud <- function(path) {
 # The original LAZ is optional at runtime and is never used for computation.
 # Reject incompatible companions without re-scanning the source. Lossless
 # preparation validation (indices and fingerprints) remains the identity proof.
+TOOL_VERSION <- "1.0.0"
 # Scientific settings exposed on the command line. Defaults are the published
 # production contract; every run records the values it used in its provenance.
 SCIENTIFIC_DEFAULTS <- list(
@@ -156,6 +157,14 @@ parse_julia_memory_safe_parameters <- function() {
     help = "Deprecated output-prefix compatibility; not needed for production jobs")
   parser$add_argument("--output-dir", default = getwd(),
     help = "Directory for the published outputs (default: working directory)")
+  parser$add_argument("--collection-directories", action = "store_true",
+    help = paste(
+      "Write tile metrics, segment diagnostics and tile GeoJSON to the",
+      "tile_metrics, segment_diagnostics and tiles subdirectories of",
+      "--output-dir, named <dimension>.csv or <dimension>.geojson"
+    ))
+  parser$add_argument("--version", action = "store_true",
+    help = "Print the tool version and exit")
   parser$add_argument("--temp-dir", default = Sys.getenv("TMPDIR", tempdir()),
     help = "Scratch directory (default: TMPDIR)")
   parser$add_argument("--memory-budget-gib", type = "double", default = NULL,
@@ -455,7 +464,39 @@ python_package_versions <- function() {
   list(laspy = output[[1]], lazrs = output[[2]])
 }
 
+move_to_collection_directories <- function(paths, output_directory, dataset_id,
+                                           dimensions) {
+  kinds <- c(
+    tile_metrics = "results.csv",
+    segment_diagnostics = "segment_diagnostics.csv",
+    tiles = "tiles.geojson"
+  )
+  for (directory in names(kinds)) {
+    target_directory <- file.path(output_directory, directory)
+    dir.create(target_directory, showWarnings = FALSE)
+    for (dimension in dimensions) {
+      source <- file.path(
+        output_directory,
+        sprintf("%s_%s_%s", dataset_id, dimension, kinds[[directory]])
+      )
+      target <- file.path(
+        target_directory,
+        paste0(dimension, ".", tools::file_ext(kinds[[directory]]))
+      )
+      if (!file.rename(source, target)) {
+        stop(sprintf("cannot move %s to %s", basename(source), directory))
+      }
+      paths[paths == source] <- target
+    }
+  }
+  paths
+}
+
 julia_memory_safe_main <- function() {
+  if ("--version" %in% commandArgs(trailingOnly = TRUE)) {
+    cat(TOOL_VERSION, "\n", sep = "")
+    return(invisible(NULL))
+  }
   # Parse and validate every external path/resource setting before creating work.
   arguments <- parse_julia_memory_safe_parameters()
   message("FORESTSTRUCTURE_STAGE stage=preflight status=started")
@@ -971,6 +1012,14 @@ julia_memory_safe_main <- function() {
     arguments$output_dir,
     arguments$dataset_id
   )
+  if (arguments$collection_directories) {
+    promoted <- move_to_collection_directories(
+      promoted,
+      arguments$output_dir,
+      arguments$dataset_id,
+      dimensions
+    )
+  }
   message("FORESTSTRUCTURE_STAGE stage=artifact_promotion status=completed")
   message(sprintf(
     "Validated and promoted %d freshly recomputed artifact(s) for dataset %s",

@@ -64,6 +64,7 @@ print(target)
             <option value="PredInstance">PredInstance</option>
             <option value="PredInstance_SAT">PredInstance_SAT (SegmentAnyTree)</option>
             <option value="PredInstance_FM">PredInstance_FM (ForestMamba)</option>
+            <option value="PredInstance_RCT">PredInstance_RCT (RayCloudTools)</option>
         </param>
         <conditional name="denoising">
             <param argument="--denoise" type="select" label="Point-noise filtering" help="Statistical outlier removal flags isolated points before the terrain model and metrics. Raw voxel counts always include every recorded point.">

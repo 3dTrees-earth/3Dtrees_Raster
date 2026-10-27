@@ -42,8 +42,8 @@ docker run --rm --network none \
 ```
 
 - The point cloud needs a projected metric CRS and at least one of the instance
-  dimensions `PredInstance`, `PredInstance_SAT` (SegmentAnyTree) or
-  `PredInstance_FM` (ForestMamba). Name one or more with
+  dimensions `PredInstance`, `PredInstance_SAT` (SegmentAnyTree),
+  `PredInstance_FM` (ForestMamba) or `PredInstance_RCT` (RayCloudTools). Name one or more with
   `--instance-dimension` (repeat the option or separate names with commas);
   a missing dimension fails the run before any analysis.
 - Point-noise filtering (`--denoise sor`, the default) works on a canonical
@@ -582,6 +582,7 @@ Supported instance dimensions are:
 - `PredInstance`
 - `PredInstance_SAT`
 - `PredInstance_FM`
+- `PredInstance_RCT`
 
 The production runner requires `--instance-dimension` (repeat it or separate
 names with commas) and never discovers dimensions from the point cloud. The

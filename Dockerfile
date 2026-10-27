@@ -54,7 +54,7 @@ LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_
       earth.3dtrees.cpu.max="10" \
       earth.3dtrees.algorithm-base.revision="9d1fba9cb14adac51336ee53b4f5f5535395331a" \
       earth.3dtrees.dtm-tin-retry="legacy-floating-point" \
-      earth.3dtrees.instance-dimensions="PredInstance,PredInstance_SAT,PredInstance_FM"
+      earth.3dtrees.instance-dimensions="PredInstance,PredInstance_SAT,PredInstance_FM,PredInstance_RCT"
 
 COPY src /opt/foreststructure
 RUN chmod -R a+rX /opt/foreststructure \

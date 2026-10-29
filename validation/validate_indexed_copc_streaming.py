@@ -28,6 +28,7 @@ INSTANCE_DIMENSIONS = (
     "PredInstance",
     "PredInstance_SAT",
     "PredInstance_FM",
+    "PredInstance_RCT",
 )
 # Explicit masking gives Python integer additions the same wraparound as UInt64.
 MASK64 = (1 << 64) - 1

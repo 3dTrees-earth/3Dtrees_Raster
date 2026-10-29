@@ -20,6 +20,7 @@ SUPPORTED_DIMENSIONS = (
     "PredInstance",
     "PredInstance_SAT",
     "PredInstance_FM",
+    "PredInstance_RCT",
 )
 VALIDATION_REPORT = "forest_structure.validation.json"
 # Per-dimension products live in one folder per kind, named <dimension>_<folder>.<ext>.

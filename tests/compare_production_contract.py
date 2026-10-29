@@ -10,6 +10,9 @@ for source in (root / "oracle").iterdir():
     if source.suffix not in (".csv", ".geojson", ".tif") or "performance" in source.name:
         continue
     for case in ("full", "aoi"):
+        # Gap filling depends on the footprint; only the AOI case shares the oracle's.
+        if case == "full" and source.name.endswith("_chm_filled.tif"):
+            continue
         target = root / case / source.name.replace("150_", "foreststructure_", 1)
         if source.suffix == ".geojson":
             expected = json.loads(source.read_text())

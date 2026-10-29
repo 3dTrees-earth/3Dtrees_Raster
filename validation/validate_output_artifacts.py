@@ -48,6 +48,8 @@ def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_c
     names = {
         f"{dataset_id}_dtm.tif",
         f"{dataset_id}_chm.tif",
+        f"{dataset_id}_dsm.tif",
+        f"{dataset_id}_chm_filled.tif",
         f"{dataset_id}_tiles.png",
         f"{dataset_id}_performance.csv",
         f"{dataset_id}_aoi_conversion.json",

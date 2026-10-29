@@ -569,6 +569,8 @@ artifact_paths <- function(output_dir, dataset_id) {
     prefix = prefix,
     dtm = paste0(prefix, "_dtm.tif"),
     chm = paste0(prefix, "_chm.tif"),
+    dsm = paste0(prefix, "_dsm.tif"),
+    chm_filled = paste0(prefix, "_chm_filled.tif"),
     tiles_png = paste0(prefix, "_tiles.png"),
     performance = paste0(prefix, "_performance.csv")
   )
@@ -1869,14 +1871,52 @@ combine_chunk_observations <- function(summaries) {
   )
 }
 
+# DSM: the highest absolute point Z (`Zref`, kept by normalize_height) per
+# voxel column, keyed by the exact column centres voxelize_points() gives the
+# CHM. Rasterized on the CHM chunk raster as template, every DSM cell is built
+# from the same points as its CHM cell and the two share grid and empty cells.
+dsm_column_maxima <- function(data, voxel_resolution) {
+  data[, .(Z = max(Zref)), by = .(
+    X = lidR:::f_grid(X, voxel_resolution, 0),
+    Y = lidR:::f_grid(Y, voxel_resolution, 0)
+  )]
+}
+
+dsm_chunk_raster <- function(chm_raster, maxima, header, crs) {
+  if (is.null(maxima) || nrow(maxima) == 0L) {
+    dsm <- terra::rast(chm_raster)
+    terra::values(dsm) <- NA_real_
+    return(dsm)
+  }
+  compact <- LAS(maxima, header = header, crs = crs, check = FALSE)
+  rasterize_canopy(compact, res = chm_raster, algorithm = p2r())
+}
+
+# The DSM chunk sits beside the CHM chunk lidR writes from the returned raster.
+dsm_chunk_path <- function(chm_chunk_path) {
+  file.path(dirname(chm_chunk_path), sub("^chm_", "dsm_", basename(chm_chunk_path)))
+}
+
+write_dsm_chunk <- function(chunk, chm_raster, maxima = NULL, header = NULL) {
+  if (is.null(chm_raster)) return(invisible(NULL))
+  dsm <- dsm_chunk_raster(chm_raster, maxima, header, sf::st_crs(chunk))
+  terra::writeRaster(dsm, dsm_chunk_path(paste0(chunk@save, ".tif")), overwrite = TRUE)
+  invisible(NULL)
+}
+
 # Process one CHM chunk after restoring the source record sequence when COPC is
 # active.  This retains Julia parity for order-dependent voxel/canopy ties.
+# With `dsm = TRUE` the same points also give the chunk's DSM, written beside it.
 chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
                       chm_resolution, point_order_dimension = NULL,
                       observation_directory = NULL,
                       target_chunk_points = 0, denoising = NULL,
-                      boundary_read_adjustment = NULL) {
+                      boundary_read_adjustment = NULL, dsm = FALSE) {
   configure_catalog_worker()
+  finish <- function(chm_raster, maxima = NULL, header = NULL) {
+    if (isTRUE(dsm)) write_dsm_chunk(chunk, chm_raster, maxima, header)
+    chm_raster
+  }
   las <- readLAS(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
   observation_path <- record_chunk_observation(
     observation_directory,
@@ -1884,16 +1924,17 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
     nrow(las@data),
     target_chunk_points
   )
-  if (is.empty(las)) return(empty_chunk_raster(chunk, chm_resolution))
+  if (is.empty(las)) return(finish(empty_chunk_raster(chunk, chm_resolution)))
   # Sort before normalization, filtering, voxelization, or canopy rasterization.
   las <- restore_original_point_order(las, point_order_dimension, "CHM")
   las <- apply_denoising_mask(las, denoising)
-  if (is.empty(las)) return(empty_chunk_raster(chunk, chm_resolution))
+  if (is.empty(las)) return(finish(empty_chunk_raster(chunk, chm_resolution)))
   las <- normalize_height(las, terra::rast(dtm_path))
   las <- filter_poi(las, is.finite(Z) & Z >= 0 & Z <= maximum_height)
-  if (is.empty(las)) return(empty_chunk_raster(chunk, chm_resolution))
+  if (is.empty(las)) return(finish(empty_chunk_raster(chunk, chm_resolution)))
+  dsm_maxima <- if (isTRUE(dsm)) dsm_column_maxima(las@data, voxel_resolution)
   voxels <- voxelize_points(las, res = voxel_resolution)
-  if (is.empty(voxels)) return(empty_chunk_raster(chunk, chm_resolution))
+  if (is.empty(voxels)) return(finish(empty_chunk_raster(chunk, chm_resolution)))
   record_chunk_height(observation_path, voxels@data$Z)
   # Preserve the baseline lidR rasterization semantics.  Passing the numeric
   # resolution lets lidR derive the local extent from the chunk's populated
@@ -1904,11 +1945,12 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
     res = chm_resolution,
     algorithm = p2r()
   )
+  header <- voxels@header
   # A worker needs only the raster after this point. Drop the raw points and
   # voxel table before LAScatalog schedules the next spatial window.
   rm(las, voxels)
   gc(verbose = FALSE)
-  chunk_raster
+  finish(chunk_raster, dsm_maxima, header)
 }
 
 # Reduce only vertical voxel columns: p2r() uses their maximum, so lower voxels
@@ -1963,13 +2005,14 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
                                observation_directory = NULL,
                                target_chunk_points = 0, read_size,
                                source_bounds = NULL, denoising = NULL,
-                               boundary_read_adjustment = NULL) {
+                               boundary_read_adjustment = NULL, dsm = FALSE) {
   # Bound both lidR and data.table scratch allocations inside this worker.
   configure_catalog_worker()
   bounds <- sf::st_bbox(chunk)
   if (bounds$xmax <= bounds$xmin || bounds$ymax <= bounds$ymin) return(NULL)
   children <- adaptive_chm_read_clusters(chunk, read_size, source_bounds)
   maxima <- data.table(X = numeric(), Y = numeric(), Z = numeric())
+  dsm_maxima <- data.table(X = numeric(), Y = numeric(), Z = numeric())
   header <- NULL
   for (child in children) {
     las <- readLAS(adjust_catalog_boundary_read(child, boundary_read_adjustment))
@@ -1982,6 +2025,10 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
     las <- normalize_height(las, terra::rast(dtm_path))
     las <- filter_poi(las, is.finite(Z) & Z >= 0 & Z <= maximum_height)
     if (is.empty(las)) next
+    if (isTRUE(dsm)) {
+      dsm_maxima <- rbindlist(list(dsm_maxima, dsm_column_maxima(las@data, voxel_resolution)))
+      dsm_maxima <- dsm_maxima[, .(Z = max(Z)), by = .(X, Y)]
+    }
     voxels <- voxelize_points(las, res = voxel_resolution)
     if (is.empty(voxels)) next
     record_chunk_height(observation_path, voxels@data$Z)
@@ -1996,9 +2043,15 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
     rm(las, voxels)
     gc(verbose = FALSE)
   }
-  if (nrow(maxima) == 0L) return(empty_chunk_raster(chunk, chm_resolution))
+  if (nrow(maxima) == 0L) {
+    chm_raster <- empty_chunk_raster(chunk, chm_resolution)
+    if (isTRUE(dsm)) write_dsm_chunk(chunk, chm_raster)
+    return(chm_raster)
+  }
   compact <- LAS(maxima, header = header, crs = sf::st_crs(chunk), check = FALSE)
-  rasterize_canopy(compact, res = chm_resolution, algorithm = p2r())
+  chm_raster <- rasterize_canopy(compact, res = chm_resolution, algorithm = p2r())
+  if (isTRUE(dsm)) write_dsm_chunk(chunk, chm_raster, dsm_maxima, header)
+  chm_raster
 }
 
 # Build the disk-backed CHM. Raster chunks retain the configured baseline size;
@@ -2009,7 +2062,7 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
                              point_order_dimension = NULL,
                              target_chunk_points = 0,
                              raster_chunk_size = chunk_size, memory_policy = NULL,
-                             denoising = NULL) {
+                             denoising = NULL, dsm_path = NULL) {
   prepare_raster_work_directory(work_directory, "CHM")
   on.exit(unlink(work_directory, recursive = TRUE, force = TRUE), add = TRUE)
   observation_directory <- file.path(work_directory, "observations")
@@ -2074,6 +2127,7 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
       target_chunk_points = target_chunk_points,
       denoising = denoising,
       boundary_read_adjustment = boundary_read_adjustment,
+      dsm = !is.null(dsm_path),
       .options = list(
         automerge = FALSE,
         drop_null = FALSE,
@@ -2095,7 +2149,96 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
     voxel_resolution = if (is.null(point_order_dimension)) NULL else voxel_resolution
   )
   stream_virtual_raster(covering, output_path, "CHM", source_crs)
+  if (!is.null(dsm_path)) {
+    # The DSM mosaic repeats the CHM's VRT, covering-extent and streaming steps
+    # on the DSM chunks, so both rasters share one grid and nodata policy.
+    dsm_results <- lapply(results, function(path) if (!is.null(path)) dsm_chunk_path(path))
+    dsm_covering <- cover_virtual_raster(
+      build_chunk_virtual_raster(dsm_results, work_directory, "DSM", source_crs),
+      point_cloud,
+      chm_resolution,
+      work_directory,
+      "DSM",
+      voxel_resolution = if (is.null(point_order_dimension)) NULL else voxel_resolution
+    )
+    stream_virtual_raster(dsm_covering, dsm_path, "DSM", source_crs)
+  }
   summarize_chunk_observations(observation_directory)
+}
+
+# Gap-filled CHM -------------------------------------------------------------
+
+# Interior empty CHM cells: cells without any point (nodata in the CHM) whose
+# centre lies inside the analysed footprint and whose 8-connected group of such
+# cells touches neither the grid border nor a cell outside the footprint. Gaps
+# open to the outside therefore stay nodata, as does everything outside.
+interior_empty_cells <- function(chm, footprint) {
+  # The footprint is in the cloud's local XY; give it the raster's CRS label.
+  footprint_vector <- terra::vect(sf::st_set_crs(sf::st_geometry(footprint), NA))
+  terra::crs(footprint_vector) <- terra::crs(chm)
+  inside <- terra::rasterize(footprint_vector, chm, field = 1, background = 0)
+  candidate <- is.na(chm) & inside == 1
+  # A cell beyond the grid edge counts as outside (fillvalue), so border cells
+  # and cells next to the footprint edge are both seeds of the open gaps.
+  near_outside <- terra::focal(inside == 0, w = 3, fun = "max", fillvalue = 1)
+  groups <- terra::patches(terra::ifel(candidate, 1, NA), directions = 8)
+  open_groups <- terra::unique(terra::mask(groups,
+    terra::ifel(candidate & near_outside == 1, 1, NA)))
+  open_groups <- if (is.null(open_groups) || !nrow(open_groups)) numeric() else open_groups[[1]]
+  interior <- if (length(open_groups)) candidate & !(groups %in% open_groups) else candidate
+  terra::ifel(is.na(interior), FALSE, interior)
+}
+
+raster_count <- function(raster) {
+  as.numeric(terra::global(raster, "sum", na.rm = TRUE)[[1]])
+}
+
+# Fill every interior empty cell with the mean of its valid 8 neighbours,
+# repeating with the newly filled cells until none is left. Cells with points
+# keep their CHM value; open gaps and cells outside the footprint stay nodata.
+fill_chm_interior_gaps <- function(chm, footprint) {
+  interior <- interior_empty_cells(chm, footprint)
+  remaining <- raster_count(interior)
+  filled <- chm
+  iterations <- 0L
+  total <- remaining
+  while (remaining > 0) {
+    neighbour_mean <- terra::focal(filled, w = 3, fun = "mean", na.rm = TRUE,
+                                   na.policy = "only")
+    reached <- interior & is.na(filled) & !is.na(neighbour_mean)
+    reached_count <- raster_count(reached)
+    # Every interior group borders cells with points, so this cannot stall.
+    if (reached_count == 0) stop("CHM gap filling stalled with unreachable cells")
+    filled <- terra::ifel(reached, neighbour_mean, filled)
+    remaining <- remaining - reached_count
+    iterations <- iterations + 1L
+  }
+  list(raster = filled, filled_cells = total, iterations = iterations,
+       empty_cells = raster_count(is.na(chm)))
+}
+
+# Publish the filled CHM with the CHM's data type, nodata value, tiling,
+# compression, CRS alignment and COG conversion.
+write_filled_chm <- function(chm_path, footprint, output_path, source_crs = NULL) {
+  chm <- terra::rast(chm_path)
+  result <- fill_chm_interior_gaps(chm, footprint)
+  partial_path <- paste0(output_path, ".partial.tif")
+  unlink(partial_path, force = TRUE)
+  on.exit(unlink(partial_path, force = TRUE), add = TRUE)
+  nodata <- terra::NAflag(chm)
+  # terra writes the layer name as band description; fix it so the bytes do not
+  # depend on the CHM's file name (dataset-ID prefix).
+  names(result$raster) <- "chm_filled"
+  terra::writeRaster(result$raster, partial_path, datatype = terra::datatype(chm),
+    NAflag = if (is.finite(nodata)) nodata else -999999,
+    gdal = c("TILED=YES", "COMPRESS=LZW", "BIGTIFF=IF_SAFER"), overwrite = TRUE)
+  if (!file.rename(partial_path, output_path)) {
+    stop("could not atomically publish the gap-filled CHM GeoTIFF")
+  }
+  align_raster_file_crs(output_path, source_crs, "gap-filled CHM")
+  convert_raster_format(output_path, "gap-filled CHM")
+  result$raster <- NULL
+  result
 }
 
 # Memory-bounded global segment aggregation --------------------------------
@@ -3505,6 +3648,8 @@ run_analysis <- function(parameters) {
 
   message("FORESTSTRUCTURE_STAGE stage=chm status=started")
   chm_started <- proc.time()[["elapsed"]]
+  # The DSM and gap-filled CHM are products of the production runner only.
+  surface_rasters <- isTRUE(parameter_or(parameters, "surface_rasters", FALSE))
   chm_path <- paths$chm
   chm_observations <- write_global_chm(
     parameters$point_cloud,
@@ -3526,8 +3671,12 @@ run_analysis <- function(parameters) {
     },
     raster_chunk_size = parameters$chunk_size,
     memory_policy = parameters$memory_policy,
-    denoising = parameters$denoising
+    denoising = parameters$denoising,
+    dsm_path = if (surface_rasters) paths$dsm
   )
+  chm_filling <- if (surface_rasters) {
+    write_filled_chm(chm_path, aoi$usable, paths$chm_filled, source_crs)
+  }
   chm_seconds <- elapsed_seconds(chm_started)
   temporary_disk_peak_bytes <- max(
     temporary_disk_peak_bytes,
@@ -3747,6 +3896,7 @@ run_analysis <- function(parameters) {
     )
   }
   message("FORESTSTRUCTURE_STAGE stage=output status=completed")
+  attr(output_paths, "chm_filling") <- chm_filling
   invisible(output_paths)
 }
 

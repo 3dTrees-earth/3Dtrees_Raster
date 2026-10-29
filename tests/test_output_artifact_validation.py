@@ -48,6 +48,8 @@ class OutputArtifactValidationTest(unittest.TestCase):
         shared = [
             "2001_dtm.tif",
             "2001_chm.tif",
+            "2001_dsm.tif",
+            "2001_chm_filled.tif",
             "2001_tiles.png",
             "2001_performance.csv",
             "2001_aoi_conversion.json",

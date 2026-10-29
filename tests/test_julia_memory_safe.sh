@@ -43,7 +43,25 @@ for name in sys.argv[1:]:
     print(gdal.Info("/check/" + name, format="json").get("metadata", {}).get("IMAGE_STRUCTURE", {}).get("LAYOUT", "GTiff"))
 ' "${@:2}"
 }
-test "$(raster_layouts "${test_root}/output" 150_dtm.tif 150_chm.tif | sort -u)" = "COG"
+test "$(raster_layouts "${test_root}/output" 150_dtm.tif 150_chm.tif 150_dsm.tif 150_chm_filled.tif | sort -u)" = "COG"
+# DSM and gap-filled CHM share the CHM grid (also checked before promotion).
+jq -e '.surface_rasters.chm_filled.filled_cells >= 0 and .surface_rasters.chm_filled.empty_cells >= .surface_rasters.chm_filled.filled_cells' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
+docker run --rm --network none --entrypoint python3 --volume "${test_root}/output:/check:ro" "${image_name}" -c '
+from osgeo import gdal
+import numpy as np
+gdal.UseExceptions()
+read = lambda name: gdal.Open("/check/" + name)
+chm, dsm, filled = read("150_chm.tif"), read("150_dsm.tif"), read("150_chm_filled.tif")
+for other in (dsm, filled):
+    assert other.GetGeoTransform() == chm.GetGeoTransform()
+    assert (other.RasterXSize, other.RasterYSize) == (chm.RasterXSize, chm.RasterYSize)
+    assert other.GetRasterBand(1).GetNoDataValue() == chm.GetRasterBand(1).GetNoDataValue()
+    assert other.GetRasterBand(1).DataType == chm.GetRasterBand(1).DataType
+nodata = chm.GetRasterBand(1).GetNoDataValue()
+c, d, f = (r.GetRasterBand(1).ReadAsArray() for r in (chm, dsm, filled))
+assert np.array_equal(c == nodata, d == nodata)
+assert np.array_equal(f[c != nodata], c[c != nodata])
+'
 jq -e '.projections | length == 3' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 jq -e '.adaptive_chunking.enabled == false and .adaptive_chunking.target_points == 50000000' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
 test -z "$(find "${test_root}/work" -mindepth 1 -print -quit)"
@@ -62,7 +80,7 @@ mkdir -p "${sor_output}" "${sor_work}"
 docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${sor_output}:/out" --volume "${sor_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 152 --output-dir /out --temp-dir /work --memory-budget-gib 3 --raster-format GTiff --instance-dimension PredInstance,PredInstance_SAT 2>&1 | tee "${test_root}/sor.log"
 test "$(head -n 1 "${sor_output}/152_noise_points.csv")" = "OriginalPointIndex"
 jq -e '.enabled == true' "${sor_output}/152_denoising.json" >/dev/null
-test "$(raster_layouts "${sor_output}" 152_dtm.tif 152_chm.tif 152_voxel_counts.tif 152_voxel_counts_validity.tif | sort -u)" = "GTiff"
+test "$(raster_layouts "${sor_output}" 152_dtm.tif 152_chm.tif 152_dsm.tif 152_chm_filled.tif 152_voxel_counts.tif 152_voxel_counts_validity.tif | sort -u)" = "GTiff"
 jq -e '.requested_is_copc == false and .copc_projection.original_point_index_added == true' "${sor_output}/152_julia_memory_safe_run.json" >/dev/null
 for dimension in PredInstance PredInstance_SAT; do
   test -s "${sor_output}/tile_metrics/${dimension}_tile_metrics.csv"

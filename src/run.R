@@ -2768,7 +2768,11 @@ empty_segment_diagnostics <- function() {
     pass_thick = logical(),
     pass_zlayer = logical(),
     is_tree = logical(),
-    apex_in_tile = logical()
+    apex_in_tile = logical(),
+    apex_x = numeric(),
+    apex_y = numeric(),
+    crown_area_m2 = numeric(),
+    voxel_volume_m3 = numeric()
   )
 }
 
@@ -2804,7 +2808,11 @@ write_segment_diagnostics <- function(segments, point_cloud, path,
       pass_thick = pass_thickness,
       pass_zlayer = pass_occupied_layers,
       is_tree,
-      apex_in_tile = !is.na(tile_id)
+      apex_in_tile = !is.na(tile_id),
+      apex_x = round(apex_x, 4),
+      apex_y = round(apex_y, 4),
+      crown_area_m2 = round(crown_area, 4),
+      voxel_volume_m3 = round(voxel_volume, 4)
     )]
   }
   write_upstream_csv(diagnostics, path)

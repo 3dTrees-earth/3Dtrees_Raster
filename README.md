@@ -128,7 +128,7 @@ folders:
 | File | Contents |
 | --- | --- |
 | `tile_metrics/<dimension>_tile_metrics.csv` | One row of [tile metrics](#tile-metrics) per tile |
-| `segment_diagnostics/<dimension>_segment_diagnostics.csv` | One row per segment with the tree-acceptance checks |
+| `segment_diagnostics/<dimension>_segment_diagnostics.csv` | One row per segment with the tree-acceptance checks, the apex position (`apex_x`, `apex_y`, source CRS) and the segment's crown area (`crown_area_m2`, occupied voxel columns × voxel area) and voxel volume (`voxel_volume_m3`, occupied voxels × voxel volume), the per-segment values the tile `tree_*` aggregates are computed from |
 | `tiles/<dimension>_tiles.geojson` | The tile metrics as polygons |
 
 Shared by all dimensions, each starting with the prefix `foreststructure`:

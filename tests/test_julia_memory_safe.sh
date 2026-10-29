@@ -77,7 +77,7 @@ jq -e '.memory_budget_gib == 3.4' "${test_root}/output/150_julia_memory_safe_run
 sor_output="${test_root}/sor_output"
 sor_work="${test_root}/sor_work"
 mkdir -p "${sor_output}" "${sor_work}"
-docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${sor_output}:/out" --volume "${sor_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 152 --output-dir /out --temp-dir /work --memory-budget-gib 3 --raster-format GTiff --instance-dimension PredInstance,PredInstance_SAT 2>&1 | tee "${test_root}/sor.log"
+docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${sor_output}:/out" --volume "${sor_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 152 --output-dir /out --temp-dir /work --memory-budget-gib 3 --raster-format GTiff --denoise sor --instance-dimension PredInstance,PredInstance_SAT 2>&1 | tee "${test_root}/sor.log"
 test "$(head -n 1 "${sor_output}/152_noise_points.csv")" = "OriginalPointIndex"
 jq -e '.enabled == true' "${sor_output}/152_denoising.json" >/dev/null
 test "$(raster_layouts "${sor_output}" 152_dtm.tif 152_chm.tif 152_dsm.tif 152_chm_filled.tif 152_voxel_counts.tif 152_voxel_counts_validity.tif | sort -u)" = "GTiff"

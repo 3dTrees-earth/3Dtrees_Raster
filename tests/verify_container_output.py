@@ -24,6 +24,7 @@ DIAGNOSTIC_COLUMNS = [
     "file", "sensor", "country", "tile_id", "PredInstance", "n_vox",
     "apex_z", "pc_ext1", "pc_ext2", "pc_ext3", "n_zlayer", "pass_vox",
     "pass_apex", "pass_thick", "pass_zlayer", "is_tree", "apex_in_tile",
+    "apex_x", "apex_y", "crown_area_m2", "voxel_volume_m3",
 ]
 TREE_COLUMNS = {
     "n_seg_total", "n_trees", "tree_height_max", "tree_height_mean",

@@ -3,7 +3,7 @@ local({
   directory <- tempfile("denoising-test-")
   dir.create(directory)
   on.exit(unlink(directory, recursive = TRUE), add = TRUE)
-  settings <- list(denoise = "sor", denoise_neighbors = 10L, denoise_sigma = 12,
+  settings <- list(denoise = "none", denoise_neighbors = 10L, denoise_sigma = 12,
                    denoise_window_size = 60, denoise_buffer = 20)
   parser <- argparse::ArgumentParser(add_help = FALSE)
   add_denoising_arguments(parser)
@@ -11,7 +11,8 @@ local({
             isTRUE(all.equal(validate_denoising_options(parser$parse_args(character())), settings)))
   rejects <- function(expression) inherits(tryCatch(force(expression), error = identity), "error")
   stopifnot(is.null(prepare_denoising_mask("unused", NULL, list(denoise = "none"), directory, 1L)),
-            rejects(prepare_denoising_mask("unused", NULL, list(), directory, 1L)))
+            is.null(prepare_denoising_mask("unused", NULL, list(), directory, 1L)),
+            rejects(prepare_denoising_mask("unused", NULL, list(denoise = "sor"), directory, 1L)))
   for (field in names(settings)[-1L]) {
     for (value in list(NA_real_, Inf, 0, -1, "bad", numeric())) {
       invalid <- settings
@@ -23,7 +24,8 @@ local({
   invalid$denoise_neighbors <- 1.5
   stopifnot(rejects(validate_denoising_options(invalid)),
     rejects(validate_denoising_options(list(denoise = "ivf"))),
-    rejects(prepare_denoising_mask("unused", NULL, settings, directory, 1L)))
+    rejects(prepare_denoising_mask("unused", NULL, modifyList(settings, list(denoise = "sor")),
+                                   directory, 1L)))
   stopifnot(identical(denoising_core_membership(c(-1, 0, 59.99, 60),
     c(1, 0, 59.99, 1), 0, 0, 60), c(FALSE, TRUE, TRUE, FALSE)))
 
@@ -52,11 +54,12 @@ local({
 
   path <- file.path(directory, "source.las")
   lidR::writeLAS(source, path)
-  # Omitted options must invoke the same conservative classifier as explicit
-  # options; only the two injected extremes may be removed from this fixture.
-  first <- prepare_denoising_mask(path, "OriginalPointIndex", list(),
+  # SOR with omitted options must invoke the same conservative classifier as
+  # explicit options; only the two injected extremes may be removed here.
+  first <- prepare_denoising_mask(path, "OriginalPointIndex", list(denoise = "sor"),
                                   file.path(directory, "one"), 1L)
-  second <- prepare_denoising_mask(path, "OriginalPointIndex", settings,
+  second <- prepare_denoising_mask(path, "OriginalPointIndex",
+                                   modifyList(settings, list(denoise = "sor")),
                                    file.path(directory, "two"), 2L)
   stopifnot(identical(first$summary, second$summary),
             identical(first$partitions, second$partitions),
@@ -102,14 +105,14 @@ local({
                                     "OriginalPointIndex", "source order")
   decimal_path <- file.path(directory, "decimal.las")
   lidR::writeLAS(decimal, decimal_path)
-  decimal_settings <- settings
+  decimal_settings <- modifyList(settings, list(denoise = "sor"))
   decimal_settings$denoise_window_size <- 0.3
   decimal_settings$denoise_buffer <- 0.1
   decimal_mask <- prepare_denoising_mask(decimal_path, "OriginalPointIndex", decimal_settings,
                                          file.path(directory, "decimal-mask"), 1L)
   stopifnot(decimal_mask$summary$point_count == lidR::npoints(decimal),
             sum(decimal_mask$partitions$core_points) == lidR::npoints(decimal))
-  too_many_windows <- settings
+  too_many_windows <- modifyList(settings, list(denoise = "sor"))
   too_many_windows$denoise_window_size <- 0.001
   stopifnot(rejects(prepare_denoising_mask(decimal_path, "OriginalPointIndex", too_many_windows,
                                           file.path(directory, "wide-mask"), 1L)))

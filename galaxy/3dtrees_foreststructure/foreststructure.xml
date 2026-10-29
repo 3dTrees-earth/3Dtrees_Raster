@@ -68,8 +68,8 @@ print(target)
         </param>
         <conditional name="denoising">
             <param argument="--denoise" type="select" label="Point-noise filtering" help="Statistical outlier removal flags isolated points before the terrain model and metrics. Raw voxel counts always include every recorded point.">
-                <option value="sor" selected="true">Statistical outlier removal</option>
-                <option value="none">None</option>
+                <option value="none" selected="true">None</option>
+                <option value="sor">Statistical outlier removal</option>
             </param>
             <when value="sor">
                 <param argument="--denoise-neighbors" type="integer" min="1" value="10" label="Neighbours" help="Nearest neighbours used for each point's mean distance."/>
@@ -108,10 +108,13 @@ print(target)
         <data name="aoi_conversion" format="json" from_work_dir="output/foreststructure_aoi_conversion.json" label="${tool.name} on ${on_string}: Analysis footprint"/>
     </outputs>
     <tests>
-        <!-- Canonical COPC, default point-noise filtering, full extent, all three dimensions. -->
+        <!-- Canonical COPC, point-noise filtering, full extent, all three dimensions. -->
         <test expect_num_outputs="15">
             <param name="point_cloud" value="forest_patch.copc.laz" ftype="laz"/>
             <param name="instance_dimension" value="PredInstance,PredInstance_SAT,PredInstance_FM"/>
+            <conditional name="denoising">
+                <param name="denoise" value="sor"/>
+            </conditional>
             <output_collection name="tile_metrics" type="list" count="3">
                 <element name="PredInstance_SAT" ftype="csv">
                     <assert_contents>
@@ -204,10 +207,13 @@ print(target)
                 </assert_contents>
             </output>
         </test>
-        <!-- Plain LAZ with default point-noise filtering, numbered in file record order. -->
+        <!-- Plain LAZ with point-noise filtering, numbered in file record order. -->
         <test expect_num_outputs="15">
             <param name="point_cloud" value="forest_patch.laz" ftype="laz"/>
             <param name="instance_dimension" value="PredInstance_SAT"/>
+            <conditional name="denoising">
+                <param name="denoise" value="sor"/>
+            </conditional>
             <output_collection name="tile_metrics" type="list" count="1"/>
             <output_collection name="segment_diagnostics" type="list" count="1"/>
             <output_collection name="tiles" type="list" count="1"/>
@@ -250,8 +256,8 @@ records. No points are subsampled, and the input file is never modified.
   coordinates. Only whole tiles and voxel columns inside it are reported.
 - **Instance dimensions**: the dimensions to process. Select at least one;
   the job fails if a selected dimension is missing from the point cloud.
-- **Point-noise filtering**: statistical outlier removal (SOR) runs by default.
-  It flags points whose mean distance to their nearest neighbours is extreme
+- **Point-noise filtering**: off by default. Statistical outlier removal (SOR)
+  flags points whose mean distance to their nearest neighbours is extreme
   within fixed 60 m windows. The terrain model, canopy model and tile metrics
   use the accepted points. It works on canonical COPC and plain LAS/LAZ; a
   plain file is numbered in its own record order. Select **None** to skip it.

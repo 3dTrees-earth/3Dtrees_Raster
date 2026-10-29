@@ -2,14 +2,14 @@
 # Adaptive analysis windows and worker counts never define the SOR population.
 # Only source ordinals are persisted; original coordinates and classes stay intact.
 denoising_defaults <- function() {
-  list(denoise = "sor", denoise_neighbors = 10L, denoise_sigma = 12,
+  list(denoise = "none", denoise_neighbors = 10L, denoise_sigma = 12,
        denoise_window_size = 60, denoise_buffer = 20)
 }
 
 add_denoising_arguments <- function(parser) {
   defaults <- denoising_defaults()
   parser$add_argument("--denoise", choices = c("none", "sor"), default = defaults$denoise,
-    help = "Conservative local lidR SOR before terrain/metrics (default: sor); raw voxel counts remain unfiltered")
+    help = "Conservative local lidR SOR before terrain/metrics (default: none); raw voxel counts remain unfiltered")
   parser$add_argument("--denoise-neighbors", type = "integer", default = defaults$denoise_neighbors,
     help = sprintf("SOR nearest-neighbor count (default: %s)", defaults$denoise_neighbors))
   parser$add_argument("--denoise-sigma", type = "double", default = defaults$denoise_sigma,

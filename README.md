@@ -47,10 +47,10 @@ docker run --rm --network none \
   `PredInstance_FM` (ForestMamba) or `PredInstance_RCT` (RayCloudTools). Name one or more with
   `--instance-dimension` (repeat the option or separate names with commas);
   a missing dimension fails the run before any analysis.
-- Point-noise filtering (`--denoise sor`, the default) works on a canonical
-  COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex` is
-  numbered in its own record order, which costs one extra read and a scratch
-  copy of XYZ and the instance dimensions. Add `--denoise none` to skip it.
+- Point-noise filtering is off by default. `--denoise sor` turns it on, on a
+  canonical COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex`
+  is numbered in its own record order, which costs one extra read and a scratch
+  copy of XYZ and the instance dimensions.
 - A COPC is recognised from its content (the `copc` info VLR), whatever its file name.
 - Without `--aoi-geojson` the whole point-cloud extent is analysed.
 - Without `--output-dir` and `--temp-dir`, outputs go to the working directory
@@ -91,7 +91,7 @@ window edge. The runner rejects other values before reading any points.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--denoise` | `sor` | `sor` runs statistical outlier removal before the terrain model; `none` disables it |
+| `--denoise` | `none` | `sor` runs statistical outlier removal before the terrain model; `none` (the default) skips it |
 | `--denoise-neighbors` | `10` | Nearest neighbours used for each point's mean distance |
 | `--denoise-sigma` | `12` | Points farther than the window mean plus this many standard deviations are flagged |
 | `--denoise-window-size` | `60` | Width in metres of the fixed windows that define the statistics |
@@ -288,8 +288,9 @@ limits in detail.
 ### Method notes
 
 The production workflow uses a canonical COPC for spatial streaming and source
-record-order preservation. Native lidR denoising is enabled by default, and
-normalized heights have no upper cutoff; these change the historical metric policy. See
+record-order preservation. Native lidR denoising is available (`--denoise sor`,
+off by default), and normalized heights have no upper cutoff; these change the
+historical metric policy. See
 [`COPC_REVIEW_GUIDE.md`](COPC_REVIEW_GUIDE.md) for the design, failure fixes,
 and validation evidence.
 
@@ -409,8 +410,8 @@ together; these source changes do not deploy a server tool. Validate integration
 `make test-production-contract JULIA_MEMORY_SAFE_IMAGE=<validated-runtime-image>`.
 This compares input layouts and AOI/full-extent behavior using identical current
 sources with denoising explicitly disabled, including 15th-field IDs, a late
-order key and mandatory voxel products. `make test-denoising` exercises the default
-SOR path and uncapped metric policy.
+order key and mandatory voxel products. `make test-denoising` exercises the
+default without SOR, the SOR path and the uncapped metric policy.
 
 ### Galaxy allocation from merged COPC size
 
@@ -641,9 +642,9 @@ all duplicates, rather than a reduced or subsampled source.
 
 ### Point-noise classification and uncapped heights
 
-The production runner defaults to `--denoise sor`, using native lidR 4.3.2
-statistical outlier removal before terrain estimation. Use `--denoise none` to
-disable it. Rejected points are named by `OriginalPointIndex`. A canonical COPC
+With `--denoise sor` the production runner applies native lidR 4.3.2
+statistical outlier removal before terrain estimation. It is off by default
+(`--denoise none`), because on large clouds it dominates the runtime. Rejected points are named by `OriginalPointIndex`. A canonical COPC
 carries it; a plain LAS/LAZ that lacks it is first streamed into a compact,
 hash-verified scratch LAZ that numbers the records in file order (0-based),
 so the noise list names each record's position in the input file. Late

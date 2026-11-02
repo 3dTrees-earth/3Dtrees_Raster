@@ -17,12 +17,14 @@ import os
 from pathlib import Path
 import sqlite3
 import shutil
+import subprocess
 import tempfile
 import time
 
 import laspy
 import numpy as np
 from osgeo import gdal, ogr, osr
+import pyproj
 from raster_crs import horizontal_crs_wkt
 
 RESOLUTION = 0.5
@@ -32,6 +34,8 @@ MAX_BANDS = 65535  # TIFF SamplesPerPixel limit; fail explicitly, never truncate
 FIXED_MEMORY_RESERVE = 192 * 1024**2
 MINIMUM_MEMORY = 256 * 1024**2
 FETCH_ROWS = 65536
+POINT_SCALE = 0.001
+UNTWINE = os.environ.get("FORESTSTRUCTURE_UNTWINE", "/opt/untwine/bin/untwine")
 
 
 def sha256_file(path):
@@ -255,7 +259,57 @@ def accumulate(source, connection, grid, mask, dtm, chunk_points):
     return max(1, maximum + 1), counters, occupied, actual_peak
 
 
-def write_counts(connection, paths, grid, bands, mask):
+def voxel_point_header(grid, crs_wkt):
+    """LAS 1.4 header for one point per occupied voxel (format 6, as COPC needs)."""
+    header = laspy.LasHeader(point_format=6, version="1.4")
+    header.add_extra_dims([
+        laspy.ExtraBytesParams(name="point_count", type=np.uint32,
+                               description="source points in the voxel"),
+        laspy.ExtraBytesParams(name="height_above_dtm", type=np.float32,
+                               description="voxel centre above the DTM (m)"),
+    ])
+    header.offsets = np.array([grid["transform"][0],
+                               grid["transform"][3] - grid["height"] * RESOLUTION, 0.0])
+    header.scales = np.array([POINT_SCALE] * 3)
+    header.add_crs(pyproj.CRS.from_wkt(crs_wkt))
+    return header
+
+
+def write_copc(points_path, copc_path, temp_dir):
+    """Index the voxel points as one COPC; untwine keeps the extra dimensions."""
+    partial = Path(f"{copc_path}.partial.copc.laz")
+    partial.unlink(missing_ok=True)
+    environment = dict(os.environ, PROJ_DATA=str(Path(UNTWINE).parents[1] / "share" / "proj"))
+    environment.pop("PROJ_LIB", None)
+    completed = subprocess.run(
+        [UNTWINE, "--files", str(points_path), "--output_dir", str(partial),
+         "--temp_dir", str(temp_dir)],
+        env=environment, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    if completed.returncode != 0 or not partial.is_file():
+        raise ValueError(f"could not write the voxel COPC: {completed.stderr.strip()[-500:]}")
+    os.replace(partial, copc_path)
+
+
+def untwine_version():
+    completed = subprocess.run([UNTWINE, "--version"], stdout=subprocess.PIPE,
+                               stderr=subprocess.STDOUT, text=True)
+    return completed.stdout.strip().split("(")[-1].rstrip(")") if completed.returncode == 0 else "unknown"
+
+
+def check_copc(copc_path, occupied, included):
+    """The COPC holds every occupied voxel once and conserves the point counts."""
+    voxels = total = 0
+    with laspy.open(copc_path) as reader:
+        if reader.header.point_count != occupied:
+            raise ValueError("voxel COPC point count differs from the occupied voxels")
+        for points in reader.chunk_iterator(1_000_000):
+            voxels += len(points)
+            total += int(np.asarray(points["point_count"], dtype=np.int64).sum())
+    if voxels != occupied or total != included:
+        raise ValueError("voxel COPC lost voxels or counts")
+
+
+def write_counts(connection, paths, grid, bands, mask, terrain, points_path, crs_wkt):
     raster = create_raster(paths["raster"], grid, bands, gdal.GDT_UInt32, NODATA)
     for k in range(bands):
         band = raster.GetRasterBand(k + 1)
@@ -267,7 +321,8 @@ def write_counts(connection, paths, grid, bands, mask):
     raster.SetMetadata({"metric": "point_count", "voxel_size_m": f"{RESOLUTION:g}",
                         "height_reference": "DTM", "zero": "no recorded eligible points"})
     exported = 0
-    with open(paths["csv"], "w", newline="", encoding="utf-8") as output:
+    with open(paths["csv"], "w", newline="", encoding="utf-8") as output, \
+            laspy.open(points_path, mode="w", header=voxel_point_header(grid, crs_wkt)) as points:
         writer = csv.writer(output)
         writer.writerow(["x_center", "y_center", "height_lower_m", "height_upper_m", "point_count"])
         for block, xoff, yoff, width, height in grid_blocks(grid):
@@ -286,10 +341,26 @@ def write_counts(connection, paths, grid, bands, mask):
                     raise ValueError("occupied voxel outside valid mask")
                 # Same float64 operation order as the former scalar writer, so
                 # csv.writer formats identical Python floats.
-                writer.writerows(zip(
-                    (grid["transform"][0] + (xoff + col + 0.5) * RESOLUTION).tolist(),
-                    (grid["transform"][3] - (yoff + row + 0.5) * RESOLUTION).tolist(),
+                x_center = grid["transform"][0] + (xoff + col + 0.5) * RESOLUTION
+                y_center = grid["transform"][3] - (yoff + row + 0.5) * RESOLUTION
+                writer.writerows(zip(x_center.tolist(), y_center.tolist(),
                     (k * RESOLUTION).tolist(), ((k + 1) * RESOLUTION).tolist(), n.tolist()))
+                # One point per voxel at its band centre above the DTM cell that
+                # contains the voxel column centre.
+                ground = terrain.sample(x_center, y_center)
+                if not np.all(np.isfinite(ground)):
+                    raise ValueError("occupied voxel column without a valid DTM height")
+                record = laspy.ScaleAwarePointRecord.zeros(len(n), header=points.header)
+                height = (k + 0.5) * RESOLUTION
+                record.x, record.y, record.z = x_center, y_center, ground + height
+                record["point_count"] = n.astype(np.uint32)
+                record["height_above_dtm"] = height.astype(np.float32)
+                # Standard fields for viewers that ignore extra bytes (Potree 1.8):
+                # the count in intensity and the 0-based height band in user data,
+                # both capped at their field's maximum.
+                record.intensity = np.minimum(n, np.iinfo(np.uint16).max).astype(np.uint16)
+                record.user_data = np.minimum(k, np.iinfo(np.uint8).max).astype(np.uint8)
+                points.write_points(record)
                 exported += int(n.sum())
                 edges = np.r_[0, np.flatnonzero(np.diff(k)) + 1, len(k)]
                 for first, last in zip(edges[:-1], edges[1:]):
@@ -398,14 +469,26 @@ def export(config):
                 connection.execute("PRAGMA temp_store=FILE")
                 bands, counters, occupied, peak = accumulate(source, connection, grid, mask, terrain, chunk_points)
                 raster_resources = check_raster_budget(grid, bands, budget, mask_bookkeeping)
-                # Admission uses uncompressed tiled size and conservative CSV rows;
+                # Admission uses uncompressed tiled size, conservative CSV rows and
+                # uncompressed voxel points (scratch LAS plus untwine's spill);
                 # compression is data dependent and must not be assumed here.
-                required_disk = block_count * BLOCK * BLOCK * 4 * bands + occupied * 128
+                required_disk = block_count * BLOCK * BLOCK * 4 * bands + occupied * (128 + 3 * 64)
                 if shutil.disk_usage(Path(paths["raster"]).parent).free < required_disk:
                     raise ValueError("disk_budget_exceeded: insufficient free space for voxel products")
-                if write_counts(connection, paths, grid, bands, mask_ds) != counters["included"]:
+                points_path = Path(scratch) / "voxel_points.las"
+                point_crs = source.header.parse_crs()
+                point_crs_wkt = point_crs.to_wkt() if point_crs else grid["crs_wkt"]
+                if write_counts(connection, paths, grid, bands, mask_ds, terrain,
+                                points_path, point_crs_wkt) != counters["included"]:
                     raise ValueError("CSV/raster export lost counts")
-                disk_bytes = sum(p.stat().st_size for p in Path(scratch).iterdir())
+                # Untwine cannot index an empty cloud; without occupied voxels
+                # there is no COPC and the metadata says so.
+                if occupied:
+                    untwine_scratch = Path(scratch) / "untwine"
+                    untwine_scratch.mkdir()
+                    write_copc(points_path, paths["copc"], untwine_scratch)
+                    check_copc(paths["copc"], occupied, counters["included"])
+                disk_bytes = sum(p.stat().st_size for p in Path(scratch).iterdir() if p.is_file())
         mask = mask_ds = None
         convert_raster_format(paths["raster"], "AVERAGE")
         convert_raster_format(paths["mask"], "NEAREST")
@@ -433,7 +516,18 @@ def export(config):
             raster_resource_estimate=raster_resources,
             grid_extent_source="usable AOI; independent of LAS header bounds",
             elapsed_seconds=time.monotonic()-started,
-            artifacts={key: Path(value).name for key, value in paths.items()})
+            voxel_points=None if not occupied else dict(
+                file=Path(paths["copc"]).name, format="COPC 1.0 (LAS 1.4, point format 6)",
+                points="one per occupied voxel; same voxels and counts as the CSV",
+                xy="voxel column centre", z="DTM cell containing the column centre plus the band centre",
+                attributes=dict(point_count="source points in the voxel (uint32)",
+                                height_above_dtm="band centre above the DTM in metres (float32)",
+                                intensity="point_count capped at 65535",
+                                user_data="0-based height band (height_above_dtm / voxel size, floored), capped at 255"),
+                crs="source point-cloud CRS" if point_crs else "horizontal DTM CRS",
+                writer=f"untwine {untwine_version()}"),
+            artifacts={key: Path(value).name for key, value in paths.items()
+                       if key != "copc" or occupied})
         if config.get("dtm_denoising"):
             metadata["dtm"]["denoising"] = config["dtm_denoising"]
             metadata["noise_mask_applied_to_counts"] = False

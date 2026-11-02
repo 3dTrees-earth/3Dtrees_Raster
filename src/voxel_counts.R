@@ -3,13 +3,14 @@
 voxel_count_paths <- function(directory, dataset_id) {
   prefix <- file.path(directory, paste0(dataset_id, "_voxel_counts"))
   list(csv = paste0(prefix, ".csv"), raster = paste0(prefix, ".tif"),
-       metadata = paste0(prefix, ".json"), mask = paste0(prefix, "_validity.tif"))
+       metadata = paste0(prefix, ".json"), mask = paste0(prefix, "_validity.tif"),
+       copc = paste0(prefix, ".copc.laz"))
 }
 
 add_voxel_count_arguments <- function(parser, mandatory = FALSE) {
   parser$add_argument("--export-voxel-counts", action = "store_true", default = mandatory,
                       help = if (mandatory) "Already enabled; accepted for compatibility" else
-                        "Export full-source voxel point counts as CSV and GeoTIFF")
+                        "Export full-source voxel point counts as CSV, GeoTIFF and COPC")
   parser$add_argument("--voxel-count-chunk-points", type = "integer", default = 2000000L,
                       help = "Maximum source records per voxel-count batch (default: 2000000)")
 }
@@ -61,10 +62,13 @@ write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
 
 validate_voxel_count_artifacts <- function(directory, dataset_id, resolution = 0.5) {
   paths <- voxel_count_paths(directory, dataset_id)
+  if (!file.exists(paths$metadata)) stop("voxel-count artifacts missing or empty")
+  metadata <- jsonlite::read_json(paths$metadata, simplifyVector = TRUE)
+  # Without occupied voxels there is no voxel COPC (untwine needs points).
+  if (identical(as.numeric(metadata$occupied_voxels), 0)) paths$copc <- NULL
   if (any(!file.exists(unlist(paths))) || any(file.info(unlist(paths))$size <= 0)) {
     stop("voxel-count artifacts missing or empty")
   }
-  metadata <- jsonlite::read_json(paths$metadata, simplifyVector = TRUE)
   cube <- terra::rast(paths$raster)
   mask <- terra::rast(paths$mask)
   if (!nzchar(terra::crs(cube)) || !nzchar(terra::crs(mask))) {

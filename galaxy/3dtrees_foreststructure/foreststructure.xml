@@ -29,11 +29,9 @@
                 --instance-dimension '$dimension'
             #end for
             --denoise '$denoising.denoise'
-            #if $denoising.denoise == 'sor':
+            #if $denoising.denoise == 'knn':
                 --denoise-neighbors '$denoising.denoise_neighbors'
                 --denoise-sigma '$denoising.denoise_sigma'
-                --denoise-window-size '$denoising.denoise_window_size'
-                --denoise-buffer '$denoising.denoise_buffer'
             #end if
             --output-dir output
             --temp-dir "\${TMPDIR:-\$_GALAXY_JOB_TMP_DIR}"
@@ -67,15 +65,13 @@ print(target)
             <option value="PredInstance_RCT">PredInstance_RCT (RayCloudTools)</option>
         </param>
         <conditional name="denoising">
-            <param argument="--denoise" type="select" label="Point-noise filtering" help="Statistical outlier removal flags isolated points before the terrain model and metrics. Raw voxel counts always include every recorded point.">
+            <param argument="--denoise" type="select" label="Point-noise filtering" help="The kNN distance filter flags points far from their neighbours before the terrain model and metrics. Raw voxel counts always include every recorded point.">
                 <option value="none" selected="true">None</option>
-                <option value="sor">Statistical outlier removal</option>
+                <option value="knn">kNN distance filter</option>
             </param>
-            <when value="sor">
-                <param argument="--denoise-neighbors" type="integer" min="1" value="10" label="Neighbours" help="Nearest neighbours used for each point's mean distance."/>
-                <param argument="--denoise-sigma" type="float" min="0.001" value="12" label="Standard deviations" help="Points farther than the window mean plus this many standard deviations are flagged. The conservative default targets extreme outliers only."/>
-                <param argument="--denoise-window-size" type="float" min="0.001" value="60" label="Window size (m)" help="Width of the fixed windows that define the outlier statistics."/>
-                <param argument="--denoise-buffer" type="float" min="0.001" value="20" label="Window context (m)" help="Context around each window included in its statistics."/>
+            <when value="knn">
+                <param argument="--denoise-neighbors" type="integer" min="2" value="8" label="Neighbours" help="Nearest neighbours for each point's mean distance, counting the point itself as lidR::sor() does."/>
+                <param argument="--denoise-sigma" type="float" min="0.001" value="2" label="Standard deviations" help="Points whose mean distance exceeds the whole cloud's mean plus this many standard deviations are flagged."/>
             </when>
             <when value="none"/>
         </conditional>
@@ -97,11 +93,12 @@ print(target)
         <data name="voxel_counts_raster" format="tiff" from_work_dir="output/foreststructure_voxel_counts.tif" label="${tool.name} on ${on_string}: Voxel count raster"/>
         <data name="voxel_counts_validity" format="tiff" from_work_dir="output/foreststructure_voxel_counts_validity.tif" label="${tool.name} on ${on_string}: Voxel validity raster"/>
         <data name="voxel_counts_metadata" format="json" from_work_dir="output/foreststructure_voxel_counts.json" label="${tool.name} on ${on_string}: Voxel count metadata"/>
+        <data name="voxel_points" format="laz" from_work_dir="output/foreststructure_voxel_counts.copc.laz" label="${tool.name} on ${on_string}: Voxel points (COPC)"/>
         <data name="noise_points" format="csv" from_work_dir="output/foreststructure_noise_points.csv" label="${tool.name} on ${on_string}: Rejected noise points">
-            <filter>denoising['denoise'] == 'sor'</filter>
+            <filter>denoising['denoise'] == 'knn'</filter>
         </data>
         <data name="denoising_report" format="json" from_work_dir="output/foreststructure_denoising.json" label="${tool.name} on ${on_string}: Denoising report">
-            <filter>denoising['denoise'] == 'sor'</filter>
+            <filter>denoising['denoise'] == 'knn'</filter>
         </data>
         <data name="run_provenance" format="json" from_work_dir="output/foreststructure_julia_memory_safe_run.json" label="${tool.name} on ${on_string}: Run provenance"/>
         <data name="performance" format="csv" from_work_dir="output/foreststructure_performance.csv" label="${tool.name} on ${on_string}: Performance"/>
@@ -109,11 +106,11 @@ print(target)
     </outputs>
     <tests>
         <!-- Canonical COPC, point-noise filtering, full extent, all three dimensions. -->
-        <test expect_num_outputs="15">
+        <test expect_num_outputs="16">
             <param name="point_cloud" value="forest_patch.copc.laz" ftype="laz"/>
             <param name="instance_dimension" value="PredInstance,PredInstance_SAT,PredInstance_FM"/>
             <conditional name="denoising">
-                <param name="denoise" value="sor"/>
+                <param name="denoise" value="knn"/>
             </conditional>
             <output_collection name="tile_metrics" type="list" count="3">
                 <element name="PredInstance_SAT" ftype="csv">
@@ -179,7 +176,7 @@ print(target)
             </output>
         </test>
         <!-- Plain LAZ without point-noise filtering, restricted to an AOI and one dimension. -->
-        <test expect_num_outputs="13">
+        <test expect_num_outputs="14">
             <param name="point_cloud" value="forest_patch.laz" ftype="laz"/>
             <param name="aoi" value="forest_patch_aoi.geojson" ftype="geojson"/>
             <param name="instance_dimension" value="PredInstance_SAT"/>
@@ -208,11 +205,11 @@ print(target)
             </output>
         </test>
         <!-- Plain LAZ with point-noise filtering, numbered in file record order. -->
-        <test expect_num_outputs="15">
+        <test expect_num_outputs="16">
             <param name="point_cloud" value="forest_patch.laz" ftype="laz"/>
             <param name="instance_dimension" value="PredInstance_SAT"/>
             <conditional name="denoising">
-                <param name="denoise" value="sor"/>
+                <param name="denoise" value="knn"/>
             </conditional>
             <output_collection name="tile_metrics" type="list" count="1"/>
             <output_collection name="segment_diagnostics" type="list" count="1"/>
@@ -256,10 +253,10 @@ records. No points are subsampled, and the input file is never modified.
   coordinates. Only whole tiles and voxel columns inside it are reported.
 - **Instance dimensions**: the dimensions to process. Select at least one;
   the job fails if a selected dimension is missing from the point cloud.
-- **Point-noise filtering**: off by default. Statistical outlier removal (SOR)
-  flags points whose mean distance to their nearest neighbours is extreme
-  within fixed 60 m windows. The terrain model, canopy model and tile metrics
-  use the accepted points. It works on canonical COPC and plain LAS/LAZ; a
+- **Point-noise filtering**: off by default. The kNN distance filter flags
+  points whose mean distance to their 8 nearest neighbours exceeds the whole
+  cloud's mean plus two standard deviations. The terrain model, canopy model
+  and tile metrics use the accepted points. It works on canonical COPC and plain LAS/LAZ; a
   plain file is numbered in its own record order. Select **None** to skip it.
 
 CPU, memory and scratch space come from the Galaxy job allocation. The tool
@@ -282,11 +279,12 @@ Shared:
 - **DTM** and **CHM** GeoTIFFs and a PNG tile overview.
 - **Voxel point counts**: occupied 0.5 m voxels as CSV, a multiband UInt32
   GeoTIFF (band b holds heights from (b-1)×0.5 m to b×0.5 m above the
-  DTM), a validity raster (0 excluded, 1 valid, 2 invalid DTM) and grid
-  metadata. Counts include every recorded point, also those flagged by SOR.
+  DTM), a validity raster (0 excluded, 1 valid, 2 invalid DTM), a COPC
+  point cloud with one point per occupied voxel (DTM height plus band
+  centre, attribute `point_count`) for 3D viewers, and grid metadata. Counts include every recorded point, also those flagged as noise.
   Zero means no recorded points; read the validity raster before
   interpreting missing CSV rows.
-- **Rejected noise points** (with SOR): one `OriginalPointIndex` per row, and
+- **Rejected noise points** (with the kNN filter): one `OriginalPointIndex` per row, and
   a **Denoising report** with parameters and per-window accounting.
 - **Run provenance**, **Performance** and **Analysis footprint** records.
 

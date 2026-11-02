@@ -42,7 +42,7 @@ def as_list(value: Any) -> list[Any]:
 
 
 def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_counts: bool = False,
-                            denoising: bool = False) -> set[str]:
+                            denoising: bool = False, voxel_points: bool = True) -> set[str]:
     """Return the exact scientific and provenance artifact contract."""
 
     names = {
@@ -61,9 +61,20 @@ def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_c
         names.update(f"{dataset_id}_{kind}.{extension}" for _, kind, extension in COLLECTION_FILES)
     if voxel_counts:
         names.update(f"{dataset_id}_voxel_counts{suffix}" for suffix in (".csv", ".tif", ".json", "_validity.tif"))
+        if voxel_points:
+            names.add(f"{dataset_id}_voxel_counts.copc.laz")
     if denoising:
         names.update((f"{dataset_id}_noise_points.csv", f"{dataset_id}_denoising.json"))
     return names
+
+
+def has_voxel_points(metadata_path: Path) -> bool:
+    """A voxel COPC exists unless the voxel metadata reports no occupied voxels."""
+
+    try:
+        return json.loads(metadata_path.read_text()).get("occupied_voxels") != 0
+    except (OSError, ValueError, AttributeError):
+        return True
 
 
 def allowed_gdal_sidecar_names(dataset_id: int | str) -> set[str]:
@@ -112,7 +123,8 @@ def validate_output_directory(dataset_id: int | str, output: Path) -> dict[str, 
 
     expected = expected_artifact_names(dataset_id, processed,
         provenance.get("voxel_counts", {}).get("enabled", False),
-        provenance.get("denoising", {}).get("enabled", False))
+        provenance.get("denoising", {}).get("enabled", False),
+        has_voxel_points(output / f"{dataset_id}_voxel_counts.json"))
     present = {path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()}
     allowed_sidecars = allowed_gdal_sidecar_names(dataset_id)
     ignored_sidecars = sorted(present & allowed_sidecars)

@@ -1,23 +1,24 @@
-# Conservative local SOR decisions are computed once in fixed scientific windows.
-# Adaptive analysis windows and worker counts never define the SOR population.
-# Only source ordinals are persisted; original coordinates and classes stay intact.
+# kNN distance outlier filter (Julian Frey's proposal): a point is noise when its
+# mean distance to its k nearest neighbours exceeds the mean plus `sigma`
+# standard deviations of that distance over the whole point cloud. knn_denoising.py
+# computes it in one multithreaded pass; the rejected source ordinals are kept
+# per fixed XY window so later reads load only the windows they overlap.
+# Coordinates and classes stay untouched.
 denoising_defaults <- function() {
-  list(denoise = "none", denoise_neighbors = 10L, denoise_sigma = 12,
-       denoise_window_size = 60, denoise_buffer = 20)
+  list(denoise = "none", denoise_neighbors = 8L, denoise_sigma = 2,
+       denoise_window_size = 60)
 }
 
 add_denoising_arguments <- function(parser) {
   defaults <- denoising_defaults()
-  parser$add_argument("--denoise", choices = c("none", "sor"), default = defaults$denoise,
-    help = "Conservative local lidR SOR before terrain/metrics (default: none); raw voxel counts remain unfiltered")
+  parser$add_argument("--denoise", choices = c("none", "knn"), default = defaults$denoise,
+    help = "kNN distance outlier filter before terrain/metrics (default: none); raw voxel counts remain unfiltered")
   parser$add_argument("--denoise-neighbors", type = "integer", default = defaults$denoise_neighbors,
-    help = sprintf("SOR nearest-neighbor count (default: %s)", defaults$denoise_neighbors))
+    help = sprintf("Nearest neighbours per point, counting the point itself as lidR::sor() does (default: %s)", defaults$denoise_neighbors))
   parser$add_argument("--denoise-sigma", type = "double", default = defaults$denoise_sigma,
-    help = sprintf("SOR distance mean plus this many standard deviations (default: %s)", defaults$denoise_sigma))
+    help = sprintf("Reject above the global mean distance plus this many standard deviations (default: %s)", defaults$denoise_sigma))
   parser$add_argument("--denoise-window-size", type = "double", default = defaults$denoise_window_size,
-    help = sprintf("Fixed scientific SOR core width in metres (default: %s)", defaults$denoise_window_size))
-  parser$add_argument("--denoise-buffer", type = "double", default = defaults$denoise_buffer,
-    help = sprintf("Fixed scientific SOR context beyond each core in metres (default: %s)", defaults$denoise_buffer))
+    help = sprintf("Width in metres of the windows the noise list is stored in; does not change results (default: %s)", defaults$denoise_window_size))
 }
 
 validate_denoising_options <- function(arguments) {
@@ -25,7 +26,7 @@ validate_denoising_options <- function(arguments) {
   settings <- lapply(names(defaults), function(name) parameter_or(arguments, name, defaults[[name]]))
   names(settings) <- names(defaults)
   if (length(settings$denoise) != 1L || is.na(settings$denoise) ||
-      !settings$denoise %in% c("none", "sor")) stop("--denoise must be none or sor")
+      !settings$denoise %in% c("none", "knn")) stop("--denoise must be none or knn")
   for (name in names(settings)[-1L]) {
     value <- settings[[name]]
     if (!is.numeric(value) || length(value) != 1L || !is.finite(value) || value <= 0) {
@@ -33,21 +34,10 @@ validate_denoising_options <- function(arguments) {
     }
   }
   if (settings$denoise_neighbors != floor(settings$denoise_neighbors) ||
-      settings$denoise_neighbors >= .Machine$integer.max) {
-    stop("--denoise-neighbors must be a positive supported integer")
+      settings$denoise_neighbors < 2 || settings$denoise_neighbors >= .Machine$integer.max) {
+    stop("--denoise-neighbors must be an integer of at least 2 (it counts the point itself)")
   }
   settings
-}
-
-denoising_partition_name <- function(ix, iy) {
-  paste0("core_", format(ix, scientific = FALSE, trim = TRUE), "_",
-         format(iy, scientific = FALSE, trim = TRUE), ".rds")
-}
-
-denoising_core_membership <- function(x, y, ix, iy, size) {
-  # Use the same global index arithmetic at classification and lookup time,
-  # including when a user chooses a noninteger scientific window width.
-  floor(x / size) == ix & floor(y / size) == iy
 }
 
 denoising_ids <- function(las, dimension) {
@@ -60,113 +50,54 @@ denoising_ids <- function(las, dimension) {
   ids
 }
 
-# Isolate lidR's temporary Classification column from any existing class labels.
-# Calling multiple classify_noise passes directly on source classes would reset
-# existing class-18 labels. This module records only its independent SOR decision.
-denoising_sor_decisions <- function(las, neighbors, sigma) {
-  count <- lidR::npoints(las)
-  if (count <= neighbors) {
-    return(list(rejected = rep(FALSE, count), insufficient_context = TRUE))
-  }
-  classified <- las
-  classified@data <- data.table::copy(las@data)
-  if ("Classification" %in% names(classified@data)) {
-    data.table::set(classified@data, j = "Classification", value = NULL)
-  }
-  classified <- lidR::classify_noise(classified, lidR::sor(k = neighbors, m = sigma))
-  list(rejected = classified@data[["Classification"]] == 18L,
-       insufficient_context = FALSE)
-}
-
-denoising_chunk <- function(chunk, point_order_dimension, settings, directory) {
-  configure_catalog_worker()
-  if (!chunk_has_valid_extent(chunk)) return(NULL)
-  bounds <- as.numeric(chunk@bbox)
-  ix <- round(bounds[[1L]] / settings$denoise_window_size)
-  iy <- round(bounds[[2L]] / settings$denoise_window_size)
-  filename <- denoising_partition_name(ix, iy)
-  result <- list(ix = ix, iy = iy, filename = filename, core_points = 0,
-       context_points = 0, rejected_points = 0, accepted_points = 0,
-       insufficient_context_points = 0)
-  # Read the catalog's exact buffered filter directly. readLAS(LAScluster)
-  # discards an entire read when its floating bbox test sees only buffer points;
-  # that test can disagree with global index ownership at decimal boundaries.
-  las <- lidR::readLAS(chunk@files, select = chunk@select, filter = chunk@filter)
-  if (lidR::is.empty(las)) return(result)
-  result$context_points <- lidR::npoints(las)
-  las <- restore_original_point_order(las, point_order_dimension, "denoising")
-  ids <- denoising_ids(las, point_order_dimension)
-  if (any(!is.finite(las@data$X) | !is.finite(las@data$Y) | !is.finite(las@data$Z))) {
-    stop("denoising encountered nonfinite source coordinates")
-  }
-  core <- denoising_core_membership(las@data$X, las@data$Y, ix, iy,
-                                   settings$denoise_window_size)
-  if (!any(core)) return(result)
-  decisions <- denoising_sor_decisions(las, settings$denoise_neighbors, settings$denoise_sigma)
-  rejected <- ids[core & decisions$rejected]
-  if (length(rejected)) saveRDS(rejected, file.path(directory, filename), compress = FALSE)
-  list(ix = ix, iy = iy, filename = filename, core_points = sum(core),
-       context_points = lidR::npoints(las), rejected_points = length(rejected),
-       accepted_points = sum(core) - length(rejected),
-       insufficient_context_points = if (decisions$insufficient_context) sum(core) else 0)
-}
-
 prepare_denoising_mask <- function(point_cloud, point_order_dimension, options,
                                    work_directory, workers, memory_policy = NULL) {
   settings <- validate_denoising_options(options)
   if (settings$denoise == "none") return(NULL)
   if (is.null(point_order_dimension) || length(point_order_dimension) != 1L ||
       !nzchar(point_order_dimension)) stop("denoising requires OriginalPointIndex")
-  if (utils::packageVersion("lidR") != "4.3.2") {
-    stop("denoising requires the validated lidR 4.3.2 runtime")
-  }
   input_points <- point_count_from_las_header(point_cloud)
   assert_lidr_point_count_supported(input_points)
   message("FORESTSTRUCTURE_STAGE stage=denoise status=started")
   if (dir.exists(work_directory)) stop("denoising work directory must be new")
   dir.create(work_directory, recursive = TRUE)
   if (!dir.exists(work_directory)) stop("cannot create denoising work directory")
-  catalog <- lidR::readLAScatalog(point_cloud)
   bounds <- point_cloud_xyz_bounds(point_cloud)[c("xmin", "ymin", "xmax", "ymax")]
   grid_shape <- floor(bounds[3:4] / settings$denoise_window_size) -
     floor(bounds[1:2] / settings$denoise_window_size) + 1
-  # The shared hierarchy-admission helper accepts at most 100,000 windows.
-  # Reject an extreme footprint before lidR allocates its rectangular grid.
   if (any(!is.finite(grid_shape)) || any(grid_shape < 1) || prod(grid_shape) > 100000) {
     stop("denoising fixed scientific grid exceeds the supported 100000-window planning limit")
   }
-  # lidR's catalog index uses strict rectangle overlap and would omit the core
-  # starting exactly at a file's maximum XY. Expand only catalog lookup bounds
-  # by a representable epsilon, so such boundary points get their own half-open
-  # core. Scientific grid coordinates and actual point coordinates do not move.
-  catalog <- catalog_with_source_boundaries(catalog, point_cloud)
-  lidR::opt_chunk_size(catalog) <- settings$denoise_window_size
-  lidR::opt_chunk_buffer(catalog) <- settings$denoise_buffer
-  lidR::opt_chunk_alignment(catalog) <- c(0, 0)
-  lidR::opt_select(catalog) <- catalog_selection_for_dimensions(point_cloud, point_order_dimension, "xyz")
-  lidR::opt_progress(catalog) <- FALSE
-  pieces <- apply_catalog_chunks(catalog, denoising_chunk, workers, "denoise",
-    point_order_dimension = point_order_dimension, settings = settings,
-    directory = work_directory, memory_policy = memory_policy,
-    .options = list(automerge = FALSE, drop_null = FALSE, need_buffer = TRUE))
-  manifest <- data.table::rbindlist(pieces, fill = TRUE)
-  if (!nrow(manifest) || sum(manifest$core_points) != input_points ||
-      anyDuplicated(manifest[, .(ix, iy)])) {
-    stop(sprintf("denoising core ownership does not cover the source exactly once: expected %.0f, observed %.0f",
-                 input_points, sum(manifest$core_points)))
+  budget <- if (is.null(memory_policy)) 8 * 1024^3 else
+    memory_policy$budget_bytes - memory_policy$reserve_bytes - current_rss_bytes()
+  status <- system2("python3", c(shQuote(file.path(script_directory, "knn_denoising.py")),
+    "--input", shQuote(point_cloud), "--order-dimension", shQuote(point_order_dimension),
+    "--neighbors", settings$denoise_neighbors, "--sigma", format(settings$denoise_sigma, digits = 17),
+    "--window-size", format(settings$denoise_window_size, digits = 17),
+    "--threads", workers, "--memory-budget-bytes", format(budget, scientific = FALSE),
+    "--output-dir", shQuote(work_directory)))
+  if (!identical(status, 0L)) stop("kNN denoising failed")
+  result <- jsonlite::read_json(file.path(work_directory, "manifest.json"), simplifyVector = TRUE)
+  manifest <- data.table::as.data.table(result$partitions)
+  if (!nrow(manifest) || result$point_count != input_points ||
+      sum(manifest$core_points) != input_points || anyDuplicated(manifest[, .(ix, iy)])) {
+    stop("denoising core ownership does not cover the source exactly once")
   }
   data.table::setorderv(manifest, c("iy", "ix"))
   rejected_points <- sum(manifest$rejected_points)
   maximum <- max(manifest$rejected_points)
-  summary <- list(schema_version = 1L, enabled = TRUE, algorithm = "lidR::sor",
-    method = "fixed_window_local_sor", point_order_dimension = point_order_dimension,
-    lidR_version = as.character(utils::packageVersion("lidR")),
-    k = settings$denoise_neighbors, m = settings$denoise_sigma,
-    window_size_m = settings$denoise_window_size, buffer_m = settings$denoise_buffer,
+  summary <- list(schema_version = 3L, enabled = TRUE,
+    algorithm = "mean distance to the k nearest neighbours, the point itself counted as in lidR::sor (scipy cKDTree)",
+    method = "global_knn_distance", point_order_dimension = point_order_dimension,
+    k = settings$denoise_neighbors, sigma = settings$denoise_sigma,
+    distance_mean_m = result$distance_mean_m, distance_sd_m = result$distance_sd_m,
+    threshold_m = result$threshold_m,
+    window_size_m = settings$denoise_window_size,
     origin = c(0, 0), boundary_ownership = "half-open: lower inclusive, upper exclusive",
-    statistics_population = "all source points in each fixed buffered scientific window",
+    statistics_population = "all source points (whole point cloud)",
+    neighbour_population = "all source points (whole point cloud)",
     existing_classification_policy = "preserved; not used as a rejection criterion",
-    insufficient_context_policy = "retain points when buffered population is no larger than k",
+    insufficient_context_policy = "retain all points when the cloud holds no more than k points",
     point_count = input_points, rejected_points = rejected_points,
     retained_points = input_points - rejected_points,
     insufficient_context_points = sum(manifest$insufficient_context_points),
@@ -186,7 +117,8 @@ prepare_denoising_mask <- function(point_cloud, point_order_dimension, options,
 }
 
 read_denoising_partition <- function(mask, row) {
-  ids <- readRDS(file.path(mask$directory, row$filename))
+  path <- file.path(mask$directory, row$filename)
+  ids <- readBin(path, "double", n = file.size(path) / 8, size = 8, endian = "little")
   if (!is.numeric(ids) || length(ids) != row$rejected_points ||
       any(!is.finite(ids) | ids < 0 | ids != floor(ids) | ids > 2^53) ||
       is.unsorted(ids, strictly = TRUE)) stop("invalid denoising mask partition")

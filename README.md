@@ -5,7 +5,8 @@ products of forest structure:
 
 - a digital terrain model (DTM), a canopy height model (CHM), a digital
   surface model (DSM) and a gap-filled CHM,
-- full-resolution voxel point counts as a multiband GeoTIFF and a CSV,
+- full-resolution voxel point counts as a multiband GeoTIFF, a CSV and a COPC
+  point cloud with one point per occupied voxel,
 - fixed-size tile metrics (vegetation density, height distribution, vertical
   complexity, canopy roughness, gaps and tree statistics) for each tree
   instance dimension,
@@ -47,7 +48,7 @@ docker run --rm --network none \
   `PredInstance_FM` (ForestMamba) or `PredInstance_RCT` (RayCloudTools). Name one or more with
   `--instance-dimension` (repeat the option or separate names with commas);
   a missing dimension fails the run before any analysis.
-- Point-noise filtering is off by default. `--denoise sor` turns it on, on a
+- Point-noise filtering is off by default. `--denoise knn` turns it on, on a
   canonical COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex`
   is numbered in its own record order, which costs one extra read and a scratch
   copy of XYZ and the instance dimensions.
@@ -91,11 +92,10 @@ window edge. The runner rejects other values before reading any points.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--denoise` | `none` | `sor` runs statistical outlier removal before the terrain model; `none` (the default) skips it |
-| `--denoise-neighbors` | `10` | Nearest neighbours used for each point's mean distance |
-| `--denoise-sigma` | `12` | Points farther than the window mean plus this many standard deviations are flagged |
-| `--denoise-window-size` | `60` | Width in metres of the fixed windows that define the statistics |
-| `--denoise-buffer` | `20` | Context in metres around each window included in its statistics |
+| `--denoise` | `none` | `knn` runs the kNN distance filter before the terrain model; `none` (the default) skips it |
+| `--denoise-neighbors` | `8` | Nearest neighbours for each point's mean distance, counting the point itself as `lidR::sor()` does |
+| `--denoise-sigma` | `2` | Points farther than the whole cloud's mean distance plus this many standard deviations are flagged |
+| `--denoise-window-size` | `60` | Width in metres of the windows the noise list is stored in; does not change results |
 
 See [Point-noise classification and uncapped heights](#point-noise-classification-and-uncapped-heights)
 for the method and its limits.
@@ -144,9 +144,10 @@ Shared by all dimensions, each starting with the prefix `foreststructure`:
 | `foreststructure_voxel_counts.csv` | Occupied voxels: `x_center,y_center,height_lower_m,height_upper_m,point_count` |
 | `foreststructure_voxel_counts.tif` | UInt32 point counts; with voxel size *s*, band *b* holds heights `[(b-1)·s, b·s)` m above the DTM |
 | `foreststructure_voxel_counts_validity.tif` | 0 excluded (outside the AOI or on its boundary), 1 valid, 2 invalid DTM |
+| `foreststructure_voxel_counts.copc.laz` | [Voxel points](#voxel-points-copc): one COPC point per occupied voxel at DTM height plus the band centre, with `point_count` and `height_above_dtm` |
 | `foreststructure_voxel_counts.json` | Grid, CRS, source and DTM hashes, policies and point accounting |
-| `foreststructure_noise_points.csv` | With SOR only: one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
-| `foreststructure_denoising.json` | With SOR only: parameters and per-window point accounting |
+| `foreststructure_noise_points.csv` | With `--denoise knn` only: one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
+| `foreststructure_denoising.json` | With `--denoise knn` only: parameters and per-window point accounting |
 | `foreststructure_julia_memory_safe_run.json` | Run provenance: inputs, parameters, versions, resources |
 | `foreststructure_performance.csv` | Stage timings and memory observations |
 | `foreststructure_aoi_conversion.json` | The analysed footprint and its AOI conversion checks |
@@ -162,7 +163,7 @@ Both share the CHM's grid: resolution (`--chm-resolution`), extent, Float32
 data type, nodata value (-999999), tiling, compression and COG layout.
 
 `foreststructure_dsm.tif` is computed natively in the CHM pass, from the same
-points: denoised when SOR is on, with a finite height of at least 0 m above the
+points: denoised when the kNN filter is on, with a finite height of at least 0 m above the
 DTM. Each cell holds the highest **absolute** point Z (the input's vertical
 datum, not normalized) among those points. Points are assigned to cells through
 the centre of their `--voxel-resolution` voxel column, exactly as the CHM
@@ -246,7 +247,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
-| 1.0.0 | First release: tile metrics, DTM, CHM, voxel counts, point-noise filtering and adjustable scientific parameters |
+| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM, DSM and gap-filled CHM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. Replaces the image first tagged 1.0.0 on 21 Oct 2026 (still available as `sha-3b68a08`) |
 
 ## Build from source
 
@@ -288,7 +289,7 @@ limits in detail.
 ### Method notes
 
 The production workflow uses a canonical COPC for spatial streaming and source
-record-order preservation. Native lidR denoising is available (`--denoise sor`,
+record-order preservation. The kNN distance filter is available (`--denoise knn`,
 off by default), and normalized heights have no upper cutoff; these change the
 historical metric policy. See
 [`COPC_REVIEW_GUIDE.md`](COPC_REVIEW_GUIDE.md) for the design, failure fixes,
@@ -360,7 +361,7 @@ SmartTile supplies global IDs. A plain LAS/LAZ also runs, with point-noise
 filtering disabled.
 An AOI restricts the analysis domain. Without it, the runner reuses the existing
 coordinate-lattice-snapped full-extent footprint. Neither mode subsamples points.
-The existing DTM algorithm runs on SOR-accepted points. CHM, segment and tile
+The existing DTM algorithm runs on the filter's accepted points. CHM, segment and tile
 metrics use the same accepted-point mask and retain finite heights above 70 m.
 
 Raster georeferencing uses the horizontal two-dimensional CRS, embedded in each
@@ -411,7 +412,7 @@ together; these source changes do not deploy a server tool. Validate integration
 This compares input layouts and AOI/full-extent behavior using identical current
 sources with denoising explicitly disabled, including 15th-field IDs, a late
 order key and mandatory voxel products. `make test-denoising` exercises the
-default without SOR, the SOR path and the uncapped metric policy.
+default without filtering, the kNN filter and the uncapped metric policy.
 
 ### Galaxy allocation from merged COPC size
 
@@ -642,62 +643,47 @@ all duplicates, rather than a reduced or subsampled source.
 
 ### Point-noise classification and uncapped heights
 
-With `--denoise sor` the production runner applies native lidR 4.3.2
-statistical outlier removal before terrain estimation. It is off by default
-(`--denoise none`), because on large clouds it dominates the runtime. Rejected points are named by `OriginalPointIndex`. A canonical COPC
-carries it; a plain LAS/LAZ that lacks it is first streamed into a compact,
-hash-verified scratch LAZ that numbers the records in file order (0-based),
-so the noise list names each record's position in the input file. Late
-ExtraByte positions use the existing projection path.
-Input coordinates, classifications and instance IDs are unchanged.
-
-SOR measures each point's mean distance to its nearest neighbours and rejects
-unusually large distances relative to the local window's mean and standard
-deviation. It does not impose an absolute height ceiling or trim a height
-percentile. Parameters are scientific choices and are recorded in provenance:
+With `--denoise knn` the production runner removes noise points before terrain
+estimation with the filter Julian Frey proposed: each point's mean distance to
+its k = 8 nearest neighbours, and rejection when that distance exceeds the mean
+plus two standard deviations of all points' distances. As in `lidR::sor()`, k
+counts the point itself, so k = 8 averages the distances to 7 other points; the
+decisions equal lidR's `sor(k = 8, m = 2)` on the whole point cloud. The filter is off by default (`--denoise none`). Rejected points are
+named by `OriginalPointIndex`. A canonical COPC carries it; a plain LAS/LAZ that
+lacks it is first streamed into a compact, hash-verified scratch LAZ that
+numbers the records in file order (0-based), so the noise list names each
+record's position in the input file. Input coordinates, classifications and
+instance IDs are unchanged.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--denoise-neighbors` | `10` | Neighbours used for the point-distance statistic |
-| `--denoise-sigma` | `12` | Standard deviations above the window mean |
-| `--denoise-window-size` | `60` | Fixed scientific core width in metres |
-| `--denoise-buffer` | `20` | Context around each core in metres |
+| `--denoise-neighbors` | `8` | Neighbours for each point's mean distance, the point itself included |
+| `--denoise-sigma` | `2` | Standard deviations above the whole cloud's mean distance |
+| `--denoise-window-size` | `60` | Width in metres of the windows the noise list is stored in |
 
-Scientific windows are anchored at `(0,0)` and assign each point to one half-open
-core. Their buffered populations define the SOR statistics independently of the
-adaptive execution windows and catalog worker count. Sparse windows with no more
-points than the neighbour count are retained and reported. A dense window that
-cannot fit the memory admission budget fails; it is not silently split into a
-different statistical population. The finite context is part of the method:
-this is local buffered SOR, not whole-cloud nearest-neighbour classification.
-
-The runner computes the mask once and reuses it for DTM, CHM, segment and tile
-metrics. It publishes `<dataset>_noise_points.csv`, with one rejected
-`OriginalPointIndex` per row, and `<dataset>_denoising.json`, with parameters,
-ownership rules and per-window point accounting. Existing LAS class labels are
-preserved but are not additional rejection criteria. No filtered point cloud is
-written, and the source file is never modified.
+`knn_denoising.py` reads all points once, builds one KD-tree (scipy `cKDTree`)
+and queries it with all job threads. On dataset 576 (ULS, 53 M points, COPC, 10
+threads) the stage takes 81 s instead of 16 min with windowed lidR, with the same
+2,114,341 rejected points and byte-identical products. It needs about 96 bytes per point and fails with
+`memory_budget_exceeded` when the cloud does not fit the job's memory. The
+rejected ordinals are stored per fixed window anchored at `(0,0)`, so later reads
+load only the windows they overlap. The mask is computed once and reused for DTM, CHM,
+segment and tile metrics. The run publishes `<dataset>_noise_points.csv`, one
+rejected `OriginalPointIndex` per row, and `<dataset>_denoising.json`, with the
+parameters, the distance mean, standard deviation and threshold, and per-window
+point accounting. Existing LAS class labels are preserved and are not rejection
+criteria. No filtered point cloud is written; the source is never modified.
 
 The mandatory voxel-count products still count **all original eligible records**,
-including points flagged by SOR, using the DTM estimated from accepted points.
-Consequently these are raw recorded-point counts normalized against a denoised
-terrain model; they are not counts of accepted points. Negative-height and
-invalid-terrain exclusions remain documented separately. A high rejected point
-can still increase the voxel GeoTIFF's band count or trigger its explicit
-capacity limit.
+including points flagged as noise, using the DTM estimated from accepted points.
+They are raw recorded-point counts normalized against a denoised terrain model,
+not counts of accepted points. A high rejected point can still increase the
+voxel GeoTIFF's band count or trigger its explicit capacity limit.
 
-The conservative 12-sigma default targets extreme spatial outliers. It needs
-acquisition-specific validation: sparse genuine crowns may be flagged, and
-coherent noise clusters may survive. It is not a universal forest-noise rule.
-A synthetic sensitivity check at sigma 6/8/10/12/15 rejected 36/4/2/2/2 points
-from the earlier 56,057-point fixture. Sigma 12 retained every ordinary return;
-sigma 15 missed a high outlier in the separate 568-point fixture. These checks
-justify the chosen starting value, not an accuracy claim for real surveys.
-For comparison, lidR's own `sor()` default is k = 10, m = 3, and the PCL tutorial
-uses k = 50 with one standard deviation. These are much stricter: in close-range
-(TLS, MLS, ULS) scans point spacing grows with distance from the scanner, so they
-can flag real upper-crown and stand-edge points. Pass `--denoise-sigma 3` to use
-lidR's stricter threshold.
+A rule relative to the cloud's own spread always flags its sparsest few per
+cent, including some real sparse crown, stem and far-range ground points; on
+two noisy test clouds it removed 1.4 % and 4.4 % of the points. Validate it per
+acquisition before relying on filtered metrics.
 
 CHM, segment and tile processing retain all accepted points with finite,
 nonnegative normalized heights, including heights above 70 m. The vegetation
@@ -720,18 +706,9 @@ account for the recorded height domain.
 
 Use `make test-denoising` for the default CLI, an explicit unfiltered control,
 isolated high/low outliers, an 80–90 m supported crown, high-ordinal IDs, raw-count
-semantics, the shared height domain and worker/adaptive-window invariance.
-The [current synthetic acceptance](benchmarks/results/2026-10-14-denoising-height-policy.json)
-retains all 1,331 supported crown points, flags only the two injected extremes
-out of 56,057 records, and matches all 14 scientific artifacts exactly across
-one/two workers and 60/23 m adaptive read windows. The shared height domain is
-86 m after SOR and 250 m in the explicit unfiltered control. The rejected high
-point is still present in the raw voxel export.
-The [earlier synthetic acceptance](benchmarks/results/2026-10-13-denoising.json)
-records the superseded opt-in sigma-6 policy and its 34 additional ordinary
-observations flagged. Earlier real-data performance and parity benchmarks also
-predate the current denoising and height-policy changes; there is no
-production-scale denoising benchmark or acquisition-specific accuracy claim.
+semantics, the shared height domain and worker/adaptive-window invariance. The
+[earlier synthetic acceptance](benchmarks/results/2026-10-14-denoising-height-policy.json)
+records the superseded windowed SOR policy.
 Historical Julia-oracle scripts require a pinned runtime and any source override
 from their recorded scientific policy. Set `FORESTSTRUCTURE_SKIP_BUILD=1` where
 the replay script supports building; do not rebuild that runtime from current
@@ -829,7 +806,7 @@ provenance. Every record is read, including repeated coordinates; no point
 sampling or COPC level-of-detail restriction is applied. The original companion
 argument is still provenance evidence, not an alternative scientific input.
 
-The four voxel files are listed under [Outputs](#outputs). Below, *s* is the
+The five voxel files are listed under [Outputs](#outputs). Below, *s* is the
 voxel-count size `--voxel-count-resolution` (0.5 m by default); it applies to
 both the XY cells and the height bands, and is recorded as `voxel_size_m` in the
 metadata JSON.
@@ -891,6 +868,33 @@ over `[0,5)` m, exactly matching the sum of CSV rows at that centre with
 and validity 1; row 0, column 0 has NoData and validity 0. Always read the
 validity mask before interpreting absent CSV rows or aggregating raster bands.
 Use UInt64 or a wider accumulator for sums across many cells/bands.
+
+#### Voxel points (COPC)
+
+`foreststructure_voxel_counts.copc.laz` holds the same occupied voxels and
+counts as the CSV, one point per voxel, as a [COPC](https://copc.io/) point
+cloud. COPC is an octree inside an ordinary LAZ 1.4 file, so viewers such as
+Potree stream it level by level, and QGIS, PDAL and laspy read it directly. It
+suits large datasets, where the CSV is too big to load: dataset 3462 has 8.8
+million occupied voxels, a 283 MB CSV and a 60 MB COPC.
+
+- X and Y are the voxel column centre.
+- Z is the DTM cell that contains the column centre plus the band centre, so
+  the points sit with the source point cloud in its CRS and vertical datum.
+- `point_count` (uint32) is the number of source points in the voxel and
+  `height_above_dtm` (float32, m) the band centre above the DTM.
+- The standard fields repeat them for viewers that ignore extra bytes, such as
+  Potree 1.8: `intensity` holds `point_count` (capped at 65,535) and
+  `user_data` the 0-based height band, `height_above_dtm` divided by the voxel
+  size and floored (capped at 255, i.e. 127.5 m at 0.5 m voxels).
+- Coordinates are stored at 1 mm. The CRS is the source point cloud's, or the
+  horizontal DTM CRS when the source has none.
+
+The run writes the points to a scratch LAS and indexes them with untwine
+(bundled under `/opt/untwine` with its own libraries), then checks that the
+COPC holds every occupied voxel once and conserves the point counts.
+Untwine cannot index an empty cloud, so a run without any occupied voxel writes
+no COPC and records `"voxel_points": null` in the voxel metadata.
 
 #### Scaling and validation
 

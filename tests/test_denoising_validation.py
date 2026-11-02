@@ -21,7 +21,7 @@ class DenoisingValidationTest(unittest.TestCase):
         self.metadata = root / "denoising.json"
         self.csv = root / "noise_points.csv"
         self.count = 2_000_000_000
-        self.summary = dict(enabled=True, method="fixed_window_local_sor",
+        self.summary = dict(enabled=True, method="global_knn_distance",
             point_order_dimension="OriginalPointIndex", coordinate_changes=False,
             raw_voxel_counts_filtered=False, point_count=self.count,
             retained_points=self.count - 2, rejected_points=2,

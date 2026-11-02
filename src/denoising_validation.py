@@ -1,4 +1,4 @@
-"""Bounded validation of local-SOR accounting and rejected source identities."""
+"""Bounded validation of kNN-filter accounting and rejected source identities."""
 
 from __future__ import annotations
 
@@ -25,7 +25,7 @@ def validate(metadata_path: Path, csv_path: Path, point_count: int) -> dict:
     retained = count(metadata.get("retained_points"), "retained_points")
     if (source_count != point_count or rejected + retained != source_count
             or metadata.get("enabled") is not True
-            or metadata.get("method") != "fixed_window_local_sor"
+            or metadata.get("method") != "global_knn_distance"
             or metadata.get("point_order_dimension") != "OriginalPointIndex"
             or metadata.get("coordinate_changes") is not False
             or metadata.get("raw_voxel_counts_filtered") is not False):

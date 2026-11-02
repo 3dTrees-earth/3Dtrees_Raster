@@ -101,7 +101,7 @@ class OutputArtifactValidationTest(unittest.TestCase):
             any("unexpected artifacts" in error for error in report["errors"])
         )
 
-    def test_enabled_voxel_product_requires_all_four_files(self) -> None:
+    def test_enabled_voxel_product_requires_all_five_files(self) -> None:
         validator = load_validator()
         path = self.output / "2001_julia_memory_safe_run.json"
         provenance = json.loads(path.read_text())
@@ -110,6 +110,8 @@ class OutputArtifactValidationTest(unittest.TestCase):
         self.assertEqual(validator.validate_output_directory(2001, self.output)["status"], "invalid")
         for suffix in (".csv", ".tif", ".json", "_validity.tif"):
             (self.output / f"2001_voxel_counts{suffix}").write_bytes(b"non-empty")
+        self.assertEqual(validator.validate_output_directory(2001, self.output)["status"], "invalid")
+        (self.output / "2001_voxel_counts.copc.laz").write_bytes(b"non-empty")
         self.assertEqual(validator.validate_output_directory(2001, self.output)["status"], "valid")
 
     def test_flat_dimension_file_is_rejected(self) -> None:

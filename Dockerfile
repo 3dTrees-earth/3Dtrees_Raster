@@ -1,3 +1,16 @@
+# Untwine writes the voxel COPC. It comes from conda-forge with only the
+# shared libraries it loads, so it never mixes with the system GDAL/PROJ.
+FROM mambaorg/micromamba:1.5.10 AS untwine
+ARG UNTWINE_VERSION=1.5.1
+RUN micromamba create --yes --prefix /tmp/untwine-env --channel conda-forge \
+      "untwine=${UNTWINE_VERSION}" \
+    && mkdir -p /tmp/untwine/bin /tmp/untwine/lib /tmp/untwine/share \
+    && cp /tmp/untwine-env/bin/untwine /tmp/untwine/bin/ \
+    && ldd /tmp/untwine-env/bin/untwine | awk '$3 ~ /^\/tmp\/untwine-env\// {print $3}' \
+      | xargs cp -L -t /tmp/untwine/lib \
+    && cp -r /tmp/untwine-env/share/proj /tmp/untwine/share/ \
+    && /tmp/untwine/bin/untwine --version
+
 FROM rocker/geospatial:4.5
 
 # Native BLAS pools otherwise start one thread per host core in every worker.
@@ -40,8 +53,8 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends python3-pip python3-gdal \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m pip install --no-cache-dir --break-system-packages \
-      laspy==2.6.1 lazrs==0.7.0 pyproj==3.7.2 \
-    && python3 -c 'import laspy, lazrs, pyproj; from osgeo import gdal, ogr, osr'
+      laspy==2.6.1 lazrs==0.7.0 pyproj==3.7.2 scipy==1.14.1 \
+    && python3 -c 'import laspy, lazrs, pyproj, scipy; from osgeo import gdal, ogr, osr'
 
 LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_Raster" \
       org.opencontainers.image.title="3Dtrees: Raster" \
@@ -55,6 +68,9 @@ LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_
       earth.3dtrees.algorithm-base.revision="9d1fba9cb14adac51336ee53b4f5f5535395331a" \
       earth.3dtrees.dtm-tin-retry="legacy-floating-point" \
       earth.3dtrees.instance-dimensions="PredInstance,PredInstance_SAT,PredInstance_FM,PredInstance_RCT"
+
+COPY --from=untwine /tmp/untwine /opt/untwine
+RUN /opt/untwine/bin/untwine --version
 
 COPY src /opt/foreststructure
 RUN chmod -R a+rX /opt/foreststructure \

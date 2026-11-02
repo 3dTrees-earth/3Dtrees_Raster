@@ -46,7 +46,7 @@ test-projected-3d-crs:
 
 .PHONY: test-parallel-production
 test-parallel-production:
-	bash tests/test_parallel_production.sh
+	FORESTSTRUCTURE_BASELINE_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" bash tests/test_parallel_production.sh
 
 .PHONY: test-denoising
 test-denoising:
@@ -58,7 +58,7 @@ test-denoising:
 		--entrypoint Rscript --volume "$(CURDIR):/workspace:ro" \
 		--workdir /workspace/src "$(JULIA_MEMORY_SAFE_IMAGE)" \
 		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("run.R"); source("denoising.R"); source("../tests/test_denoising.R"); source("../tests/test_height_policy.R"); source("../tests/test_segment_catalog_boundaries.R")'
-	bash tests/test_denoising.sh
+	FORESTSTRUCTURE_BASELINE_IMAGE="$(JULIA_MEMORY_SAFE_IMAGE)" bash tests/test_denoising.sh
 
 test-original-companion-crs-fallback:
 	docker run --rm --network none \

@@ -4,6 +4,8 @@
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${FORESTSTRUCTURE_SOURCE_DIR:-${repo}/src}"
+# The runtime image needs the bundled untwine (voxel COPC); make passes the
+# freshly built image, the pinned digest predates it.
 baseline="${FORESTSTRUCTURE_BASELINE_IMAGE:-sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e}"
 untwine="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
 baseline="$(docker image inspect --format '{{.Id}}' "${baseline}")"
@@ -85,10 +87,10 @@ run_case() {
     "${case_dir}/output" --report "${case_dir}/artifact_validation.json"
   test -z "$(find "${case_dir}/scratch" -mindepth 1 -print -quit)"
 }
-# The ordinary production invocation must not run SOR without a denoise flag.
+# The ordinary production invocation must not filter without a denoise flag.
 run_case none 1 50000
-run_case sor-w1 1 50000 --denoise sor
-run_case sor-w2 2 5000 --denoise sor
+run_case knn-w1 1 50000 --denoise knn
+run_case knn-w2 2 5000 --denoise knn
 docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
   -v "${root}:/data" "${baseline}" /tests/compare_denoising.py /data
-echo 'Denoising acceptance passed: SOR off by default, uncapped heights, raw counts and execution invariance'
+echo 'Denoising acceptance passed: kNN filter off by default, uncapped heights, raw counts and execution invariance'

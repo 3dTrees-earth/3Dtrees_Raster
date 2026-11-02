@@ -878,7 +878,7 @@ julia_memory_safe_main <- function() {
   # restored original order, and optionally validated the original companion.
   run_provenance <- list(
     status = "candidate",
-    mode = if (is.null(parameters$denoising)) "julia-memory-safe" else "julia-memory-safe-local-sor",
+    mode = if (is.null(parameters$denoising)) "julia-memory-safe" else "julia-memory-safe-knn-denoised",
     denoising = denoise_provenance,
     voxel_counts = list(enabled = arguments$export_voxel_counts,
       metadata = if (arguments$export_voxel_counts) paste0(arguments$dataset_id, "_voxel_counts.json") else NULL),

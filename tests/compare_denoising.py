@@ -64,7 +64,7 @@ def main() -> None:
         order = read_json(root / f"input/order_{dimension}.json")
         assert order["multiset_equal"] and order["original_point_index_unique"], order
         assert order["original_point_index_restores_expected_order"], order
-    outputs = {name: root / name / "output" for name in ("none", "sor-w1", "sor-w2")}
+    outputs = {name: root / name / "output" for name in ("none", "knn-w1", "knn-w2")}
     resources = {}
     height_domains = {}
     observed_height_maxima = {}
@@ -104,7 +104,7 @@ def main() -> None:
     assert not (outputs["none"] / "foreststructure_noise_points.csv").exists()
     assert not (outputs["none"] / "foreststructure_denoising.json").exists()
     masks = []
-    for name in ("sor-w1", "sor-w2"):
+    for name in ("knn-w1", "knn-w2"):
         output = outputs[name]
         rows = csv_rows(output / "foreststructure_noise_points.csv")
         assert rows and set(rows[0]) == {"OriginalPointIndex"}
@@ -113,8 +113,9 @@ def main() -> None:
         assert all(0 <= value < fixture["points"] for value in mask)
         assert fixture["high_outlier"]["original_point_index"] in mask
         assert fixture["low_outlier"]["original_point_index"] in mask
-        assert len(mask) == 2, "Conservative default flagged ordinary synthetic returns"
-        assert not set(mask).intersection(fixture["supported_crown_indices"]), "Supported tall crown was removed"
+        # The global 2-sigma rule always flags the sparsest few per cent, so only
+        # bound the share; the tall crown must survive as a crown (checked below).
+        assert len(mask) <= 0.05 * fixture["points"], "kNN filter flagged more than 5 % of the cloud"
         masks.append(sorted(mask))
         metadata = read_json(output / "foreststructure_denoising.json")
         assert metadata["point_count"] == fixture["points"]
@@ -122,24 +123,21 @@ def main() -> None:
         assert metadata["retained_points"] + len(mask) == fixture["points"]
         assert metadata["raw_voxel_counts_filtered"] is False
         assert metadata["coordinate_changes"] is False
-        assert metadata["k"] == 10 and metadata["m"] == 12
-        assert metadata["window_size_m"] == 60 and metadata["buffer_m"] == 20
+        assert metadata["k"] == 8 and metadata["sigma"] == 2
+        assert math.isclose(metadata["threshold_m"], metadata["distance_mean_m"] + 2 * metadata["distance_sd_m"], rel_tol=1e-12)
+        assert metadata["window_size_m"] == 60
         assert metadata["partition_count"] > 1
         assert metadata["enabled"] is True
-        assert metadata["algorithm"] == "lidR::sor"
-        assert metadata["method"] == "fixed_window_local_sor"
+        assert metadata["method"] == "global_knn_distance"
         assert sum(part["core_points"] for part in metadata["partitions"]) == fixture["points"]
         provenance = read_json(output / "foreststructure_julia_memory_safe_run.json")
         assert provenance["point_order_dimension"] == "OriginalPointIndex"
         assert set(provenance["processed_instance_dimensions"]) == set(fixture["supported_instance_ids"])
-        assert provenance["catalog_workers"] == (1 if name == "sor-w1" else 2)
-        assert provenance["mode"] == "julia-memory-safe-local-sor"
+        assert provenance["catalog_workers"] == (1 if name == "knn-w1" else 2)
+        assert provenance["mode"] == "julia-memory-safe-knn-denoised"
         assert provenance["denoising"]["source_sha256"] == source_hash
-        denoising_plans = [plan for plan in provenance["resource_admission"] if plan["phase"] == "denoise"]
-        assert len(denoising_plans) == 1
-        admitted_workers = max(wave["workers"] for wave in denoising_plans[0]["waves"])
-        assert admitted_workers == provenance["catalog_workers"]
-        resources[name]["maximum_admitted_denoise_workers"] = admitted_workers
+        # One KD-tree pass: the denoise stage schedules no catalog windows.
+        assert not [plan for plan in provenance["resource_admission"] if plan["phase"] == "denoise"]
         voxel = read_json(output / "foreststructure_voxel_counts.json")
         assert voxel["point_accounting"]["read"] == fixture["points"]
         assert voxel["dtm"]["denoising"] == provenance["denoising"]
@@ -171,18 +169,19 @@ def main() -> None:
             assert supported_lower < float(selected_after["apex_z"]) < supported_upper
     assert masks[0] == masks[1], "Worker/adaptive execution changed scientific rejection mask"
     summaries = [read_json(outputs[name] / "foreststructure_denoising.json")
-                 for name in ("sor-w1", "sor-w2")]
+                 for name in ("knn-w1", "knn-w2")]
     for summary in summaries:
         assert summary.pop("elapsed_seconds") >= 0
     assert summaries[0] == summaries[1]
     assert maximum(outputs["none"] / "foreststructure_chm.tif") > extreme_lower
-    worker_count = compare_products(outputs["sor-w1"], outputs["sor-w2"])
+    worker_count = compare_products(outputs["knn-w1"], outputs["knn-w2"])
     report = dict(status="valid", source_sha256=source_hash, input_points=fixture["points"],
         rejected_points=len(masks[0]), supported_crown_points=len(fixture["supported_crown_indices"]),
         injected_outliers_rejected=2, additional_source_points_flagged=len(masks[0]) - 2,
         denoising_parameters={key: summaries[0][key] for key in (
-            "algorithm", "method", "lidR_version", "k", "m", "window_size_m", "buffer_m", "origin")},
-        default_cli_enables_sor=True,
+            "algorithm", "method", "k", "sigma", "threshold_m",
+            "window_size_m", "origin")},
+        default_cli_enables_denoising=False,
         metric_height_policy="observed_voxel_height_v1", metric_height_upper_m=height_domains,
         observed_maximum_voxel_height_m=observed_height_maxima,
         supported_crown_height_interval_m=fixture["expected_supported_height_m"],

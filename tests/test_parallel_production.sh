@@ -5,6 +5,8 @@ set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source_dir="${FORESTSTRUCTURE_SOURCE_DIR:-${repo}/src}"
 source_dir="$(cd "${source_dir}" && pwd)"
+# The runtime image needs the bundled untwine (voxel COPC); make passes the
+# freshly built image, the pinned digest predates it.
 baseline="${FORESTSTRUCTURE_BASELINE_IMAGE:-sha256:3bb86542fda4dfc189a88f6611c8da962b7f524edb4e1a473afe2684d5baf1e4}"
 untwine="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
 # Resolve mutable tags once; record and execute exactly these local image IDs.

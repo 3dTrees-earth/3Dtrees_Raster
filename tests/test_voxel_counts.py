@@ -62,7 +62,8 @@ class VoxelCountsTest(unittest.TestCase):
         out = self.root / name
         out.mkdir()
         paths = dict(csv=str(out / "counts.csv"), raster=str(out / "counts.tif"),
-                     mask=str(out / "validity.tif"), metadata=str(out / "counts.json"))
+                     mask=str(out / "validity.tif"), metadata=str(out / "counts.json"),
+                     copc=str(out / "counts.copc.laz"))
         result = voxel.export(dict(point_cloud=str(self.root / source),
             dtm=str(self.root / "dtm.tif"), aoi=str(self.root / "aoi.gpkg"),
             temp_dir=str(out), paths=paths, chunk_points=chunk, memory_available_gib=memory))
@@ -101,6 +102,24 @@ class VoxelCountsTest(unittest.TestCase):
         self.assertEqual(sum(int(cube.GetRasterBand(k).ReadAsArray()[valid].sum()) for k in range(1, 11)), 5)
         self.assertTrue(np.any(cube.GetRasterBand(1).ReadAsArray()[valid] == 0))
         self.assertFalse(any(Path(paths["csv"]).parent.glob("voxel_counts_*")))
+        # The COPC holds the CSV's voxels at DTM height (0 here) plus band centre.
+        with laspy.open(paths["copc"]) as reader:
+            self.assertTrue(any(vlr.user_id == "copc" for vlr in reader.header.vlrs))
+            self.assertEqual(reader.header.point_format.id, 6)
+            points = reader.read()
+        observed = {(round(float(x), 3), round(float(y), 3), round(float(z), 3)): (int(n), float(h))
+                    for x, y, z, n, h in zip(points.x, points.y, points.z,
+                                             points["point_count"], points["height_above_dtm"])}
+        self.assertEqual(observed, {(1000.25, 2000.25, .25): (4, .25),
+            (1000.25, 2000.25, .75): (1, .75), (1000.75, 2000.75, 5.25): (1, 5.25),
+            (1003.25, 2003.25, 80.25): (1, 80.25)})
+        self.assertEqual(result["voxel_points"]["file"], "counts.copc.laz")
+        bands = {(round(float(x), 3), round(float(y), 3), round(float(z), 3)): (int(i), int(u))
+                 for x, y, z, i, u in zip(points.x, points.y, points.z,
+                                          points.intensity, points.user_data)}
+        self.assertEqual(bands, {(1000.25, 2000.25, .25): (4, 0),
+            (1000.25, 2000.25, .75): (1, 1), (1000.75, 2000.75, 5.25): (1, 10),
+            (1003.25, 2003.25, 80.25): (1, 160)})
 
     def test_batch_size_and_source_order_invariance(self):
         first, rows, paths = self.run_export("small", 1)
@@ -172,6 +191,8 @@ class VoxelCountsTest(unittest.TestCase):
         self.assertEqual(result["point_accounting"]["included"], 0)
         mask = gdal.Open(paths["mask"]).ReadAsArray()
         self.assertTrue(np.all(gdal.Open(paths["raster"]).ReadAsArray()[mask == 1] == 0))
+        self.assertFalse(Path(paths["copc"]).exists())
+        self.assertIsNone(result["voxel_points"])
 
     def test_extreme_height_fails_without_silent_cap(self):
         cloud = laspy.read(self.root / "source.laz")

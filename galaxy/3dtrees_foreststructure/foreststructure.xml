@@ -25,9 +25,11 @@
             #if $aoi:
                 --aoi-geojson aoi.geojson
             #end if
-            #for $dimension in str($instance_dimension).split(','):
-                --instance-dimension '$dimension'
-            #end for
+            #if $instance_dimension:
+                #for $dimension in str($instance_dimension).split(','):
+                    --instance-dimension '$dimension'
+                #end for
+            #end if
             --denoise '$denoising.denoise'
             #if $denoising.denoise == 'knn':
                 --denoise-neighbors '$denoising.denoise_neighbors'
@@ -58,7 +60,7 @@ print(target)
     <inputs>
         <param name="point_cloud" type="data" format="laz,las" label="Segmented point cloud" help="One full-resolution point cloud with at least one tree instance dimension (PredInstance, PredInstance_SAT or PredInstance_FM); coordinates in metres, a CRS (if present) projected in metres."/>
         <param name="aoi" type="data" format="geojson,json" optional="true" label="Area of interest (optional)" help="GeoJSON Polygon or MultiPolygon in the point cloud's XY coordinates. It is not reprojected. Without it, the full point-cloud extent is analysed."/>
-        <param argument="--instance-dimension" type="select" multiple="true" optional="false" label="Instance dimensions" help="Select at least one. Each selected dimension must exist in the point cloud, otherwise the job fails.">
+        <param argument="--instance-dimension" type="select" multiple="true" optional="true" label="Instance dimensions" help="Leave empty to process every one present. Each selected dimension must exist in the point cloud, otherwise the job fails.">
             <option value="PredInstance">PredInstance</option>
             <option value="PredInstance_SAT">PredInstance_SAT (SegmentAnyTree)</option>
             <option value="PredInstance_FM">PredInstance_FM (ForestMamba)</option>

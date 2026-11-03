@@ -10,8 +10,12 @@ fails <- function(expr, text) {
 }
 available <- c("OriginalPointIndex", "PredInstance_SAT")
 stopifnot(identical(production_instance_dimensions(available, "PredInstance_SAT"), "PredInstance_SAT"))
-fails(production_instance_dimensions(available), "is required")
-fails(production_instance_dimensions(available, NULL), "is required")
+stopifnot(identical(production_instance_dimensions(available), "PredInstance_SAT"),
+          identical(production_instance_dimensions(available, NULL), "PredInstance_SAT"),
+          identical(production_instance_dimensions(available, character()), "PredInstance_SAT"),
+          identical(production_instance_dimensions(c("PredInstance_RCT", "X", "PredInstance"), NULL),
+                    c("PredInstance", "PredInstance_RCT")))
+fails(production_instance_dimensions("OriginalPointIndex"), "none of the instance dimensions")
 fails(production_instance_dimensions(available, "PredInstance"), "missing requested")
 fails(production_instance_dimensions(character(), "PredInstance_SAT"), "missing requested")
 fails(production_instance_dimensions(available, "junk"), "unsupported")

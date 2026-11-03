@@ -189,10 +189,9 @@ parse_julia_memory_safe_parameters <- function() {
   parser$add_argument(
     "--instance-dimension",
     action = "append",
-    required = TRUE,
     help = paste(
-      "Required; repeat or comma-separate PredInstance, PredInstance_SAT or",
-      "PredInstance_FM. Every selected dimension must exist in the point cloud"
+      "Repeat or comma-separate PredInstance, PredInstance_SAT, PredInstance_FM or",
+      "PredInstance_RCT; each must exist in the point cloud. Default: every one present"
     )
   )
   arguments <- parser$parse_args()
@@ -214,9 +213,6 @@ parse_julia_memory_safe_parameters <- function() {
   arguments$instance_dimension <- arguments$instance_dimension[
     nzchar(arguments$instance_dimension)
   ]
-  if (!length(arguments$instance_dimension)) {
-    stop("--instance-dimension must name at least one instance dimension")
-  }
   if (!file.exists(arguments$point_cloud) ||
       !grepl("\\.la[sz]$", arguments$point_cloud, ignore.case = TRUE)) {
     stop("--point-cloud must be exactly one existing LAS/LAZ file")
@@ -597,6 +593,7 @@ julia_memory_safe_main <- function() {
   definitions <- extra_byte_definitions(point_cloud)
   source_definitions <- definitions
   available <- vapply(definitions, function(definition) definition$name, character(1))
+  dimension_selection <- if (length(arguments$instance_dimension)) "requested" else "all present"
   dimensions <- production_instance_dimensions(available, arguments$instance_dimension)
   arguments$instance_dimension <- dimensions
   missing <- character()
@@ -931,6 +928,7 @@ julia_memory_safe_main <- function() {
       if (requested_is_copc) "COPC" else "LAS/LAZ",
     copc_projection = copc_projection,
     requested_instance_dimensions = arguments$instance_dimension,
+    instance_dimension_selection = dimension_selection,
     processed_instance_dimensions = dimensions,
     instance_read_groups = instance_read_groups(
       dimensions, staged_point_cloud, dimension_sources,

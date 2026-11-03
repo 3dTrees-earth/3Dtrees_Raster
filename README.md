@@ -47,9 +47,10 @@ docker run --rm --network none \
   projected in metres and every raster, vector and the voxel COPC carry it; a
   point cloud without CRS gives the same products without CRS. It needs at least
   one of the instance dimensions `PredInstance`, `PredInstance_SAT` (SegmentAnyTree),
-  `PredInstance_FM` (ForestMamba) or `PredInstance_RCT` (RayCloudTools). Name one or more with
-  `--instance-dimension` (repeat the option or separate names with commas);
-  a missing dimension fails the run before any analysis.
+  `PredInstance_FM` (ForestMamba) or `PredInstance_RCT` (RayCloudTools). Without
+  `--instance-dimension` every one of them present is processed; with it
+  (repeat the option or separate names with commas) exactly the named ones are,
+  and a missing one fails the run before any analysis.
 - Point-noise filtering is off by default. `--denoise knn` turns it on, on a
   canonical COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex`
   is numbered in its own record order, which costs one extra read and a scratch
@@ -107,7 +108,7 @@ for the method and its limits.
 | Option | Meaning |
 | --- | --- |
 | `--point-cloud` | Input LAS/LAZ or canonical COPC, recognised from its content (required) |
-| `--instance-dimension` | Instance dimensions to process (required) |
+| `--instance-dimension` | Instance dimensions to process (default: every supported one present) |
 | `--aoi-geojson` | Optional area of interest in the point cloud's XY coordinates; not reprojected |
 | `--original-point-cloud` | Optional original LAS/LAZ of a COPC, used only for header and provenance checks |
 | `--output-dir`, `--temp-dir` | Output and scratch directories |
@@ -626,9 +627,10 @@ Supported instance dimensions are:
 - `PredInstance_FM`
 - `PredInstance_RCT`
 
-The production runner requires `--instance-dimension` (repeat it or separate
-names with commas) and never discovers dimensions from the point cloud. The
-selection is strict: any missing or unsupported field fails before analysis. SmartTile owns
+Without `--instance-dimension` the production runner processes every supported
+dimension present in the point cloud, in the order above, and fails when there is
+none. With it (repeat it or separate names with commas) the selection is strict:
+any missing or unsupported field fails before analysis. SmartTile owns
 global instance-ID assignment; this tool never renumbers or fabricates IDs.
 Available dimensions are processed independently so their results cannot mix.
 

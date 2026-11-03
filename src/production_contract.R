@@ -58,10 +58,16 @@ production_resources <- function(memory_budget = NULL, env = Sys.getenv,
 
 # Callers must name the segmentation dimensions to process; nothing is
 # discovered from the point cloud. Every request must be supported and present.
-production_instance_dimensions <- function(available, requested) {
+# Without a request every supported dimension present in the point cloud is
+# processed; a request selects exactly those dimensions and each must exist.
+production_instance_dimensions <- function(available, requested = NULL) {
   supported <- c("PredInstance", "PredInstance_SAT", "PredInstance_FM", "PredInstance_RCT")
-  if (missing(requested) || is.null(requested)) {
-    stop("an --instance-dimension is required")
+  if (is.null(requested) || !length(requested)) {
+    dimensions <- supported[supported %in% available]
+    if (!length(dimensions)) {
+      stop(paste("the point cloud has none of the instance dimensions", paste(supported, collapse = ", ")))
+    }
+    return(dimensions)
   }
   dimensions <- unique(trimws(unlist(strsplit(as.character(requested), ",", fixed = TRUE))))
   if (!length(dimensions) || any(!nzchar(dimensions))) stop("empty instance-dimension request")

@@ -105,6 +105,7 @@ class VoxelCountsTest(unittest.TestCase):
         # The COPC holds the CSV's voxels at DTM height (0 here) plus band centre.
         with laspy.open(paths["copc"]) as reader:
             self.assertTrue(any(vlr.user_id == "copc" for vlr in reader.header.vlrs))
+            self.assertEqual(reader.header.parse_crs().to_epsg(), 32632)
             self.assertEqual(reader.header.point_format.id, 6)
             points = reader.read()
         observed = {(round(float(x), 3), round(float(y), 3), round(float(z), 3)): (int(n), float(h))
@@ -135,11 +136,26 @@ class VoxelCountsTest(unittest.TestCase):
         np.testing.assert_array_equal(gdal.Open(paths["raster"]).ReadAsArray(),
                                       gdal.Open(paths2["raster"]).ReadAsArray())
 
-    def test_unknown_crs_fails(self):
+    def test_missing_crs_gives_products_without_crs(self):
+        _, referenced, _ = self.run_export("referenced")
         dtm = gdal.Open(str(self.root / "dtm.tif"), gdal.GA_Update)
         dtm.SetProjection("")
         dtm = None
-        with self.assertRaisesRegex((ValueError, RuntimeError), "CRS|WKT"):
+        result, rows, paths = self.run_export("unreferenced")
+        self.assertEqual(rows, referenced)
+        self.assertEqual(gdal.Open(paths["raster"]).GetProjection(), "")
+        self.assertEqual(gdal.Open(paths["mask"]).GetProjection(), "")
+        with laspy.open(paths["copc"]) as reader:
+            self.assertIsNone(reader.header.parse_crs())
+        self.assertTrue(result["voxel_points"]["crs"].startswith("none"))
+
+    def test_geographic_crs_fails(self):
+        geographic = osr.SpatialReference()
+        geographic.ImportFromEPSG(4326)
+        dtm = gdal.Open(str(self.root / "dtm.tif"), gdal.GA_Update)
+        dtm.SetProjection(geographic.ExportToWkt())
+        dtm = None
+        with self.assertRaisesRegex(ValueError, "projected CRS in metres"):
             self.run_export()
 
     def projected_3d_dtm(self):

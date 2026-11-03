@@ -71,14 +71,15 @@ validate_voxel_count_artifacts <- function(directory, dataset_id, resolution = 0
   }
   cube <- terra::rast(paths$raster)
   mask <- terra::rast(paths$mask)
-  if (!nzchar(terra::crs(cube)) || !nzchar(terra::crs(mask))) {
+  # A source without CRS gives rasters without CRS; otherwise the CRS must be
+  # inside the GeoTIFFs, never in a sidecar.
+  if (nzchar(metadata$grid$crs_wkt) && (!nzchar(terra::crs(cube)) || !nzchar(terra::crs(mask)))) {
     stop("voxel-count GeoTIFF CRS is missing; it must persist without sidecars")
   }
   if (terra::nlyr(cube) != metadata$band_count ||
       any(abs(terra::res(cube) - resolution) > 1e-9) ||
       any(abs(unlist(metadata$voxel_size_m) - resolution) > 1e-9) ||
       !terra::compareGeom(cube[[1]], mask, stopOnError = FALSE) ||
-      !nzchar(terra::crs(cube)) ||
       metadata$point_accounting$read != metadata$source$point_count ||
       metadata$point_accounting$included < 0 ||
       sum(unlist(metadata$point_accounting)[names(metadata$point_accounting) != "read"]) !=

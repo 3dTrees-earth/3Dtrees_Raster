@@ -56,7 +56,7 @@ print(target)
 ]]></configfile>
     </configfiles>
     <inputs>
-        <param name="point_cloud" type="data" format="laz,las" label="Segmented point cloud" help="One full-resolution point cloud with at least one tree instance dimension (PredInstance, PredInstance_SAT or PredInstance_FM) and a projected metric CRS."/>
+        <param name="point_cloud" type="data" format="laz,las" label="Segmented point cloud" help="One full-resolution point cloud with at least one tree instance dimension (PredInstance, PredInstance_SAT or PredInstance_FM); coordinates in metres, a CRS (if present) projected in metres."/>
         <param name="aoi" type="data" format="geojson,json" optional="true" label="Area of interest (optional)" help="GeoJSON Polygon or MultiPolygon in the point cloud's XY coordinates. It is not reprojected. Without it, the full point-cloud extent is analysed."/>
         <param argument="--instance-dimension" type="select" multiple="true" optional="false" label="Instance dimensions" help="Select at least one. Each selected dimension must exist in the point cloud, otherwise the job fails.">
             <option value="PredInstance">PredInstance</option>
@@ -246,7 +246,8 @@ records. No points are subsampled, and the input file is never modified.
 **Input**
 
 - **Segmented point cloud**: one full-resolution LAS/LAZ or COPC file with a
-  projected metric CRS and at least one supported tree instance dimension:
+  CRS projected in metres, or no CRS (then the products carry none), and at
+  least one supported tree instance dimension:
   `PredInstance`, `PredInstance_SAT` (SegmentAnyTree) or `PredInstance_FM`
   (ForestMamba). The tool recognizes a COPC from its file content.
 - **Area of interest** (optional): a GeoJSON polygon in the point cloud's XY

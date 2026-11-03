@@ -145,7 +145,7 @@ def make_validity_mask(path, grid, geometry, dtm):
     output = create_raster(path, grid, 1, gdal.GDT_Byte)
     output.GetRasterBand(1).SetDescription("0=excluded;1=valid;2=invalid_DTM")
     vector = ogr.GetDriverByName("Memory").CreateDataSource("")
-    srs = osr.SpatialReference(wkt=grid["crs_wkt"])
+    srs = osr.SpatialReference(wkt=grid["crs_wkt"]) if grid["crs_wkt"] else None
     layer = vector.CreateLayer("usable", srs, geom_type=ogr.wkbUnknown)
     feature = ogr.Feature(layer.GetLayerDefn())
     feature.SetGeometry(geometry)
@@ -271,7 +271,8 @@ def voxel_point_header(grid, crs_wkt):
     header.offsets = np.array([grid["transform"][0],
                                grid["transform"][3] - grid["height"] * RESOLUTION, 0.0])
     header.scales = np.array([POINT_SCALE] * 3)
-    header.add_crs(pyproj.CRS.from_wkt(crs_wkt))
+    if crs_wkt:
+        header.add_crs(pyproj.CRS.from_wkt(crs_wkt))
     return header
 
 
@@ -416,9 +417,14 @@ def export(config):
     transform = dtm_ds.GetGeoTransform()
     if transform[2] != 0 or transform[4] != 0 or transform[1] <= 0 or transform[5] >= 0:
         raise ValueError("voxel counts require a north-up DTM")
-    crs = osr.SpatialReference(wkt=dtm_ds.GetProjection())
-    if not crs.IsProjected() or abs(crs.GetLinearUnits() - 1) > 1e-9:
-        raise ValueError("voxel counts require a verified projected CRS in metres")
+    # Like the other products, a source without CRS gives products without CRS
+    # (units taken as metres); a CRS that is present must be projected in metres.
+    dtm_wkt = dtm_ds.GetProjection()
+    crs = osr.SpatialReference(wkt=dtm_wkt) if dtm_wkt else None
+    if crs is not None and crs.IsLocal():
+        crs = None
+    if crs is not None and (not crs.IsProjected() or abs(crs.GetLinearUnits() - 1) > 1e-9):
+        raise ValueError("voxel counts require a projected CRS in metres when the source has a CRS")
     vector = ogr.Open(config["aoi"])
     # Keep the Feature alive while cloning its borrowed geometry reference.
     feature = vector.GetLayer(0).GetNextFeature()
@@ -442,7 +448,7 @@ def export(config):
         grid = dict(width=int(round((xmax-xmin)/RESOLUTION)),
                     height=int(round((ymax-ymin)/RESOLUTION)),
                     transform=[xmin, RESOLUTION, 0, ymax, 0, -RESOLUTION],
-                    crs_wkt=horizontal_crs_wkt(dtm_ds.GetProjection()), lattice_origin=[0, 0, 0])
+                    crs_wkt=horizontal_crs_wkt(dtm_wkt) if crs is not None else "", lattice_origin=[0, 0, 0])
         block_count = ((grid["width"] + BLOCK - 1) // BLOCK) * ((grid["height"] + BLOCK - 1) // BLOCK)
         if block_count > np.iinfo(np.int64).max // (MAX_BANDS * BLOCK * BLOCK):
             raise ValueError("grid exceeds integer voxel-address capacity")
@@ -476,7 +482,7 @@ def export(config):
                 if shutil.disk_usage(Path(paths["raster"]).parent).free < required_disk:
                     raise ValueError("disk_budget_exceeded: insufficient free space for voxel products")
                 points_path = Path(scratch) / "voxel_points.las"
-                point_crs = source.header.parse_crs()
+                point_crs = source.header.parse_crs() if crs is not None else None
                 point_crs_wkt = point_crs.to_wkt() if point_crs else grid["crs_wkt"]
                 if write_counts(connection, paths, grid, bands, mask_ds, terrain,
                                 points_path, point_crs_wkt) != counters["included"]:
@@ -524,7 +530,8 @@ def export(config):
                                 height_above_dtm="band centre above the DTM in metres (float32)",
                                 intensity="point_count capped at 65535",
                                 user_data="0-based height band (height_above_dtm / voxel size, floored), capped at 255"),
-                crs="source point-cloud CRS" if point_crs else "horizontal DTM CRS",
+                crs=("source point-cloud CRS" if point_crs else "horizontal DTM CRS") if grid["crs_wkt"]
+                    else "none: the source has no CRS; coordinates as in the source, units taken as metres",
                 writer=f"untwine {untwine_version()}"),
             artifacts={key: Path(value).name for key, value in paths.items()
                        if key != "copc" or occupied})

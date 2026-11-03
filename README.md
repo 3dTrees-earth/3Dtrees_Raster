@@ -43,8 +43,10 @@ docker run --rm --network none \
   --temp-dir /data/work
 ```
 
-- The point cloud needs a projected metric CRS and at least one of the instance
-  dimensions `PredInstance`, `PredInstance_SAT` (SegmentAnyTree),
+- Coordinates are taken as metres. When the point cloud has a CRS, it must be
+  projected in metres and every raster, vector and the voxel COPC carry it; a
+  point cloud without CRS gives the same products without CRS. It needs at least
+  one of the instance dimensions `PredInstance`, `PredInstance_SAT` (SegmentAnyTree),
   `PredInstance_FM` (ForestMamba) or `PredInstance_RCT` (RayCloudTools). Name one or more with
   `--instance-dimension` (repeat the option or separate names with commas);
   a missing dimension fails the run before any analysis.
@@ -247,7 +249,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
-| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM, DSM and gap-filled CHM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. Replaces the image first tagged 1.0.0 on 21 Oct 2026 (still available as `sha-3b68a08`) |
+| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM, DSM and gap-filled CHM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`) and 2 Nov 2026 (`sha-f3d76a1`) |
 
 ## Build from source
 
@@ -811,7 +813,9 @@ voxel-count size `--voxel-count-resolution` (0.5 m by default); it applies to
 both the XY cells and the height bands, and is recorded as `voxel_size_m` in the
 metadata JSON.
 
-The lattice is anchored at `(0,0,0)` in a verified projected metric CRS. XY and
+The lattice is anchored at `(0,0,0)` in the source coordinates (a projected CRS
+in metres when the source has a CRS; without one, the products carry none and
+`voxel_points.crs` in the metadata says so). XY and
 height bins use increasing-coordinate `[lower,upper)` ownership. Raster rows
 run north to south; CSV centres identify the same cells. Whole *s* cells must
 be contained in the usable AOI, including exclusion boundaries. This deliberately

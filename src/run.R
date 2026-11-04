@@ -1468,7 +1468,7 @@ stream_virtual_raster <- function(result, output_path, label,
     c(
       "-of", "GTiff",
       "-co", "TILED=YES",
-      "-co", "COMPRESS=LZW",
+      "-co", "COMPRESS=DEFLATE",
       "-co", "BIGTIFF=IF_SAFER",
       shQuote(source_path),
       shQuote(partial_path)
@@ -1501,7 +1501,7 @@ convert_raster_format <- function(path, label, resampling = "AVERAGE") {
     "gdal_translate",
     c(
       "-of", "COG",
-      "-co", "COMPRESS=LZW",
+      "-co", "COMPRESS=DEFLATE",
       "-co", "BIGTIFF=IF_SAFER",
       "-co", paste0("RESAMPLING=", resampling),
       shQuote(path),
@@ -2231,7 +2231,7 @@ write_filled_chm <- function(chm_path, footprint, output_path, source_crs = NULL
   names(result$raster) <- "chm_filled"
   terra::writeRaster(result$raster, partial_path, datatype = terra::datatype(chm),
     NAflag = if (is.finite(nodata)) nodata else -999999,
-    gdal = c("TILED=YES", "COMPRESS=LZW", "BIGTIFF=IF_SAFER"), overwrite = TRUE)
+    gdal = c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=IF_SAFER"), overwrite = TRUE)
   if (!file.rename(partial_path, output_path)) {
     stop("could not atomically publish the gap-filled CHM GeoTIFF")
   }

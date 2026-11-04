@@ -297,8 +297,7 @@ run_projection <- function(source, output, dimension, add_index = FALSE) {
   fromJSON(tail(output_lines, 1L), simplifyVector = FALSE)
 }
 
-expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts = FALSE,
-                               denoising = FALSE) {
+expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FALSE) {
   prefix <- file.path(directory, as.character(dataset_id))
   common <- c(
     paste0(prefix, "_dtm.tif"),
@@ -316,8 +315,7 @@ expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts =
     paste0(prefix, suffix, "_segment_diagnostics.csv"),
     paste0(prefix, suffix, "_tiles.geojson")
   )))
-  c(common, dimension_files, if (voxel_counts) unlist(voxel_count_paths(directory, dataset_id)),
-    if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
+  c(common, dimension_files, if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
 }
 
 validate_performance_resources <- function(performance, memory_budget_gib,
@@ -369,8 +367,8 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
     }
     all(!is.na(values) & as.character(values) == expected)
   }
-  paths <- expected_artifacts(directory, dataset_id, dimensions, voxel_counts, denoising)
-  if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id, voxel_count_resolution)
+  paths <- c(expected_artifacts(directory, dataset_id, dimensions, denoising),
+             if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id, voxel_count_resolution))
   absent <- paths[!file.exists(paths) | file.info(paths)$size <= 0]
   if (length(absent) > 0L) {
     stop(sprintf(

@@ -4,7 +4,7 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 image="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:copc-local}"
 root="$(mktemp -d)"
 trap 'rm -rf "${root}"' EXIT
-mkdir -p "${root}/input" "${root}/baseline" "${root}/counts" "${root}/narrow" "${root}/work"
+mkdir -p "${root}/input" "${root}/baseline" "${root}/counts" "${root}/narrow" "${root}/tiny" "${root}/work"
 docker run --rm --network none --cpus 2 --memory 4g --user "$(id -u):$(id -g)" \
   --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
   --entrypoint Rscript --volume "${repo_dir}/tests:/tests:ro" \
@@ -46,6 +46,24 @@ run narrow --export-voxel-counts --aoi-geojson /in/narrow.geojson
 jq -e '.features | length == 0' "${root}/narrow/tiles/PredInstance_tiles.geojson"
 jq -e '.point_accounting.included > 0' "${root}/narrow/150_voxel_counts.json"
 python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/narrow"
+# An AOI too small for a whole voxel cell has no voxel COPC and still publishes.
+cat > "${root}/input/tiny.geojson" <<'JSON'
+{"type":"Polygon","coordinates":[[[1002,2002],[1002.1,2002],[1002.1,2002.1],[1002,2002.1],[1002,2002]]]}
+JSON
+run tiny --export-voxel-counts --aoi-geojson /in/tiny.geojson
+jq -e '.occupied_voxels == 0 and .voxel_points == null' "${root}/tiny/150_voxel_counts.json"
+test ! -e "${root}/tiny/150_voxel_counts.copc.laz"
+python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/tiny"
+# With occupied voxels the COPC stays required.
+rm "${root}/counts/150_voxel_counts.copc.laz"
+if docker run --rm --network none --workdir /opt/foreststructure --entrypoint Rscript --volume "${root}/counts:/check:ro" "${image}" -e '
+Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1")
+source("/opt/foreststructure/run_julia_memory_safe.R")
+validate_voxel_count_artifacts("/check", 150)' 2>"${root}/missing.log"; then
+  echo "a missing voxel COPC was accepted" >&2
+  exit 1
+fi
+grep -q "voxel-count artifacts missing or empty" "${root}/missing.log"
 # Advanced scientific parameters reach the analysis, the voxel export and provenance.
 mkdir -p "${root}/custom" "${root}/invalid"
 run custom --export-voxel-counts --voxel-count-resolution 1 --voxel-resolution 0.25 \

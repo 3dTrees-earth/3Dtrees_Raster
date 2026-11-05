@@ -158,7 +158,7 @@ parse_julia_memory_safe_parameters <- function() {
   parser$add_argument("--output-dir", default = getwd(),
     help = "Directory for the published outputs (default: working directory)")
   parser$add_argument("--raster-format", default = "COG", choices = c("COG", "GTiff"),
-    help = "Format of the DTM, CHM, DSM, gap-filled CHM and voxel-count rasters (default: COG)")
+    help = "Format of the DTM, CHM, DSM and voxel-count rasters (default: COG)")
   parser$add_argument("--version", action = "store_true",
     help = "Print the tool version and exit")
   parser$add_argument("--temp-dir", default = Sys.getenv("TMPDIR", tempdir()),
@@ -303,7 +303,6 @@ expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FA
     paste0(prefix, "_dtm.tif"),
     paste0(prefix, "_chm.tif"),
     paste0(prefix, "_dsm.tif"),
-    paste0(prefix, "_chm_filled.tif"),
     paste0(prefix, "_tiles.png"),
     paste0(prefix, "_performance.csv"),
     paste0(prefix, "_aoi_conversion.json"),
@@ -335,21 +334,16 @@ validate_performance_resources <- function(performance, memory_budget_gib,
   invisible(TRUE)
 }
 
-# The DSM must share the CHM's grid, CRS and empty cells; the filled CHM must
-# share its grid and equal it wherever the CHM has a value.
-validate_surface_rasters <- function(chm, dsm, chm_filled) {
-  for (raster in list(dsm, chm_filled)) {
-    if (terra::inMemory(raster) ||
-        !isTRUE(terra::compareGeom(chm, raster, crs = TRUE, stopOnError = FALSE)) ||
-        !identical(terra::crs(chm), terra::crs(raster))) {
-      stop("incoming DSM or gap-filled CHM grid differs from the CHM")
-    }
+# The DSM must share the CHM's grid, CRS and empty cells.
+validate_surface_rasters <- function(chm, dsm) {
+  if (terra::inMemory(dsm) ||
+      !isTRUE(terra::compareGeom(chm, dsm, crs = TRUE, stopOnError = FALSE)) ||
+      !identical(terra::crs(chm), terra::crs(dsm))) {
+    stop("incoming DSM grid differs from the CHM")
   }
   mismatched <- terra::global(xor(is.na(dsm), is.na(chm)), "sum", na.rm = TRUE)[[1]]
-  changed <- terra::global(!is.na(chm) & (is.na(chm_filled) | chm_filled != chm),
-                           "sum", na.rm = TRUE)[[1]]
-  if (mismatched != 0 || changed != 0) {
-    stop("incoming DSM empty cells or gap-filled CHM values differ from the CHM")
+  if (mismatched != 0) {
+    stop("incoming DSM empty cells differ from the CHM")
   }
   invisible(TRUE)
 }
@@ -400,8 +394,7 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
   }
   validate_surface_rasters(
     chm,
-    terra::rast(file.path(directory, paste0(dataset_id, "_dsm.tif"))),
-    terra::rast(file.path(directory, paste0(dataset_id, "_chm_filled.tif")))
+    terra::rast(file.path(directory, paste0(dataset_id, "_dsm.tif")))
   )
   for (dimension in dimensions) {
     results <- fread(file.path(
@@ -803,6 +796,7 @@ julia_memory_safe_main <- function() {
     instance_dimension = arguments$instance_dimension,
     segment_diagnostics = TRUE,
     surface_rasters = TRUE,
+    reduce_points = TRUE,
     minimum_tree_voxels = arguments$minimum_tree_voxels,
     apex_minimum_height = arguments$apex_minimum_height,
     minimum_tree_thickness = arguments$minimum_tree_thickness,
@@ -854,7 +848,6 @@ julia_memory_safe_main <- function() {
   }
   message("FORESTSTRUCTURE_STAGE stage=analysis status=started")
   analysis_outputs <- run_analysis(parameters)
-  chm_filling <- attr(analysis_outputs, "chm_filling")
   message("FORESTSTRUCTURE_STAGE stage=analysis status=completed")
   performance <- fread(file.path(
     incoming_directory,
@@ -888,18 +881,6 @@ julia_memory_safe_main <- function() {
           "cells keyed by the same voxel-column centres, so DSM and CHM share grid",
           "and empty cells"
         )
-      ),
-      chm_filled = list(
-        file = paste0(arguments$dataset_id, "_chm_filled.tif"),
-        method = paste(
-          "CHM with interior empty cells (8-connected groups of empty cells inside",
-          "the analysed footprint that touch neither the grid border nor a cell",
-          "outside it) set to the mean of their valid 8 neighbours, repeated",
-          "until all are filled; other cells as in the CHM"
-        ),
-        filled_cells = chm_filling$filled_cells,
-        empty_cells = chm_filling$empty_cells,
-        iterations = chm_filling$iterations
       )
     ),
     source_point_cloud = normalizePath(point_cloud, mustWork = TRUE),

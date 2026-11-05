@@ -4,7 +4,7 @@
 products of forest structure:
 
 - a digital terrain model (DTM), a canopy height model (CHM), a digital
-  surface model (DSM) and a gap-filled CHM,
+  surface model (DSM),
 - full-resolution voxel point counts as a multiband GeoTIFF, a CSV and a COPC
   point cloud with one point per occupied voxel,
 - fixed-size tile metrics (vegetation density, height distribution, vertical
@@ -112,7 +112,7 @@ for the method and its limits.
 | `--aoi-geojson` | Optional area of interest in the point cloud's XY coordinates; not reprojected |
 | `--original-point-cloud` | Optional original LAS/LAZ of a COPC, used only for header and provenance checks |
 | `--output-dir`, `--temp-dir` | Output and scratch directories |
-| `--raster-format` | `COG` (default) or `GTiff` for the DTM, CHM, DSM, gap-filled CHM and voxel-count rasters |
+| `--raster-format` | `COG` (default) or `GTiff` for the DTM, CHM, DSM and voxel-count rasters |
 | `--version` | Print the tool version and exit |
 | `--memory-budget-gib` | Optional lower internal memory budget; the container or Galaxy limit is used otherwise |
 | `--target-chunk-points` | Approximate points per COPC CHM/segment read window (default 50,000,000; `0` uses fixed windows) |
@@ -141,8 +141,7 @@ Shared by all dimensions, each starting with the prefix `foreststructure`:
 | --- | --- |
 | `foreststructure_dtm.tif` | DTM GeoTIFF (Cloud Optimized by default) |
 | `foreststructure_chm.tif` | CHM GeoTIFF (Cloud Optimized by default): height above the DTM of the highest voxel per cell |
-| `foreststructure_dsm.tif` | [DSM](#dsm-and-gap-filled-chm) on the CHM grid: absolute height of the highest point per cell |
-| `foreststructure_chm_filled.tif` | The CHM with [interior gaps filled](#dsm-and-gap-filled-chm); every other cell as in the CHM |
+| `foreststructure_dsm.tif` | [DSM](#dsm) on the CHM grid: absolute height of the highest point per cell |
 | `foreststructure_tiles.png` | Tile overview map |
 | `foreststructure_voxel_counts.csv` | Occupied voxels: `x_center,y_center,height_lower_m,height_upper_m,point_count` |
 | `foreststructure_voxel_counts.tif` | UInt32 point counts; with voxel size *s*, band *b* holds heights `[(b-1)·s, b·s)` m above the DTM |
@@ -160,9 +159,9 @@ means no recorded points, not absence of vegetation; read the validity raster
 before interpreting missing CSV rows. See
 [Full-resolution voxel point-count export](#full-resolution-voxel-point-count-export).
 
-### DSM and gap-filled CHM
+### DSM
 
-Both share the CHM's grid: resolution (`--chm-resolution`), extent, Float32
+The DSM shares the CHM's grid: resolution (`--chm-resolution`), extent, Float32
 data type, nodata value (-999999), tiling, compression and COG layout.
 
 `foreststructure_dsm.tif` is computed natively in the CHM pass, from the same
@@ -176,24 +175,8 @@ voxel) and by the DTM being sampled at the points rather than at cell centres.
 The DSM is not DTM + CHM: that sum would carry the voxel rounding and the DTM
 interpolation into every cell.
 
-`foreststructure_chm_filled.tif` is the CHM with its interior gaps filled; the
-CHM itself is unchanged:
-
-- An *empty* cell has no point (nodata in the CHM).
-- Empty cells form 8-connected groups. A group is *interior* when all its cells
-  have their centre inside the analysed footprint (the AOI without its
-  exclusion areas, or the point-cloud extent without an AOI) and none of them
-  is on the grid border or next to a cell outside the footprint.
-- Each interior empty cell gets the mean of its valid 8 neighbours. Cells filled
-  in one pass count as valid in the next, and the passes repeat until every
-  interior cell is filled. The ring of a hole is filled first, its centre last.
-- Gaps open to the grid border or the footprint edge, and every cell outside the
-  footprint, stay nodata. Cells with points keep their CHM value.
-
-The run provenance records both under `surface_rasters`, with the filled CHM's
-`filled_cells`, `empty_cells` (all nodata cells of the CHM) and `iterations`.
-Before publication the run checks that the DSM's empty cells equal the CHM's
-and that the filled CHM equals the CHM wherever the CHM has a value.
+The run provenance records it under `surface_rasters`. Before publication the run
+checks that the DSM's empty cells equal the CHM's.
 
 ### Tile metrics
 
@@ -250,7 +233,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
-| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM, DSM and gap-filled CHM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`) and 2 Nov 2026 (`sha-f3d76a1`) |
+| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`) and 2 Nov 2026 (`sha-f3d76a1`) |
 
 ## Build from source
 
@@ -645,6 +628,24 @@ read and scratch storage. Normal low-ordinal COPCs retain their direct fast path
 The mandatory voxel-count pass always reads the full original COPC, including
 all duplicates, rather than a reduced or subsampled source.
 
+### Very dense point clouds
+
+Above 10,000 points per square metre, the CHM, DSM, segments and tiles read a
+reduced cloud made in one streaming pass (`src/reduce_points.py`). These
+products only use occupied voxels, each instance's highest points and each voxel
+column's highest absolute point, so the pass keeps the original points that fix
+those and nothing else. The results are the same as from the whole cloud:
+checked on 2145 (59 M points on 30 × 31 m), all outputs identical. Voxel counts
+still read every point. `FORESTSTRUCTURE_REDUCTION_DENSITY` sets the threshold.
+
+A DTM window above 300 M points would crash the ground filter, so such a cloud
+first keeps its lowest point per 5 cm cell for the DTM, as `lidR::lowest()` does.
+Forced onto 2145, the DTM stayed identical. `FORESTSTRUCTURE_DTM_THINNING_POINTS`
+sets the limit. All other products still use the original points.
+
+Dataset 707 (786 M points on 99 × 84 m, 10 cores) takes 13:34 min and 23 GB
+this way, against 1:56 h and 88 GB with thinning inside lidR.
+
 ### Point-noise classification and uncapped heights
 
 With `--denoise knn` the production runner removes noise points before terrain
@@ -934,9 +935,8 @@ make test-julia-memory-safe
 ```
 
 `tests/test_surface_rasters.R` checks the DSM against an independent per-cell
-maximum of the CHM's points and the gap filling on a synthetic CHM; the
-production-runner test also checks that the DSM and gap-filled CHM share the
-CHM's grid, data type, nodata value and empty cells.
+maximum of the CHM's points; the production-runner test also checks that the
+DSM shares the CHM's grid, data type, nodata value and empty cells.
 
 Parameters, voxel counts, point-noise filtering and the Galaxy contract have
 their own targets:

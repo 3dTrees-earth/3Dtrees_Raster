@@ -570,7 +570,6 @@ artifact_paths <- function(output_dir, dataset_id) {
     dtm = paste0(prefix, "_dtm.tif"),
     chm = paste0(prefix, "_chm.tif"),
     dsm = paste0(prefix, "_dsm.tif"),
-    chm_filled = paste0(prefix, "_chm_filled.tif"),
     tiles_png = paste0(prefix, "_tiles.png"),
     performance = paste0(prefix, "_performance.csv")
   )
@@ -1684,11 +1683,14 @@ write_global_dtm <- function(point_cloud, output_path, work_directory,
                              chunk_size, dtm_buffer, dtm_resolution,
                              ptd_resolution, workers, source_crs = NULL,
                              point_order_dimension = NULL, memory_policy = NULL,
-                             denoising = NULL) {
+                             denoising = NULL, extent_cloud = point_cloud) {
   prepare_raster_work_directory(work_directory, "DTM")
   on.exit(unlink(work_directory, recursive = TRUE, force = TRUE), add = TRUE)
 
   catalog <- readLAScatalog(point_cloud)
+  # A thinned cloud keeps the source's chunk layout and raster extent.
+  source_extent <- readLAScatalog(extent_cloud)@data
+  for (name in c("Min.X", "Min.Y", "Max.X", "Max.Y")) catalog@data[[name]] <- source_extent[[name]]
   opt_chunk_size(catalog) <- chunk_size
   opt_chunk_buffer(catalog) <- dtm_buffer
   # Plain LAZ requests xyz; canonical COPC adds the OriginalPointIndex ordinal.
@@ -1724,13 +1726,90 @@ write_global_dtm <- function(point_cloud, output_path, work_directory,
   )
   covering <- cover_virtual_raster(
     mosaic,
-    point_cloud,
+    extent_cloud,
     dtm_resolution,
     work_directory,
     "DTM",
     extent_mode = "lidr"
   )
   stream_virtual_raster(covering, output_path, "DTM", source_crs)
+}
+
+# Point reduction -----------------------------------------------------------
+
+# A DTM window holding more points than this is thinned for the ground filter,
+# which crashes on about 640 M points and only needs the low ones.
+dtm_thinning_points <- function() {
+  as.numeric(Sys.getenv("FORESTSTRUCTURE_DTM_THINNING_POINTS", "3e8"))
+}
+
+# Below this mean density voxels hold too few points for reduction to pay off.
+reduction_density_points_m2 <- function() {
+  as.numeric(Sys.getenv("FORESTSTRUCTURE_REDUCTION_DENSITY", "1e4"))
+}
+
+dense_point_cloud <- function(point_cloud) {
+  bounds <- point_cloud_xy_bounds(point_cloud)
+  area <- (bounds[["xmax"]] - bounds[["xmin"]]) * (bounds[["ymax"]] - bounds[["ymin"]])
+  area > 0 && point_count_from_las_header(point_cloud) / area >= reduction_density_points_m2()
+}
+
+run_point_reduction <- function(mode, source, output, parameters, ...) {
+  script <- file.path(script_directory, "reduce_points.py")
+  report <- paste0(output, ".json")
+  denoising <- parameters$denoising
+  arguments <- c(mode, "--input", shQuote(source), "--output", shQuote(output),
+    "--report", shQuote(report),
+    if (!is.null(parameters$point_order_dimension)) {
+      c("--order-dimension", shQuote(parameters$point_order_dimension))
+    },
+    if (!is.null(denoising)) c("--rejected-directory", shQuote(denoising$directory)),
+    ...)
+  environment <- sprintf("RAYON_NUM_THREADS=%d POLARS_MAX_THREADS=%d",
+                         parameters$threads, parameters$threads)
+  status <- system2("env", c(strsplit(environment, " ")[[1L]], "python3", shQuote(script), arguments))
+  if (!identical(status, 0L) || !file.exists(output)) {
+    stop(sprintf("point reduction (%s) failed", mode))
+  }
+  rlas::writelax(output)
+  result <- jsonlite::read_json(report)
+  message(sprintf("Point reduction (%s): kept %.0f of %.0f points",
+                  mode, result$kept_points, result$source_points))
+  output
+}
+
+# The largest DTM window, from the COPC hierarchy or the point count of the file.
+dtm_needs_thinning <- function(parameters) {
+  if (is.null(parameters$memory_policy)) return(FALSE)
+  catalog <- readLAScatalog(parameters$point_cloud)
+  opt_chunk_size(catalog) <- parameters$dtm_chunk_size
+  opt_chunk_buffer(catalog) <- parameters$dtm_buffer
+  opt_progress(catalog) <- FALSE
+  settings <- lidR:::engine_parse_options(list(raster_alignment = parameters$dtm_resolution))
+  chunks <- lidR:::engine_chunks(catalog, settings$raster_alignment)
+  counts <- task_memory_estimates(lapply(chunks, catalog_task_window),
+                                  parameters$memory_policy, "DTM")$counts
+  length(counts) > 0L && max(counts) > dtm_thinning_points()
+}
+
+# CHM, DSM, segments and tiles read only occupied voxels, so they get the same
+# results from the original points reduce_points.py keeps.
+reduced_analysis_cloud <- function(parameters, tiles, dtm_path, instance_dimensions,
+                                   work_directory) {
+  bounds <- lapply(seq_len(nrow(tiles)), function(index) sf::st_bbox(tiles[index, ]))
+  # calculate_tile_metrics() hands these bounds to LASlib with ten decimals.
+  edges <- function(names) {
+    sort(unique(as.numeric(sprintf("%.10f", unlist(lapply(bounds, `[`, names))))))
+  }
+  edges_path <- file.path(work_directory, "tile_edges.json")
+  jsonlite::write_json(list(x = edges(c("xmin", "xmax")), y = edges(c("ymin", "ymax"))),
+                       edges_path, digits = NA)
+  run_point_reduction(
+    "voxels", parameters$point_cloud, file.path(work_directory, "analysis_points.laz"),
+    parameters, "--dtm", shQuote(dtm_path), "--tile-edges", shQuote(edges_path),
+    "--voxel-resolution", parameters$voxel_resolution,
+    "--maximum-height", if (is.finite(parameters$maximum_height)) parameters$maximum_height else "inf",
+    unlist(lapply(instance_dimensions, function(name) c("--dimension", shQuote(name)))))
 }
 
 build_dtm_overlap_mosaic <- function(chunk_paths, work_directory,
@@ -2164,81 +2243,6 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
     stream_virtual_raster(dsm_covering, dsm_path, "DSM", source_crs)
   }
   summarize_chunk_observations(observation_directory)
-}
-
-# Gap-filled CHM -------------------------------------------------------------
-
-# Interior empty CHM cells: cells without any point (nodata in the CHM) whose
-# centre lies inside the analysed footprint and whose 8-connected group of such
-# cells touches neither the grid border nor a cell outside the footprint. Gaps
-# open to the outside therefore stay nodata, as does everything outside.
-interior_empty_cells <- function(chm, footprint) {
-  # The footprint is in the cloud's local XY; give it the raster's CRS label.
-  footprint_vector <- terra::vect(sf::st_set_crs(sf::st_geometry(footprint), NA))
-  terra::crs(footprint_vector) <- terra::crs(chm)
-  inside <- terra::rasterize(footprint_vector, chm, field = 1, background = 0)
-  candidate <- is.na(chm) & inside == 1
-  # A cell beyond the grid edge counts as outside (fillvalue), so border cells
-  # and cells next to the footprint edge are both seeds of the open gaps.
-  near_outside <- terra::focal(inside == 0, w = 3, fun = "max", fillvalue = 1)
-  groups <- terra::patches(terra::ifel(candidate, 1, NA), directions = 8)
-  open_groups <- terra::unique(terra::mask(groups,
-    terra::ifel(candidate & near_outside == 1, 1, NA)))
-  open_groups <- if (is.null(open_groups) || !nrow(open_groups)) numeric() else open_groups[[1]]
-  interior <- if (length(open_groups)) candidate & !(groups %in% open_groups) else candidate
-  terra::ifel(is.na(interior), FALSE, interior)
-}
-
-raster_count <- function(raster) {
-  as.numeric(terra::global(raster, "sum", na.rm = TRUE)[[1]])
-}
-
-# Fill every interior empty cell with the mean of its valid 8 neighbours,
-# repeating with the newly filled cells until none is left. Cells with points
-# keep their CHM value; open gaps and cells outside the footprint stay nodata.
-fill_chm_interior_gaps <- function(chm, footprint) {
-  interior <- interior_empty_cells(chm, footprint)
-  remaining <- raster_count(interior)
-  filled <- chm
-  iterations <- 0L
-  total <- remaining
-  while (remaining > 0) {
-    neighbour_mean <- terra::focal(filled, w = 3, fun = "mean", na.rm = TRUE,
-                                   na.policy = "only")
-    reached <- interior & is.na(filled) & !is.na(neighbour_mean)
-    reached_count <- raster_count(reached)
-    # Every interior group borders cells with points, so this cannot stall.
-    if (reached_count == 0) stop("CHM gap filling stalled with unreachable cells")
-    filled <- terra::ifel(reached, neighbour_mean, filled)
-    remaining <- remaining - reached_count
-    iterations <- iterations + 1L
-  }
-  list(raster = filled, filled_cells = total, iterations = iterations,
-       empty_cells = raster_count(is.na(chm)))
-}
-
-# Publish the filled CHM with the CHM's data type, nodata value, tiling,
-# compression, CRS alignment and COG conversion.
-write_filled_chm <- function(chm_path, footprint, output_path, source_crs = NULL) {
-  chm <- terra::rast(chm_path)
-  result <- fill_chm_interior_gaps(chm, footprint)
-  partial_path <- paste0(output_path, ".partial.tif")
-  unlink(partial_path, force = TRUE)
-  on.exit(unlink(partial_path, force = TRUE), add = TRUE)
-  nodata <- terra::NAflag(chm)
-  # terra writes the layer name as band description; fix it so the bytes do not
-  # depend on the CHM's file name (dataset-ID prefix).
-  names(result$raster) <- "chm_filled"
-  terra::writeRaster(result$raster, partial_path, datatype = terra::datatype(chm),
-    NAflag = if (is.finite(nodata)) nodata else -999999,
-    gdal = c("TILED=YES", "COMPRESS=DEFLATE", "BIGTIFF=IF_SAFER"), overwrite = TRUE)
-  if (!file.rename(partial_path, output_path)) {
-    stop("could not atomically publish the gap-filled CHM GeoTIFF")
-  }
-  align_raster_file_crs(output_path, source_crs, "gap-filled CHM")
-  convert_raster_format(output_path, "gap-filled CHM")
-  result$raster <- NULL
-  result
 }
 
 # Memory-bounded global segment aggregation --------------------------------
@@ -3612,8 +3616,17 @@ run_analysis <- function(parameters) {
   message("FORESTSTRUCTURE_STAGE stage=dtm status=started")
   dtm_started <- proc.time()[["elapsed"]]
   dtm_path <- paths$dtm
+  reduce_points <- isTRUE(parameter_or(parameters, "reduce_points", FALSE))
+  dtm_source <- if (reduce_points && dtm_needs_thinning(parameters)) {
+    run_point_reduction("thin", parameters$point_cloud,
+                        file.path(run_work_directory, "dtm_points.laz"), parameters)
+  } else {
+    parameters$point_cloud
+  }
+  dtm_policy <- parameters$memory_policy
+  if (!is.null(dtm_policy)) dtm_policy$source <- dtm_source
   write_global_dtm(
-    parameters$point_cloud,
+    dtm_source,
     dtm_path,
     file.path(run_work_directory, "dtm_chunks"),
     parameters$dtm_chunk_size,
@@ -3624,8 +3637,9 @@ run_analysis <- function(parameters) {
     source_crs,
     # Propagate the key through DTM catalog selection and per-chunk restoration.
     parameters$point_order_dimension,
-    memory_policy = parameters$memory_policy,
-    denoising = parameters$denoising
+    memory_policy = dtm_policy,
+    denoising = parameters$denoising,
+    extent_cloud = parameters$point_cloud
   )
   dtm <- terra::rast(dtm_path)
   if (terra::inMemory(dtm)) {
@@ -3646,13 +3660,28 @@ run_analysis <- function(parameters) {
     message("FORESTSTRUCTURE_STAGE stage=voxel_counts status=completed")
   }
 
+  instance_dimensions <- select_instance_dimensions(
+    parameters$point_cloud,
+    parameters$instance_dimension
+  )
+  analysis_cloud <- parameters$point_cloud
+  analysis_policy <- parameters$memory_policy
+  if (reduce_points && dense_point_cloud(parameters$point_cloud)) {
+    message("FORESTSTRUCTURE_STAGE stage=point_reduction status=started")
+    analysis_cloud <- reduced_analysis_cloud(parameters, tiles, dtm_path,
+                                             instance_dimensions, run_work_directory)
+    if (!is.null(analysis_policy)) analysis_policy$source <- analysis_cloud
+    parameters$dimension_point_clouds <- list()
+    message("FORESTSTRUCTURE_STAGE stage=point_reduction status=completed")
+  }
+
   message("FORESTSTRUCTURE_STAGE stage=chm status=started")
   chm_started <- proc.time()[["elapsed"]]
-  # The DSM and gap-filled CHM are products of the production runner only.
+  # The DSM is a product of the production runner only.
   surface_rasters <- isTRUE(parameter_or(parameters, "surface_rasters", FALSE))
   chm_path <- paths$chm
   chm_observations <- write_global_chm(
-    parameters$point_cloud,
+    analysis_cloud,
     dtm_path,
     chm_path,
     file.path(run_work_directory, "chm_chunks"),
@@ -3670,13 +3699,10 @@ run_analysis <- function(parameters) {
       0
     },
     raster_chunk_size = parameters$chunk_size,
-    memory_policy = parameters$memory_policy,
+    memory_policy = analysis_policy,
     denoising = parameters$denoising,
     dsm_path = if (surface_rasters) paths$dsm
   )
-  chm_filling <- if (surface_rasters) {
-    write_filled_chm(chm_path, aoi$usable, paths$chm_filled, source_crs)
-  }
   chm_seconds <- elapsed_seconds(chm_started)
   temporary_disk_peak_bytes <- max(
     temporary_disk_peak_bytes,
@@ -3695,10 +3721,6 @@ run_analysis <- function(parameters) {
 
   message("FORESTSTRUCTURE_STAGE stage=segmentation status=started")
   segment_started <- proc.time()[["elapsed"]]
-  instance_dimensions <- select_instance_dimensions(
-    parameters$point_cloud,
-    parameters$instance_dimension
-  )
   segments_by_dimension <- list()
   segment_observation_summaries <- list()
   if (length(instance_dimensions) == 0) {
@@ -3710,7 +3732,7 @@ run_analysis <- function(parameters) {
     ))
     read_groups <- instance_read_groups(
       instance_dimensions,
-      parameters$point_cloud,
+      analysis_cloud,
       parameters$dimension_point_clouds,
       parameters$sequential_instance_dimensions
     )
@@ -3740,7 +3762,7 @@ run_analysis <- function(parameters) {
         } else {
           0
         },
-        memory_policy = parameters$memory_policy,
+        memory_policy = analysis_policy,
         denoising = parameters$denoising
       )
       # Count each physical read once, even when it supplies several dimensions.
@@ -3794,7 +3816,7 @@ run_analysis <- function(parameters) {
     }
     worker_dtm <- rast(dtm_path)
     metrics <- calculate_tile_metrics(
-      parameters$point_cloud,
+      analysis_cloud,
       tiles[index, ],
       worker_dtm,
       parameters
@@ -3821,7 +3843,7 @@ run_analysis <- function(parameters) {
   tile_windows <- lapply(tile_indices, function(index)
     as.numeric(sprintf("%.10f", st_bbox(tiles[index, ]))))
   base_result <- collect_tile_rows(tile_indices, calculate_row, tile_workers,
-    task_windows = tile_windows, memory_policy = parameters$memory_policy)
+    task_windows = tile_windows, memory_policy = analysis_policy)
   tile_seconds <- elapsed_seconds(tile_started)
   message("FORESTSTRUCTURE_STAGE stage=tiles status=completed")
 
@@ -3896,7 +3918,6 @@ run_analysis <- function(parameters) {
     )
   }
   message("FORESTSTRUCTURE_STAGE stage=output status=completed")
-  attr(output_paths, "chm_filling") <- chm_filling
   invisible(output_paths)
 }
 

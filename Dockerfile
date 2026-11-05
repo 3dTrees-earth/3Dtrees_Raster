@@ -53,8 +53,8 @@ RUN apt-get update \
     && apt-get install --yes --no-install-recommends python3-pip python3-gdal \
     && rm -rf /var/lib/apt/lists/* \
     && python3 -m pip install --no-cache-dir --break-system-packages \
-      laspy==2.6.1 lazrs==0.7.0 pyproj==3.7.2 scipy==1.14.1 \
-    && python3 -c 'import laspy, lazrs, pyproj, scipy; from osgeo import gdal, ogr, osr'
+      laspy==2.6.1 lazrs==0.7.0 polars==1.44.2 pyproj==3.7.2 scipy==1.14.1 \
+    && python3 -c 'import laspy, lazrs, polars, pyproj, scipy; from osgeo import gdal, ogr, osr'
 
 LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_Raster" \
       org.opencontainers.image.title="3Dtrees: Raster" \

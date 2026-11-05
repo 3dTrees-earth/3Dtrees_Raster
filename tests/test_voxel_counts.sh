@@ -15,6 +15,7 @@ run() {
   shift
   docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g \
     --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 \
+    --env FORESTSTRUCTURE_REDUCTION_DENSITY="${FORESTSTRUCTURE_REDUCTION_DENSITY:-1e4}" \
     --volume "${root}/input:/in:ro" --volume "${root}/${output}:/out" \
     --volume "${root}/work:/work" "${image}" \
     --denoise none --point-cloud /in/source.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 \
@@ -64,6 +65,17 @@ validate_voxel_count_artifacts("/check", 150)' 2>"${root}/missing.log"; then
   exit 1
 fi
 grep -q "voxel-count artifacts missing or empty" "${root}/missing.log"
+# Point reduction, forced onto this sparse cloud, leaves every product unchanged.
+mkdir -p "${root}/reduced"
+FORESTSTRUCTURE_REDUCTION_DENSITY=1 run reduced --export-voxel-counts --voxel-count-chunk-points 257
+for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
+  for file in "tile_metrics/${dimension}_tile_metrics.csv" "segment_diagnostics/${dimension}_segment_diagnostics.csv" "tiles/${dimension}_tiles.geojson"; do
+    cmp "${root}/baseline/${file}" "${root}/reduced/${file}"
+  done
+done
+for suffix in dtm.tif chm.tif dsm.tif; do
+  cmp "${root}/baseline/150_${suffix}" "${root}/reduced/150_${suffix}"
+done
 # Advanced scientific parameters reach the analysis, the voxel export and provenance.
 mkdir -p "${root}/custom" "${root}/invalid"
 run custom --export-voxel-counts --voxel-count-resolution 1 --voxel-resolution 0.25 \

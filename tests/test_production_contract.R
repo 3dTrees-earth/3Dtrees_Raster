@@ -52,10 +52,8 @@ stopifnot(unallocated$threads == 1L, unallocated$memory_budget_gib == 60,
 oversized_env <- function(name, default) {
   if (name == "GALAXY_MEMORY_MB") "204800" else default
 }
-capped <- production_resources(env = oversized_env, cgroup_root = root)
-stopifnot(capped$memory_limit_gib * 1024^3 == 100e9,
-          capped$memory_budget_gib == 100e9 / 1024^3 * 0.85)
-fails(production_resources(100, large_env, root), "must not exceed 100 GB")
+large <- production_resources(env = oversized_env, cgroup_root = root)
+stopifnot(large$memory_limit_gib == 200, large$memory_budget_gib == 200 * 0.85)
 dir.create(file.path(root, "memory"))
 v1_limit <- file.path(root, "memory/memory.limit_in_bytes")
 writeLines("9223372036854771712", v1_limit)

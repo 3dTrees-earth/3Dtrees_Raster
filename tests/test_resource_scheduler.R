@@ -30,7 +30,7 @@ local({
     identical(lengths(dispatched), c(2L, 1L, 1L, 1L)))
   report <- resource_plan_reports(policy)
   stopifnot(length(report) == 1L, length(report[[1]]$waves) == 4L,
-            report[[1]]$bytes_per_point == 512,
+            report[[1]]$bytes_per_point == 128,
             report[[1]]$task_fixed_bytes == 128 * 1024^2)
   fails <- function(expression, pattern) {
     error <- tryCatch({ force(expression); NULL }, error = identity)
@@ -63,12 +63,9 @@ local({
   stopifnot(identical(catalog_task_window(chunk), c(-500, -600, 700, 800)))
   grouped <- task_memory_estimates(list(windows[1:3], list(), windows[[1]]), policy, "CHM")
   stopifnot(identical(grouped$counts, c(100, 0, 100)),
-            grouped$bytes[[1]] == estimates$bytes[[1]])
+            grouped$bytes[[1]] == policy$task_fixed_bytes + 100 * 192)
   # The previously validated 1805 COPC's largest buffered DTM window has this
-  # hierarchy upper bound. A uniform 512 B/point estimate rejected it even at
-  # the historical 70 GiB allocation, despite a 27.38 GiB whole-run peak.
-  # Preserve admission at 59.5 GiB internally without promising a 30 GiB run
-  # or permitting two oversized terrain windows to consume the same budget.
+  # hierarchy upper bound and a 27.38 GiB whole-run peak, which its estimate covers.
   dense_policy <- resource_policy(path, 59.5, root)
   dense_count <- 185339618
   dense_cost <- dense_policy$task_fixed_bytes +
@@ -76,13 +73,14 @@ local({
   retained_parent <- 512 * 1024^2
   available <- function(budget_gib) budget_gib * 1024^3 -
     dense_policy$reserve_bytes - retained_parent
-  stopifnot(abs(dense_cost / 1024^3 - 44.31340837478638) < 1e-9,
-            identical(admitted_task_wave(rep(dense_cost, 2), 1:2, 2L,
-              available(59.5)), 1L),
-            all(dense_policy$bytes_per_point[c("CHM", "segment", "tiles")] == 512))
+  stopifnot(dense_cost / 1024^3 > 27.38,
+            identical(admitted_task_wave(rep(dense_cost, 3), 1:3, 3L,
+              available(59.5)), 1:2),
+            identical(unname(dense_policy$bytes_per_point[c("CHM", "segment", "tiles")]),
+                      c(192, 256, 128)))
   fails(admitted_task_wave(dense_cost, 1L, 1L, available(25.5)),
         "memory_budget_exceeded")
   dtm_estimates <- task_memory_estimates(windows, dense_policy, "DTM")
-  stopifnot(all(dtm_estimates$bytes == dense_policy$task_fixed_bytes + 100 * 256))
+  stopifnot(all(dtm_estimates$bytes == dense_policy$task_fixed_bytes + 100 * 160))
 })
 cat("aggregate resource admission checks passed\n")

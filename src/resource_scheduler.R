@@ -60,11 +60,9 @@ resource_policy <- function(source, budget_gib, work_directory,
   dir.create(directory, recursive = TRUE, showWarnings = FALSE)
   list(source = source, budget_bytes = budget_gib * 1024^3,
        reserve_bytes = 512 * 1024^2, directory = directory, helper = helper,
-       # DTM releases its source ordinal before PTD/TIN and retains no voxel
-       # or segment tables. Its separate coefficient preserves admission of
-       # known dense terrain windows; see the historical 1805 regression.
-       # Estimates include temporary allocations but are not allocator bounds.
-       bytes_per_point = c(DTM = 256, CHM = 512, segment = 512, tiles = 512,
+       # Measured real memory per counted point with one worker (1016, 2145;
+       # DTM from the 1805 window), plus a margin. Estimates are not allocator bounds.
+       bytes_per_point = c(DTM = 160, CHM = 192, segment = 256, tiles = 128,
                            denoise = 768),
        task_fixed_bytes = 128 * 1024^2)
 }

@@ -32,7 +32,7 @@ from osgeo import gdal
 from project_instance_dimension import extra_dimension, extra_params
 from voxel_counts import write_copc
 
-BATCH_POINTS = 20_000_000
+BATCH_POINTS = 5_000_000
 LOWEST_CELL_M = 0.05
 EDGE_TOLERANCE = 1e-7  # in grid cells, far below any stored coordinate step
 ORDER = "__order"

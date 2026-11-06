@@ -643,8 +643,10 @@ first keeps its lowest point per 5 cm cell for the DTM, as `lidR::lowest()` does
 Forced onto 2145, the DTM stayed identical. `FORESTSTRUCTURE_DTM_THINNING_POINTS`
 sets the limit. All other products still use the original points.
 
-Dataset 707 (786 M points on 99 × 84 m, 10 cores) takes 13:34 min and 23 GB
-this way, against 1:56 h and 88 GB with thinning inside lidR.
+The reduced cloud is a COPC with the same `OriginalPointIndex`, built with
+untwine, so windows read it through the spatial index and memory is estimated
+per window. Dataset 707 (786 M points on 99 × 84 m, 10 cores) takes 12:59 min and
+27 GB this way, against 1:56 h and 88 GB with thinning inside lidR.
 
 ### Point-noise classification and uncapped heights
 

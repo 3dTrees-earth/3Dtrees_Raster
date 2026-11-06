@@ -1771,7 +1771,7 @@ run_point_reduction <- function(mode, source, output, parameters, ...) {
   if (!identical(status, 0L) || !file.exists(output)) {
     stop(sprintf("point reduction (%s) failed", mode))
   }
-  rlas::writelax(output)
+  if (!grepl("\\.copc\\.laz$", output)) rlas::writelax(output)
   result <- jsonlite::read_json(report)
   message(sprintf("Point reduction (%s): kept %.0f of %.0f points",
                   mode, result$kept_points, result$source_points))
@@ -1804,8 +1804,10 @@ reduced_analysis_cloud <- function(parameters, tiles, dtm_path, instance_dimensi
   edges_path <- file.path(work_directory, "tile_edges.json")
   jsonlite::write_json(list(x = edges(c("xmin", "xmax")), y = edges(c("ymin", "ymax"))),
                        edges_path, digits = NA)
+  output <- if (is.null(parameters$point_order_dimension)) "analysis_points.laz" else
+    "analysis_points.copc.laz"
   run_point_reduction(
-    "voxels", parameters$point_cloud, file.path(work_directory, "analysis_points.laz"),
+    "voxels", parameters$point_cloud, file.path(work_directory, output),
     parameters, "--dtm", shQuote(dtm_path), "--tile-edges", shQuote(edges_path),
     "--voxel-resolution", parameters$voxel_resolution,
     "--maximum-height", if (is.finite(parameters$maximum_height)) parameters$maximum_height else "inf",

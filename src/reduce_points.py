@@ -13,13 +13,16 @@ fewer points. One streaming pass per mode keeps them, unchanged:
   subset holding these gives the same products as the whole cloud. Points too
   close to a grid edge to classify safely, or on an empty DTM cell, are all kept.
 
-Output records stay in source order with their stored coordinates.
+Output records keep their stored coordinates. A cloud with a source-order key
+leaves `voxels` as a COPC, so windows read it through the spatial index and
+memory is estimated per window; without a key it stays a LAZ in source order.
 """
 from __future__ import annotations
 
 import argparse
 import json
 from pathlib import Path
+import tempfile
 
 import laspy
 import numpy as np
@@ -27,6 +30,7 @@ import polars as pl
 from osgeo import gdal
 
 from project_instance_dimension import extra_dimension, extra_params
+from voxel_counts import write_copc
 
 BATCH_POINTS = 20_000_000
 LOWEST_CELL_M = 0.05
@@ -200,7 +204,13 @@ def voxels(args) -> dict:
     selected = pl.concat([kept.select(columns_out), bounds.select(columns_out)]
                          + [part.select(columns_out) for part in unsure])
     selected = selected.unique(ORDER, keep="first")
-    write(args.output, header, selected, names)
+    if args.order_dimension:
+        with tempfile.TemporaryDirectory(dir=args.output.parent) as scratch:
+            points = Path(scratch) / "points.laz"
+            write(points, header, selected, names)
+            write_copc(points, args.output, Path(scratch))
+    else:
+        write(args.output, header, selected, names)
     return {"source_points": seen, "kept_points": selected.height,
             "unsure_points": sum(part.height for part in unsure)}
 

@@ -4,7 +4,7 @@ runtime_arguments <- commandArgs(trailingOnly = TRUE)
 arguments <- commandArgs(trailingOnly = FALSE)
 script_argument <- grep("^--file=", arguments, value = TRUE)
 script_directory <- dirname(normalizePath(sub("^--file=", "", script_argument[[1]])))
-run_script <- normalizePath(file.path(script_directory, "..", "src", "run.R"))
+run_script <- normalizePath(file.path(script_directory, "..", "src", "analysis.R"))
 commandArgs <- function(trailingOnly = FALSE) {
   if (trailingOnly) character() else paste0("--file=", run_script)
 }

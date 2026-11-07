@@ -78,8 +78,8 @@ def compare_case(root: Path, scope: str, workers: int, point_count: int) -> dict
             checks[name] = dict(status='valid', comparison='complete parsed equality')
         else:
             checks[name] = compare_raster(source, candidate)
-    baseline = read_json(expected / 'foreststructure_julia_memory_safe_run.json')
-    provenance = read_json(actual / 'foreststructure_julia_memory_safe_run.json')
+    baseline = read_json(expected / 'foreststructure_run.json')
+    provenance = read_json(actual / 'foreststructure_run.json')
     for field in ('status', 'source_point_cloud_sha256', 'point_order_dimension',
                   'processed_instance_dimensions', 'scientific_parameters',
                   'source_crs_wkt', 'raster_crs_wkt', 'footprint_source'):

@@ -124,18 +124,13 @@ script_directory <- if (length(script_argument)) {
 } else {
   getwd()
 }
-# Remember whether this file was intentionally sourced for focused tests before
-# temporarily suppressing the entry points of the shared implementation files.
-julia_memory_safe_source_only <- identical(
-  Sys.getenv("FORESTSTRUCTURE_SOURCE_ONLY"),
-  "1"
-)
-Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1")
-source(file.path(script_directory, "run.R"))
+# Tests source this file with FORESTSTRUCTURE_SOURCE_ONLY=1 to reach its functions.
+source_only <- identical(Sys.getenv("FORESTSTRUCTURE_SOURCE_ONLY"), "1")
+source(file.path(script_directory, "analysis.R"))
 source(file.path(script_directory, "aoi_conversion.R"))
 source(file.path(script_directory, "production_contract.R"))
 
-parse_julia_memory_safe_parameters <- function() {
+parse_raster_parameters <- function() {
   parser <- ArgumentParser(
     description = paste(
       "3Dtrees: Raster. DTM, CHM, voxel point counts and tile-level",
@@ -306,7 +301,7 @@ expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FA
     paste0(prefix, "_tiles.png"),
     paste0(prefix, "_performance.csv"),
     paste0(prefix, "_aoi_conversion.json"),
-    paste0(prefix, "_julia_memory_safe_run.json")
+    paste0(prefix, "_run.json")
   )
   suffixes <- if (length(dimensions) == 0L) "" else paste0("_", dimensions)
   dimension_files <- unlist(lapply(suffixes, function(suffix) c(
@@ -410,7 +405,7 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
     if (!identical(names(results), required_results) ||
         !identical(names(diagnostics), required_diagnostics)) {
       stop(sprintf(
-        "incoming CSV schema differs from Julia for %s",
+        "incoming CSV schema differs from the published schema for %s",
         dimension
       ))
     }
@@ -501,13 +496,13 @@ move_to_collection_directories <- function(paths, output_directory, dataset_id,
   paths
 }
 
-julia_memory_safe_main <- function() {
+main <- function() {
   if ("--version" %in% commandArgs(trailingOnly = TRUE)) {
     cat(TOOL_VERSION, "\n", sep = "")
     return(invisible(NULL))
   }
   # Parse and validate every external path/resource setting before creating work.
-  arguments <- parse_julia_memory_safe_parameters()
+  arguments <- parse_raster_parameters()
   Sys.setenv(FORESTSTRUCTURE_RASTER_FORMAT = arguments$raster_format)
   message("FORESTSTRUCTURE_STAGE stage=preflight status=started")
   # Retain the user-requested path separately from later local staging paths.
@@ -523,7 +518,7 @@ julia_memory_safe_main <- function() {
   requested_is_copc <- is_copc_point_cloud(requested_point_cloud)
   # Scientific computation always reads the requested cloud (COPC when supplied).
   point_cloud <- requested_point_cloud
-  # Preserve Julia's historical source filename in result rows when a companion
+  # Keep the original upload's file name in result rows when a companion
   # is available, even though point data are spatially streamed from COPC.
   point_cloud_display_name <- if (is.null(original_point_cloud)) {
     basename(point_cloud)
@@ -545,7 +540,7 @@ julia_memory_safe_main <- function() {
     available <- vapply(definitions, function(definition) {
       definition$name
     }, character(1))
-    # A generic COPC cannot reproduce order-sensitive Julia outputs safely.
+    # Without the source order, order-sensitive results cannot be reproduced.
     if (!POINT_ORDER_DIMENSION %in% available) {
       stop(paste(
         "COPC scientific input requires the OriginalPointIndex ExtraByte;",
@@ -661,7 +656,7 @@ julia_memory_safe_main <- function() {
     thread_count
   )
   message(sprintf(
-    "Using validated Julia-memory-safe catalog worker count: %d",
+    "Using catalog worker count: %d",
     catalog_worker_count
   ))
 
@@ -763,7 +758,7 @@ julia_memory_safe_main <- function() {
       segment_bucket_count > 65536L) {
     stop("FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT must be an integer from 1 to 65536")
   }
-  # Preserve Julia's other scientific constants; accepted normalized heights
+  # Keep the original script's other scientific constants; accepted normalized heights
   # have no ceiling. Metric denominators use the exact CHM-pass voxel maxima.
   parameters <- list(
     point_cloud = staged_point_cloud,
@@ -808,7 +803,7 @@ julia_memory_safe_main <- function() {
     # coordinates and records. Never estimate those from the flat LAZ header.
     memory_policy = resource_policy(point_cloud, arguments$memory_budget_gib, job_directory),
     sequential_instance_dimensions = FALSE,
-    segment_catalog_base_selection = JULIA_MEMORY_SAFE_SEGMENT_SELECTION,
+    segment_catalog_base_selection = SEGMENT_SELECTION,
     segment_bucket_count = segment_bucket_count,
     # Per-dimension sources support legacy LAZ projection without changing COPC.
     dimension_point_clouds = dimension_sources,
@@ -866,7 +861,7 @@ julia_memory_safe_main <- function() {
   # restored original order, and optionally validated the original companion.
   run_provenance <- list(
     status = "candidate",
-    mode = if (is.null(parameters$denoising)) "julia-memory-safe" else "julia-memory-safe-knn-denoised",
+    mode = if (is.null(parameters$denoising)) "standard" else "knn-denoised",
     denoising = denoise_provenance,
     voxel_counts = list(enabled = arguments$export_voxel_counts,
       metadata = if (arguments$export_voxel_counts) paste0(arguments$dataset_id, "_voxel_counts.json") else NULL),
@@ -995,7 +990,7 @@ julia_memory_safe_main <- function() {
     run_provenance,
     file.path(
       incoming_directory,
-      paste0(arguments$dataset_id, "_julia_memory_safe_run.json")
+      paste0(arguments$dataset_id, "_run.json")
     ),
     auto_unbox = TRUE,
     pretty = TRUE,
@@ -1026,7 +1021,7 @@ julia_memory_safe_main <- function() {
     run_provenance,
     file.path(
       incoming_directory,
-      paste0(arguments$dataset_id, "_julia_memory_safe_run.json")
+      paste0(arguments$dataset_id, "_run.json")
     ),
     auto_unbox = TRUE,
     pretty = TRUE,
@@ -1053,11 +1048,11 @@ julia_memory_safe_main <- function() {
   invisible(promoted)
 }
 
-if (!julia_memory_safe_source_only) {
+if (!source_only) {
   tryCatch(
-    julia_memory_safe_main(),
+    main(),
     error = function(error) {
-      message("julia-memory-safe analysis failed: ", conditionMessage(error))
+      message("raster analysis failed: ", conditionMessage(error))
       quit(status = 1)
     }
   )

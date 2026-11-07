@@ -54,7 +54,7 @@ trap cleanup EXIT
 
 # Select the ForestStructure image that supplies the indexing and validation
 # Python dependencies, while allowing callers to override the default tag.
-forest_image="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:copc-local}"
+forest_image="${FORESTSTRUCTURE_IMAGE:-3dtrees-raster:test}"
 # Select the Smart Tile image that supplies Untwine for COPC construction.
 smart_tile_image="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-3dtrees-smart-tile:34f492a-v2.3.1}"
 # Limit each conversion stage to the requested CPU allocation.
@@ -133,7 +133,7 @@ docker run --rm --network none \
   --memory "${container_memory_gib}g" \
   --memory-swap "${container_memory_gib}g" \
   --user "${host_uid}:${host_gid}" \
-  --volume "${repo_dir}/validation:/validators:ro" \
+  --volume "${repo_dir}/tests:/validators:ro" \
   --volume "${source_laz}:/in/original.laz:ro" \
   --volume "${temporary_copc}:/in/indexed.copc.laz:ro" \
   --volume "$(dirname "${report}"):/report" \

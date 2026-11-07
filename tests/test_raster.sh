@@ -2,15 +2,15 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image_name="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:copc-test}"
+image_name="${FORESTSTRUCTURE_IMAGE:-3dtrees-raster:test}"
 test_root="$(mktemp -d)"
 trap 'rm -rf "${test_root}"' EXIT
 mkdir -p "${test_root}/input" "${test_root}/output" "${test_root}/work"
 
 if [[ "${FORESTSTRUCTURE_SKIP_BUILD:-0}" != "1" ]]; then
-  docker build --file "${repo_dir}/Dockerfile.julia-memory-safe" --tag "${image_name}" "${repo_dir}"
+  docker build --tag "${image_name}" "${repo_dir}"
 fi
-docker run --rm --network none --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 --user "$(id -u):$(id -g)" --entrypoint Rscript --volume "${repo_dir}/tests:/tests:ro" --volume "${test_root}/input:/generated" "${image_name}" /tests/generate_julia_memory_safe_fixture.R /generated/high_ordinal.laz /generated/aoi.geojson
+docker run --rm --network none --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 --user "$(id -u):$(id -g)" --entrypoint Rscript --volume "${repo_dir}/tests:/tests:ro" --volume "${test_root}/input:/generated" "${image_name}" /tests/generate_test_cloud.R /generated/high_ordinal.laz /generated/aoi.geojson
 
 run_candidate() {
   local bucket_count="${1:-64}"
@@ -33,8 +33,8 @@ cmp "${test_root}/output/tile_metrics/PredInstance_tile_metrics.csv" "${test_roo
 cmp "${test_root}/output/tile_metrics/PredInstance_tile_metrics.csv" "${test_root}/output/tile_metrics/PredInstance_FM_tile_metrics.csv"
 cmp "${test_root}/output/segment_diagnostics/PredInstance_segment_diagnostics.csv" "${test_root}/output/segment_diagnostics/PredInstance_SAT_segment_diagnostics.csv"
 cmp "${test_root}/output/segment_diagnostics/PredInstance_segment_diagnostics.csv" "${test_root}/output/segment_diagnostics/PredInstance_FM_segment_diagnostics.csv"
-jq -e '.processed_instance_dimensions | length == 3' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
-jq -e '.raster_format == "COG"' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
+jq -e '.processed_instance_dimensions | length == 3' "${test_root}/output/150_run.json" >/dev/null
+jq -e '.raster_format == "COG"' "${test_root}/output/150_run.json" >/dev/null
 raster_layouts() {
   docker run --rm --network none --entrypoint python3 --volume "$1:/check:ro" "${image_name}" -c '
 import sys
@@ -59,16 +59,16 @@ nodata = chm.GetRasterBand(1).GetNoDataValue()
 c, d = (r.GetRasterBand(1).ReadAsArray() for r in (chm, dsm))
 assert np.array_equal(c == nodata, d == nodata)
 '
-jq -e '.projections | length == 3' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
-jq -e '.adaptive_chunking.enabled == false and .adaptive_chunking.target_points == 50000000' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
+jq -e '.projections | length == 3' "${test_root}/output/150_run.json" >/dev/null
+jq -e '.adaptive_chunking.enabled == false and .adaptive_chunking.target_points == 50000000' "${test_root}/output/150_run.json" >/dev/null
 test -z "$(find "${test_root}/work" -mindepth 1 -print -quit)"
 
 # A second run must recompute and replace the validated artifacts, not skip.
 # A high bucket count forces tiny disk partitions without changing results.
 run_candidate 256 NA NA 70 2>&1 | tee "${test_root}/second.log"
 grep -q 'Validated and promoted' "${test_root}/second.log"
-jq -e '.segment_bucket_count == 256' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
-jq -e '.memory_budget_gib == 3.4' "${test_root}/output/150_julia_memory_safe_run.json" >/dev/null
+jq -e '.segment_bucket_count == 256' "${test_root}/output/150_run.json" >/dev/null
+jq -e '.memory_budget_gib == 3.4' "${test_root}/output/150_run.json" >/dev/null
 
 # Default point-noise filtering on plain LAZ numbers records in file order.
 sor_output="${test_root}/sor_output"
@@ -78,7 +78,7 @@ docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(i
 test "$(head -n 1 "${sor_output}/152_noise_points.csv")" = "OriginalPointIndex"
 jq -e '.enabled == true' "${sor_output}/152_denoising.json" >/dev/null
 test "$(raster_layouts "${sor_output}" 152_dtm.tif 152_chm.tif 152_dsm.tif 152_voxel_counts.tif 152_voxel_counts_validity.tif | sort -u)" = "GTiff"
-jq -e '.requested_is_copc == false and .copc_projection.original_point_index_added == true' "${sor_output}/152_julia_memory_safe_run.json" >/dev/null
+jq -e '.requested_is_copc == false and .copc_projection.original_point_index_added == true' "${sor_output}/152_run.json" >/dev/null
 for dimension in PredInstance PredInstance_SAT; do
   test -s "${sor_output}/tile_metrics/${dimension}_tile_metrics.csv"
   test -s "${sor_output}/segment_diagnostics/${dimension}_segment_diagnostics.csv"
@@ -109,9 +109,9 @@ default_output="${test_root}/default_dimensions_output"
 default_work="${test_root}/default_dimensions_work"
 mkdir -p "${default_output}" "${default_work}"
 docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${default_output}:/out" --volume "${default_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 153 --output-dir /out --temp-dir /work --memory-budget-gib 3 --sensor NA --country NA 2>&1 | tee "${test_root}/default_dimensions.log"
-jq -e '.instance_dimension_selection == "all present" and .processed_instance_dimensions == ["PredInstance", "PredInstance_SAT", "PredInstance_FM"]' "${default_output}/153_julia_memory_safe_run.json" >/dev/null
+jq -e '.instance_dimension_selection == "all present" and .processed_instance_dimensions == ["PredInstance", "PredInstance_SAT", "PredInstance_FM"]' "${default_output}/153_run.json" >/dev/null
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
   cmp "${default_output}/tile_metrics/${dimension}_tile_metrics.csv" "${test_root}/output/tile_metrics/${dimension}_tile_metrics.csv"
 done
 
-echo "julia-memory-safe synthetic acceptance passed"
+echo "raster synthetic acceptance passed"

@@ -21,7 +21,7 @@ promote_artifacts <- function(incoming_artifacts, output_directory, dataset_id, 
       "(_(dtm|chm|dsm|voxel_counts(_validity)?)\\.tif(\\.aux\\.xml)?|",
       "_(results|segment_diagnostics|performance|voxel_counts|noise_points)\\.csv|",
       "_tiles\\.(geojson|png)|_voxel_counts\\.copc\\.laz|",
-      "_(aoi_conversion|julia_memory_safe_run|voxel_counts|denoising)\\.json)$"
+      "_(aoi_conversion|run|voxel_counts|denoising)\\.json)$"
     )
     existing <- existing[grepl(generated_suffix, basename(existing))]
   }

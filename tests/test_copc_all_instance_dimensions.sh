@@ -5,7 +5,7 @@ set -euo pipefail
 # Resolve repository helpers without depending on the invocation directory.
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Pin/override the two images involved in analysis and canonical COPC creation.
-image_name="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:copc-local}"
+image_name="${FORESTSTRUCTURE_IMAGE:-3dtrees-raster:test}"
 smart_tile_image="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-3dtrees-smart-tile:34f492a-v2.3.1}"
 # Isolate all generated fixtures, work files, and outputs in one private root.
 test_root="$(mktemp -d)"
@@ -36,11 +36,11 @@ docker run --rm --network none \
   --volume "${repo_dir}/tests:/tests:ro" \
   --volume "${test_root}/input:/generated" \
   "${image_name}" \
-  /tests/generate_julia_memory_safe_fixture.R \
+  /tests/generate_test_cloud.R \
   /generated/distinct.laz /generated/aoi.geojson distinct-dimensions
 
 # Convert that ordered LAZ to canonical COPC under a small regression-test budget.
-FORESTSTRUCTURE_JULIA_IMAGE="${image_name}" \
+FORESTSTRUCTURE_IMAGE="${image_name}" \
 FORESTSTRUCTURE_SMART_TILE_IMAGE="${smart_tile_image}" \
 FORESTSTRUCTURE_TEST_CPUS=2 \
 FORESTSTRUCTURE_TEST_MEMORY_GIB=4 \
@@ -151,7 +151,7 @@ jq -e '
   .processed_instance_dimensions == [
     "PredInstance", "PredInstance_SAT", "PredInstance_FM"
   ]
-' "${test_root}/copc-output/150_julia_memory_safe_run.json" >/dev/null
+' "${test_root}/copc-output/150_run.json" >/dev/null
 
 # Reach this line only after both differential science and provenance checks pass.
 echo "COPC all-instance-dimension differential acceptance passed"

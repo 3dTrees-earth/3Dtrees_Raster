@@ -22,6 +22,6 @@ for path in (root / "two").glob("foreststructure_*"):
         assert left.GetSpatialRef().IsSame(right.GetSpatialRef()), path.name
         for band in range(1, left.RasterCount + 1):
             np.testing.assert_array_equal(left.GetRasterBand(band).ReadAsArray(), right.GetRasterBand(band).ReadAsArray())
-provenance = json.loads((root / "three/foreststructure_julia_memory_safe_run.json").read_text())
+provenance = json.loads((root / "three/foreststructure_run.json").read_text())
 assert 'CS[Cartesian,3]' in provenance['source_crs_wkt']
 assert 'CS[Cartesian,2]' in provenance['raster_crs_wkt']

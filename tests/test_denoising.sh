@@ -36,7 +36,7 @@ PY
 else
 docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
   --entrypoint Rscript -v "${repo}/tests:/tests:ro" -v "${root}/input:/data" \
-  "${baseline}" /tests/generate_julia_memory_safe_fixture.R \
+  "${baseline}" /tests/generate_test_cloud.R \
   /data/patch.laz /data/unused_aoi.geojson distinct-dimensions > "${root}/fixture.log" 2>&1
 docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
   -v "${root}/input:/data" "${baseline}" /tests/generate_denoising_fixture.py \
@@ -78,12 +78,12 @@ run_case() {
     --env "FORESTSTRUCTURE_CATALOG_WORKERS=${workers}" \
     -v "${root}/input:/input:ro" -v "${case_dir}/output:/output" \
     -v "${case_dir}/scratch:/scratch" "${baseline}" \
-    /opt/foreststructure/run_julia_memory_safe.R --point-cloud /input/input.copc.laz \
+    /opt/foreststructure/raster.R --point-cloud /input/input.copc.laz \
     --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM \
     --memory-budget-gib 3.4 --target-chunk-points "${target}" "$@" \
     > "${case_dir}/run.log" 2>&1
   echo "$((SECONDS - started))" > "${case_dir}/elapsed_seconds.txt"
-  python3 "${repo}/validation/validate_output_artifacts.py" foreststructure \
+  python3 "${repo}/tests/validate_output_artifacts.py" foreststructure \
     "${case_dir}/output" --report "${case_dir}/artifact_validation.json"
   test -z "$(find "${case_dir}/scratch" -mindepth 1 -print -quit)"
 }

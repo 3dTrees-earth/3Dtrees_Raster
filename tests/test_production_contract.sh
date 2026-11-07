@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:pr5-opt-9421302}"
+image="${FORESTSTRUCTURE_IMAGE:-3dtrees-raster:test}"
 untwine_image="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
 root="$(mktemp -d)"
 cleanup() {
@@ -27,7 +27,7 @@ PYCODE
 limits=(--rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)")
 docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
   --entrypoint Rscript -v "${repo_dir}/tests:/tests:ro" -v "${root}/input:/generated" \
-  "${image}" /tests/generate_julia_memory_safe_fixture.R /generated/source.laz /generated/aoi.geojson distinct-dimensions
+  "${image}" /tests/generate_test_cloud.R /generated/source.laz /generated/aoi.geojson distinct-dimensions
 docker run "${limits[@]}" --entrypoint python3 -v "${repo_dir}/tests:/tests:ro" \
   -v "${root}/input:/data" "${image}" /tests/add_original_point_index.py /data/source.laz /data/low.laz
 docker run "${limits[@]}" --entrypoint python3 -v "${repo_dir}/tests:/tests:ro" \
@@ -54,8 +54,8 @@ run oracle low.copc.laz --dataset-id 150 --instance-dimension PredInstance,PredI
 run full high.copc.laz --target-chunk-points 500 --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 run aoi low.copc.laz --aoi-geojson /in/aoi.geojson --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 python3 "${repo_dir}/tests/compare_production_contract.py" "${root}"
-jq -e '.voxel_counts.enabled and .footprint_source == "point_cloud_extent" and .scheduler_resources.threads == 2 and .memory_budget_gib == 3.4 and .copc_projection.dimension == ["OriginalPointIndex", "PredInstance", "PredInstance_SAT", "PredInstance_FM"] and .catalog_spatial_streaming == "indexed LAZ projection"' "${root}/full/foreststructure_julia_memory_safe_run.json"
-python3 "${repo_dir}/validation/validate_output_artifacts.py" foreststructure "${root}/full"
+jq -e '.voxel_counts.enabled and .footprint_source == "point_cloud_extent" and .scheduler_resources.threads == 2 and .memory_budget_gib == 3.4 and .copc_projection.dimension == ["OriginalPointIndex", "PredInstance", "PredInstance_SAT", "PredInstance_FM"] and .catalog_spatial_streaming == "indexed LAZ projection"' "${root}/full/foreststructure_run.json"
+python3 "${repo_dir}/tests/validate_output_artifacts.py" foreststructure "${root}/full"
 cat > "${root}/input/narrow.geojson" <<'JSON'
 {"type":"Polygon","coordinates":[[[1001,2001],[1005,2001],[1005,2005],[1001,2005],[1001,2001]]]}
 JSON

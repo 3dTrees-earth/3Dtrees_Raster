@@ -25,7 +25,7 @@ local({
   segments <- function(size, workers) {
     store <- accumulate_segments(path, dtm_path, size, 0.2, 70, "PredInstance_FM",
       workers, file.path(root, paste0("segments-", size)), bucket_count = 2L,
-      base_selection = JULIA_MEMORY_SAFE_SEGMENT_SELECTION,
+      base_selection = SEGMENT_SELECTION,
       point_order_dimension = "OriginalPointIndex")
     records <- lapply(list.files(file.path(root, paste0("segments-", size), "observations"),
                                 full.names = TRUE), readRDS)

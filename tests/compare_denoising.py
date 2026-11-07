@@ -71,7 +71,7 @@ def main() -> None:
     supported_lower, supported_upper = fixture["expected_supported_height_m"]
     extreme_lower = fixture["expected_high_outlier_minimum_height_m"]
     for name, output in outputs.items():
-        provenance = read_json(output / "foreststructure_julia_memory_safe_run.json")
+        provenance = read_json(output / "foreststructure_run.json")
         assert provenance["source_point_cloud_sha256"] == source_hash
         performance = csv_rows(output / "foreststructure_performance.csv")[0]
         scientific = provenance["scientific_parameters"]
@@ -130,11 +130,11 @@ def main() -> None:
         assert metadata["enabled"] is True
         assert metadata["method"] == "global_knn_distance"
         assert sum(part["core_points"] for part in metadata["partitions"]) == fixture["points"]
-        provenance = read_json(output / "foreststructure_julia_memory_safe_run.json")
+        provenance = read_json(output / "foreststructure_run.json")
         assert provenance["point_order_dimension"] == "OriginalPointIndex"
         assert set(provenance["processed_instance_dimensions"]) == set(fixture["supported_instance_ids"])
         assert provenance["catalog_workers"] == (1 if name == "knn-w1" else 2)
-        assert provenance["mode"] == "julia-memory-safe-knn-denoised"
+        assert provenance["mode"] == "knn-denoised"
         assert provenance["denoising"]["source_sha256"] == source_hash
         # One KD-tree pass: the denoise stage schedules no catalog windows.
         assert not [plan for plan in provenance["resource_admission"] if plan["phase"] == "denoise"]

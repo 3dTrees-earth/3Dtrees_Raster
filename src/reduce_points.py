@@ -80,7 +80,7 @@ def write(path: Path, source: laspy.LasHeader, selected: pl.DataFrame,
     header = laspy.LasHeader(point_format=0, version=str(source.version))
     header.scales = source.scales.copy()
     header.offsets = source.offsets.copy()
-    header.generating_software = "3dtrees-foreststructure-julia-memory-safe"
+    header.generating_software = "3dtrees-raster"
     crs = source.parse_crs()
     if crs is not None:
         header.add_crs(crs, keep_compatibility=False)

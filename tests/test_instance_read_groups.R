@@ -1,4 +1,4 @@
-# Run after sourcing run.R. Exercise real catalog reads, normalization, disk
+# Run after sourcing analysis.R. Exercise real catalog reads, normalization, disk
 # summaries and reduction, including overlapping IDs and source-order apex ties.
 local({
   root <- tempfile("instance_read_groups_")
@@ -74,7 +74,7 @@ local({
       directory <- file.path(root, paste0(label, "_", index))
       store <- accumulate_segments(group$source, dtm_path, 10, 0.2, 70,
         group$dimensions, 1L, directory, bucket_count = 2L,
-        base_selection = JULIA_MEMORY_SAFE_SEGMENT_SELECTION,
+        base_selection = SEGMENT_SELECTION,
         point_order_dimension = "OriginalPointIndex")
       for (dimension in group$dimensions) {
         single <- segment_store_for_dimension(store, dimension)

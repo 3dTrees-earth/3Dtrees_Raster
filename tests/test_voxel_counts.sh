@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:copc-local}"
+image="${FORESTSTRUCTURE_IMAGE:-3dtrees-raster:test}"
 root="$(mktemp -d)"
 trap 'rm -rf "${root}"' EXIT
 mkdir -p "${root}/input" "${root}/baseline" "${root}/counts" "${root}/narrow" "${root}/tiny" "${root}/work"
@@ -9,7 +9,7 @@ docker run --rm --network none --cpus 2 --memory 4g --user "$(id -u):$(id -g)" \
   --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
   --entrypoint Rscript --volume "${repo_dir}/tests:/tests:ro" \
   --volume "${root}/input:/generated" "${image}" \
-  /tests/generate_julia_memory_safe_fixture.R /generated/source.laz /generated/aoi.geojson distinct-dimensions
+  /tests/generate_test_cloud.R /generated/source.laz /generated/aoi.geojson distinct-dimensions
 run() {
   local output="$1"
   shift
@@ -32,8 +32,8 @@ done
 for suffix in dtm.tif chm.tif; do
   cmp "${root}/baseline/150_${suffix}" "${root}/counts/150_${suffix}"
 done
-python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/counts"
-jq -e '.voxel_counts.enabled == true' "${root}/counts/150_julia_memory_safe_run.json"
+python3 "${repo_dir}/tests/validate_output_artifacts.py" 150 "${root}/counts"
+jq -e '.voxel_counts.enabled == true' "${root}/counts/150_run.json"
 docker run --rm --network none --entrypoint python3 --volume "${root}/counts:/check:ro" "${image}" -c '
 from osgeo import gdal
 for name in ("150_voxel_counts.tif", "150_voxel_counts_validity.tif"):
@@ -46,7 +46,7 @@ JSON
 run narrow --export-voxel-counts --aoi-geojson /in/narrow.geojson
 jq -e '.features | length == 0' "${root}/narrow/tiles/PredInstance_tiles.geojson"
 jq -e '.point_accounting.included > 0' "${root}/narrow/150_voxel_counts.json"
-python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/narrow"
+python3 "${repo_dir}/tests/validate_output_artifacts.py" 150 "${root}/narrow"
 # An AOI too small for a whole voxel cell has no voxel COPC and still publishes.
 cat > "${root}/input/tiny.geojson" <<'JSON'
 {"type":"Polygon","coordinates":[[[1002,2002],[1002.1,2002],[1002.1,2002.1],[1002,2002.1],[1002,2002]]]}
@@ -54,12 +54,12 @@ JSON
 run tiny --export-voxel-counts --aoi-geojson /in/tiny.geojson
 jq -e '.occupied_voxels == 0 and .voxel_points == null' "${root}/tiny/150_voxel_counts.json"
 test ! -e "${root}/tiny/150_voxel_counts.copc.laz"
-python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/tiny"
+python3 "${repo_dir}/tests/validate_output_artifacts.py" 150 "${root}/tiny"
 # With occupied voxels the COPC stays required.
 rm "${root}/counts/150_voxel_counts.copc.laz"
 if docker run --rm --network none --workdir /opt/foreststructure --entrypoint Rscript --volume "${root}/counts:/check:ro" "${image}" -e '
 Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1")
-source("/opt/foreststructure/run_julia_memory_safe.R")
+source("/opt/foreststructure/raster.R")
 validate_voxel_count_artifacts("/check", 150)' 2>"${root}/missing.log"; then
   echo "a missing voxel COPC was accepted" >&2
   exit 1
@@ -83,8 +83,8 @@ run custom --export-voxel-counts --voxel-count-resolution 1 --voxel-resolution 0
 jq -e '.voxel_size_m == [1, 1, 1]' "${root}/custom/150_voxel_counts.json"
 jq -e '.scientific_parameters | .tile_size == 10 and .voxel_resolution == 0.25
   and .voxel_count_resolution == 1 and .chm_resolution == 1 and .minimum_tree_voxels == 50
-  and .dtm_resolution == 1' "${root}/custom/150_julia_memory_safe_run.json"
-python3 "${repo_dir}/validation/validate_output_artifacts.py" 150 "${root}/custom"
+  and .dtm_resolution == 1' "${root}/custom/150_run.json"
+python3 "${repo_dir}/tests/validate_output_artifacts.py" 150 "${root}/custom"
 if run invalid --export-voxel-counts --tile-size 0 2>"${root}/invalid.log"; then
   echo "--tile-size 0 was accepted" >&2
   exit 1

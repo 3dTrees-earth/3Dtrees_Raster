@@ -1,4 +1,4 @@
-stopifnot(identical(JULIA_MEMORY_SAFE_SEGMENT_SELECTION, "xyz"))
+stopifnot(identical(SEGMENT_SELECTION, "xyz"))
 stopifnot(identical(validated_catalog_worker_count("1", 20L), 1L))
 stopifnot(identical(validated_catalog_worker_count("2", 20L), 2L))
 invalid_catalog_workers <- vapply(c("0", "11", "1.5", "not-a-number"), function(value) {
@@ -31,12 +31,12 @@ stopifnot(
   segment_selection_from_names(
     c("PredInstance", "unrelated"),
     "PredInstance",
-    JULIA_MEMORY_SAFE_SEGMENT_SELECTION
+    SEGMENT_SELECTION
   ) == "xyz1"
 )
 beyond_nine <- tryCatch({
   segment_selection_from_names(c(paste0("extra_", 1:14), "PredInstance"),
-    "PredInstance", JULIA_MEMORY_SAFE_SEGMENT_SELECTION)
+    "PredInstance", SEGMENT_SELECTION)
   FALSE
 }, error = function(e) grepl("verified streaming projection", conditionMessage(e)))
 stopifnot(beyond_nine)

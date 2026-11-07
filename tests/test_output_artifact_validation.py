@@ -11,7 +11,7 @@ from pathlib import Path
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-VALIDATOR_PATH = REPOSITORY_ROOT / "validation" / "validate_output_artifacts.py"
+VALIDATOR_PATH = REPOSITORY_ROOT / "tests" / "validate_output_artifacts.py"
 
 
 def load_validator():
@@ -41,7 +41,7 @@ class OutputArtifactValidationTest(unittest.TestCase):
             ],
             "missing_instance_dimensions": "PredInstance",
         }
-        (self.output / "2001_julia_memory_safe_run.json").write_text(
+        (self.output / "2001_run.json").write_text(
             json.dumps(provenance),
             encoding="utf-8",
         )
@@ -102,7 +102,7 @@ class OutputArtifactValidationTest(unittest.TestCase):
 
     def test_enabled_voxel_product_requires_all_five_files(self) -> None:
         validator = load_validator()
-        path = self.output / "2001_julia_memory_safe_run.json"
+        path = self.output / "2001_run.json"
         provenance = json.loads(path.read_text())
         provenance["voxel_counts"] = {"enabled": True}
         path.write_text(json.dumps(provenance))

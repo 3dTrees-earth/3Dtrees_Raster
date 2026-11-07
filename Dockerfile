@@ -48,7 +48,7 @@ RUN install2.r --error --skipinstalled \
 ARG VCS_REF=unknown
 ARG IMAGE_VERSION=local
 
-# Same streaming reader as the memory-safe runner; GDAL supplies block raster I/O.
+# Python helpers stream the point cloud; GDAL supplies block raster I/O.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends python3-pip python3-gdal \
     && rm -rf /var/lib/apt/lists/* \
@@ -62,10 +62,8 @@ LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_
       org.opencontainers.image.licenses="GPL-3.0" \
       org.opencontainers.image.revision="${VCS_REF}" \
       org.opencontainers.image.version="${IMAGE_VERSION}" \
-      earth.3dtrees.memory-allocation.max-bytes="100000000000" \
       earth.3dtrees.memory-headroom.fraction="0.15" \
       earth.3dtrees.cpu.max="10" \
-      earth.3dtrees.algorithm-base.revision="9d1fba9cb14adac51336ee53b4f5f5535395331a" \
       earth.3dtrees.dtm-tin-retry="legacy-floating-point" \
       earth.3dtrees.instance-dimensions="PredInstance,PredInstance_SAT,PredInstance_FM,PredInstance_RCT"
 

@@ -49,11 +49,10 @@ def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_c
         f"{dataset_id}_dtm.tif",
         f"{dataset_id}_chm.tif",
         f"{dataset_id}_dsm.tif",
-        f"{dataset_id}_chm_filled.tif",
         f"{dataset_id}_tiles.png",
         f"{dataset_id}_performance.csv",
         f"{dataset_id}_aoi_conversion.json",
-        f"{dataset_id}_julia_memory_safe_run.json",
+        f"{dataset_id}_run.json",
     }
     for dimension in processed:
         names.update(f"{folder}/{dimension}_{folder}.{extension}" for folder, _, extension in COLLECTION_FILES)
@@ -91,7 +90,7 @@ def validate_output_directory(dataset_id: int | str, output: Path) -> dict[str, 
     """Return a machine-readable artifact validation report."""
 
     errors: list[str] = []
-    provenance_path = output / f"{dataset_id}_julia_memory_safe_run.json"
+    provenance_path = output / f"{dataset_id}_run.json"
     provenance: dict[str, Any] = {}
     try:
         provenance = json.loads(provenance_path.read_text(encoding="utf-8"))

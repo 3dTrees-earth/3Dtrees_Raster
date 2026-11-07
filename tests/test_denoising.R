@@ -1,4 +1,4 @@
-# Source run.R (FORESTSTRUCTURE_SOURCE_ONLY=1) and denoising.R before this file.
+# Source analysis.R (FORESTSTRUCTURE_SOURCE_ONLY=1) and denoising.R before this file.
 local({
   directory <- tempfile("denoising-test-")
   dir.create(directory)

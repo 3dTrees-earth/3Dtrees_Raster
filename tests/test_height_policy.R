@@ -1,4 +1,4 @@
-# Exact Julia statistics for ordinary heights, including one-metre boundaries.
+# Exact original statistics for ordinary heights, including one-metre boundaries.
 local({
   legacy_vci <- function(z, height) {
     layers <- cut(z, seq(0, height, 1), include.lowest = TRUE)
@@ -66,18 +66,4 @@ local({
   serialized <- jsonlite::fromJSON(jsonlite::toJSON(as.list(exact[1]), auto_unbox = TRUE))
   stopifnot(is.character(serialized$observed_maximum_voxel_height_m_exact),
     as.numeric(serialized$observed_maximum_voxel_height_m_exact) == max(heights))
-
-  # Exercise argparse's Python bridge: an R Inf literal as the parser default
-  # crashes before argument validation, even though direct helper calls pass.
-  cloud <- file.path(root, "parser_only.laz")
-  file.create(cloud)
-  code <- paste(
-    'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY="1"); source("run.R");',
-    'stopifnot(identical(parse_parameters()$maximum_height, Inf))'
-  )
-  output <- system2(file.path(R.home("bin"), "Rscript"), c(
-    "-e", shQuote(code), "--point-cloud", shQuote(cloud),
-    "--dataset-id", "150", "--output-dir", shQuote(root)
-  ), stdout = TRUE, stderr = TRUE)
-  stopifnot(is.null(attr(output, "status")))
 })

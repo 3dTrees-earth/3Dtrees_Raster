@@ -94,7 +94,7 @@ def create_raster(path, grid, bands, datatype, nodata=None):
     ds = gdal.GetDriverByName("GTiff").Create(
         str(path), grid["width"], grid["height"], bands, datatype,
         options=["TILED=YES", "BLOCKXSIZE=128", "BLOCKYSIZE=128",
-                 "COMPRESS=LZW", "BIGTIFF=YES", "INTERLEAVE=BAND"])
+                 "COMPRESS=DEFLATE", "BIGTIFF=YES", "INTERLEAVE=BAND"])
     ds.SetGeoTransform(grid["transform"])
     ds.SetProjection(grid["crs_wkt"])
     if nodata is not None:
@@ -109,7 +109,7 @@ def convert_raster_format(path, resampling):
         return
     partial = f"{path}.partial.tif"
     converted = gdal.Translate(partial, str(path), format="COG", creationOptions=[
-        "COMPRESS=LZW", "BIGTIFF=IF_SAFER", f"RESAMPLING={resampling}"])
+        "COMPRESS=DEFLATE", "BIGTIFF=IF_SAFER", f"RESAMPLING={resampling}"])
     if converted is None:
         raise ValueError(f"could not write {Path(path).name} as a COG")
     converted = None

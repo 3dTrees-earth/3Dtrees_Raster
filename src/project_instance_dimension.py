@@ -76,7 +76,7 @@ def stream_projection(
         )
         output_header.scales = source_header.scales.copy()
         output_header.offsets = source_header.offsets.copy()
-        output_header.generating_software = "3dtrees-foreststructure-julia-memory-safe"
+        output_header.generating_software = "3dtrees-raster"
         source_crs = source_header.parse_crs()
         if source_crs is not None:
             output_header.add_crs(source_crs, keep_compatibility=False)

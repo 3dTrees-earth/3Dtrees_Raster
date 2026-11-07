@@ -62,26 +62,6 @@ local({
   stopifnot(readLines(file.path(root, "7_dtm.tif")) == "terrain")
 })
 
-# The standard CLI also preserves the DTM and the entire previous generation
-# when an error occurs after terrain generation (not just the voxel quartet).
-local({
-  root <- tempfile("standard_publication_")
-  dir.create(root)
-  on.exit(unlink(root, recursive = TRUE, force = TRUE), add = TRUE)
-  old <- file.path(root, c("7_dtm.tif", "7_voxel_counts.csv"))
-  for (path in old) writeLines("previous generation", path)
-  hashes <- tools::md5sum(old)
-  runner <- run_standard_analysis
-  environment(runner) <- new.env(parent = environment(run_standard_analysis))
-  environment(runner)$run_analysis <- function(parameters) {
-    writeLines("new terrain", artifact_paths(parameters$output_dir, 7)$dtm)
-    stop("normalized height exceeds GeoTIFF band capacity")
-  }
-  error <- tryCatch(runner(list(output_dir=root, dataset_id=7)), error=identity)
-  stopifnot(inherits(error, "error"), identical(hashes, tools::md5sum(old)),
-            !length(list.files(root, pattern="incoming", all.files=TRUE)))
-})
-
 local({
   root <- tempfile("promotion_rollback_")
   incoming <- file.path(root, "incoming")

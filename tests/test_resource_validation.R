@@ -1,4 +1,4 @@
-# Run after sourcing run_julia_memory_safe.R with SOURCE_ONLY enabled. The
+# Run after sourcing raster.R with SOURCE_ONLY enabled. The
 # publication gate distinguishes parent working memory from whole-cgroup cache.
 local({
   performance <- data.table(point_count = 12, peak_rss_mib = 2 * 1024,

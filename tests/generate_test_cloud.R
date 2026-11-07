@@ -6,7 +6,7 @@ suppressPackageStartupMessages({
 arguments <- commandArgs(trailingOnly = TRUE)
 if (!length(arguments) %in% c(2L, 3L)) {
   stop(paste(
-    "usage: generate_julia_memory_safe_fixture.R OUTPUT.laz AOI.geojson",
+    "usage: generate_test_cloud.R OUTPUT.laz AOI.geojson",
     "[distinct-dimensions]"
   ))
 }

@@ -43,7 +43,7 @@ hashes = {str(p.relative_to(root / 'sources')): hashlib.sha256(p.read_bytes()).h
 PY
 docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
   --entrypoint Rscript -v "${repo}/tests:/tests:ro" -v "${root}/input:/generated" \
-  "${baseline}" /tests/generate_julia_memory_safe_fixture.R \
+  "${baseline}" /tests/generate_test_cloud.R \
   /generated/patch.laz /generated/unused_aoi.geojson distinct-dimensions \
   > "${root}/fixture.log" 2>&1
 # Four touching patches exercise multiple baseline raster chunks as well as
@@ -119,7 +119,7 @@ run_case() {
     -v "${case_dir}/scratch:/scratch" -v "${case_dir}:/case" \
     -v "${root}/record_resources.py:/record_resources.py:ro" "${baseline}" -c \
     '"$@"; status=$?; python3 /record_resources.py "$status" || exit 99; exit "$status"' \
-    bash Rscript /opt/foreststructure/run_julia_memory_safe.R \
+    bash Rscript /opt/foreststructure/raster.R \
     --denoise none --point-cloud /input/input.copc.laz --memory-budget-gib 3.4 \
     --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM \
     --target-chunk-points 5000 --voxel-count-chunk-points 250000 "${aoi[@]}")
@@ -131,7 +131,7 @@ PY
   local started="${SECONDS}"
   "${command[@]}" > "${case_dir}/run.log" 2>&1
   echo "$((SECONDS - started))" > "${case_dir}/elapsed_seconds.txt"
-  python3 "${repo}/validation/validate_output_artifacts.py" foreststructure \
+  python3 "${repo}/tests/validate_output_artifacts.py" foreststructure \
     "${case_dir}/output" --report "${case_dir}/artifact_validation.json"
   test -z "$(find "${case_dir}/scratch" -mindepth 1 -print -quit)"
 }

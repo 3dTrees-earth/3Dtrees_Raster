@@ -1,5 +1,5 @@
 # Optional observational export. The existing global DTM and usable AOI are
-# shared; Julia's index filters and order-sensitive calculations stay separate.
+# shared; the tile filters and order-sensitive calculations stay separate.
 voxel_count_paths <- function(directory, dataset_id) {
   prefix <- file.path(directory, paste0(dataset_id, "_voxel_counts"))
   list(csv = paste0(prefix, ".csv"), raster = paste0(prefix, ".tif"),

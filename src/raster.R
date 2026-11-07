@@ -124,18 +124,13 @@ script_directory <- if (length(script_argument)) {
 } else {
   getwd()
 }
-# Remember whether this file was intentionally sourced for focused tests before
-# temporarily suppressing the entry points of the shared implementation files.
-julia_memory_safe_source_only <- identical(
-  Sys.getenv("FORESTSTRUCTURE_SOURCE_ONLY"),
-  "1"
-)
-Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1")
-source(file.path(script_directory, "run.R"))
+# Tests source this file with FORESTSTRUCTURE_SOURCE_ONLY=1 to reach its functions.
+source_only <- identical(Sys.getenv("FORESTSTRUCTURE_SOURCE_ONLY"), "1")
+source(file.path(script_directory, "analysis.R"))
 source(file.path(script_directory, "aoi_conversion.R"))
 source(file.path(script_directory, "production_contract.R"))
 
-parse_julia_memory_safe_parameters <- function() {
+parse_raster_parameters <- function() {
   parser <- ArgumentParser(
     description = paste(
       "3Dtrees: Raster. DTM, CHM, voxel point counts and tile-level",
@@ -158,7 +153,7 @@ parse_julia_memory_safe_parameters <- function() {
   parser$add_argument("--output-dir", default = getwd(),
     help = "Directory for the published outputs (default: working directory)")
   parser$add_argument("--raster-format", default = "COG", choices = c("COG", "GTiff"),
-    help = "Format of the DTM, CHM, DSM, gap-filled CHM and voxel-count rasters (default: COG)")
+    help = "Format of the DTM, CHM, DSM and voxel-count rasters (default: COG)")
   parser$add_argument("--version", action = "store_true",
     help = "Print the tool version and exit")
   parser$add_argument("--temp-dir", default = Sys.getenv("TMPDIR", tempdir()),
@@ -297,18 +292,16 @@ run_projection <- function(source, output, dimension, add_index = FALSE) {
   fromJSON(tail(output_lines, 1L), simplifyVector = FALSE)
 }
 
-expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts = FALSE,
-                               denoising = FALSE) {
+expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FALSE) {
   prefix <- file.path(directory, as.character(dataset_id))
   common <- c(
     paste0(prefix, "_dtm.tif"),
     paste0(prefix, "_chm.tif"),
     paste0(prefix, "_dsm.tif"),
-    paste0(prefix, "_chm_filled.tif"),
     paste0(prefix, "_tiles.png"),
     paste0(prefix, "_performance.csv"),
     paste0(prefix, "_aoi_conversion.json"),
-    paste0(prefix, "_julia_memory_safe_run.json")
+    paste0(prefix, "_run.json")
   )
   suffixes <- if (length(dimensions) == 0L) "" else paste0("_", dimensions)
   dimension_files <- unlist(lapply(suffixes, function(suffix) c(
@@ -316,8 +309,7 @@ expected_artifacts <- function(directory, dataset_id, dimensions, voxel_counts =
     paste0(prefix, suffix, "_segment_diagnostics.csv"),
     paste0(prefix, suffix, "_tiles.geojson")
   )))
-  c(common, dimension_files, if (voxel_counts) unlist(voxel_count_paths(directory, dataset_id)),
-    if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
+  c(common, dimension_files, if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
 }
 
 validate_performance_resources <- function(performance, memory_budget_gib,
@@ -337,21 +329,16 @@ validate_performance_resources <- function(performance, memory_budget_gib,
   invisible(TRUE)
 }
 
-# The DSM must share the CHM's grid, CRS and empty cells; the filled CHM must
-# share its grid and equal it wherever the CHM has a value.
-validate_surface_rasters <- function(chm, dsm, chm_filled) {
-  for (raster in list(dsm, chm_filled)) {
-    if (terra::inMemory(raster) ||
-        !isTRUE(terra::compareGeom(chm, raster, crs = TRUE, stopOnError = FALSE)) ||
-        !identical(terra::crs(chm), terra::crs(raster))) {
-      stop("incoming DSM or gap-filled CHM grid differs from the CHM")
-    }
+# The DSM must share the CHM's grid, CRS and empty cells.
+validate_surface_rasters <- function(chm, dsm) {
+  if (terra::inMemory(dsm) ||
+      !isTRUE(terra::compareGeom(chm, dsm, crs = TRUE, stopOnError = FALSE)) ||
+      !identical(terra::crs(chm), terra::crs(dsm))) {
+    stop("incoming DSM grid differs from the CHM")
   }
   mismatched <- terra::global(xor(is.na(dsm), is.na(chm)), "sum", na.rm = TRUE)[[1]]
-  changed <- terra::global(!is.na(chm) & (is.na(chm_filled) | chm_filled != chm),
-                           "sum", na.rm = TRUE)[[1]]
-  if (mismatched != 0 || changed != 0) {
-    stop("incoming DSM empty cells or gap-filled CHM values differ from the CHM")
+  if (mismatched != 0) {
+    stop("incoming DSM empty cells differ from the CHM")
   }
   invisible(TRUE)
 }
@@ -369,8 +356,8 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
     }
     all(!is.na(values) & as.character(values) == expected)
   }
-  paths <- expected_artifacts(directory, dataset_id, dimensions, voxel_counts, denoising)
-  if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id, voxel_count_resolution)
+  paths <- c(expected_artifacts(directory, dataset_id, dimensions, denoising),
+             if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id, voxel_count_resolution))
   absent <- paths[!file.exists(paths) | file.info(paths)$size <= 0]
   if (length(absent) > 0L) {
     stop(sprintf(
@@ -402,8 +389,7 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
   }
   validate_surface_rasters(
     chm,
-    terra::rast(file.path(directory, paste0(dataset_id, "_dsm.tif"))),
-    terra::rast(file.path(directory, paste0(dataset_id, "_chm_filled.tif")))
+    terra::rast(file.path(directory, paste0(dataset_id, "_dsm.tif")))
   )
   for (dimension in dimensions) {
     results <- fread(file.path(
@@ -419,7 +405,7 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
     if (!identical(names(results), required_results) ||
         !identical(names(diagnostics), required_diagnostics)) {
       stop(sprintf(
-        "incoming CSV schema differs from Julia for %s",
+        "incoming CSV schema differs from the published schema for %s",
         dimension
       ))
     }
@@ -510,13 +496,13 @@ move_to_collection_directories <- function(paths, output_directory, dataset_id,
   paths
 }
 
-julia_memory_safe_main <- function() {
+main <- function() {
   if ("--version" %in% commandArgs(trailingOnly = TRUE)) {
     cat(TOOL_VERSION, "\n", sep = "")
     return(invisible(NULL))
   }
   # Parse and validate every external path/resource setting before creating work.
-  arguments <- parse_julia_memory_safe_parameters()
+  arguments <- parse_raster_parameters()
   Sys.setenv(FORESTSTRUCTURE_RASTER_FORMAT = arguments$raster_format)
   message("FORESTSTRUCTURE_STAGE stage=preflight status=started")
   # Retain the user-requested path separately from later local staging paths.
@@ -532,7 +518,7 @@ julia_memory_safe_main <- function() {
   requested_is_copc <- is_copc_point_cloud(requested_point_cloud)
   # Scientific computation always reads the requested cloud (COPC when supplied).
   point_cloud <- requested_point_cloud
-  # Preserve Julia's historical source filename in result rows when a companion
+  # Keep the original upload's file name in result rows when a companion
   # is available, even though point data are spatially streamed from COPC.
   point_cloud_display_name <- if (is.null(original_point_cloud)) {
     basename(point_cloud)
@@ -554,7 +540,7 @@ julia_memory_safe_main <- function() {
     available <- vapply(definitions, function(definition) {
       definition$name
     }, character(1))
-    # A generic COPC cannot reproduce order-sensitive Julia outputs safely.
+    # Without the source order, order-sensitive results cannot be reproduced.
     if (!POINT_ORDER_DIMENSION %in% available) {
       stop(paste(
         "COPC scientific input requires the OriginalPointIndex ExtraByte;",
@@ -670,7 +656,7 @@ julia_memory_safe_main <- function() {
     thread_count
   )
   message(sprintf(
-    "Using validated Julia-memory-safe catalog worker count: %d",
+    "Using catalog worker count: %d",
     catalog_worker_count
   ))
 
@@ -772,7 +758,7 @@ julia_memory_safe_main <- function() {
       segment_bucket_count > 65536L) {
     stop("FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT must be an integer from 1 to 65536")
   }
-  # Preserve Julia's other scientific constants; accepted normalized heights
+  # Keep the original script's other scientific constants; accepted normalized heights
   # have no ceiling. Metric denominators use the exact CHM-pass voxel maxima.
   parameters <- list(
     point_cloud = staged_point_cloud,
@@ -805,6 +791,7 @@ julia_memory_safe_main <- function() {
     instance_dimension = arguments$instance_dimension,
     segment_diagnostics = TRUE,
     surface_rasters = TRUE,
+    reduce_points = TRUE,
     minimum_tree_voxels = arguments$minimum_tree_voxels,
     apex_minimum_height = arguments$apex_minimum_height,
     minimum_tree_thickness = arguments$minimum_tree_thickness,
@@ -816,7 +803,7 @@ julia_memory_safe_main <- function() {
     # coordinates and records. Never estimate those from the flat LAZ header.
     memory_policy = resource_policy(point_cloud, arguments$memory_budget_gib, job_directory),
     sequential_instance_dimensions = FALSE,
-    segment_catalog_base_selection = JULIA_MEMORY_SAFE_SEGMENT_SELECTION,
+    segment_catalog_base_selection = SEGMENT_SELECTION,
     segment_bucket_count = segment_bucket_count,
     # Per-dimension sources support legacy LAZ projection without changing COPC.
     dimension_point_clouds = dimension_sources,
@@ -856,7 +843,6 @@ julia_memory_safe_main <- function() {
   }
   message("FORESTSTRUCTURE_STAGE stage=analysis status=started")
   analysis_outputs <- run_analysis(parameters)
-  chm_filling <- attr(analysis_outputs, "chm_filling")
   message("FORESTSTRUCTURE_STAGE stage=analysis status=completed")
   performance <- fread(file.path(
     incoming_directory,
@@ -875,7 +861,7 @@ julia_memory_safe_main <- function() {
   # restored original order, and optionally validated the original companion.
   run_provenance <- list(
     status = "candidate",
-    mode = if (is.null(parameters$denoising)) "julia-memory-safe" else "julia-memory-safe-knn-denoised",
+    mode = if (is.null(parameters$denoising)) "standard" else "knn-denoised",
     denoising = denoise_provenance,
     voxel_counts = list(enabled = arguments$export_voxel_counts,
       metadata = if (arguments$export_voxel_counts) paste0(arguments$dataset_id, "_voxel_counts.json") else NULL),
@@ -890,18 +876,6 @@ julia_memory_safe_main <- function() {
           "cells keyed by the same voxel-column centres, so DSM and CHM share grid",
           "and empty cells"
         )
-      ),
-      chm_filled = list(
-        file = paste0(arguments$dataset_id, "_chm_filled.tif"),
-        method = paste(
-          "CHM with interior empty cells (8-connected groups of empty cells inside",
-          "the analysed footprint that touch neither the grid border nor a cell",
-          "outside it) set to the mean of their valid 8 neighbours, repeated",
-          "until all are filled; other cells as in the CHM"
-        ),
-        filled_cells = chm_filling$filled_cells,
-        empty_cells = chm_filling$empty_cells,
-        iterations = chm_filling$iterations
       )
     ),
     source_point_cloud = normalizePath(point_cloud, mustWork = TRUE),
@@ -1016,7 +990,7 @@ julia_memory_safe_main <- function() {
     run_provenance,
     file.path(
       incoming_directory,
-      paste0(arguments$dataset_id, "_julia_memory_safe_run.json")
+      paste0(arguments$dataset_id, "_run.json")
     ),
     auto_unbox = TRUE,
     pretty = TRUE,
@@ -1047,7 +1021,7 @@ julia_memory_safe_main <- function() {
     run_provenance,
     file.path(
       incoming_directory,
-      paste0(arguments$dataset_id, "_julia_memory_safe_run.json")
+      paste0(arguments$dataset_id, "_run.json")
     ),
     auto_unbox = TRUE,
     pretty = TRUE,
@@ -1074,11 +1048,11 @@ julia_memory_safe_main <- function() {
   invisible(promoted)
 }
 
-if (!julia_memory_safe_source_only) {
+if (!source_only) {
   tryCatch(
-    julia_memory_safe_main(),
+    main(),
     error = function(error) {
-      message("julia-memory-safe analysis failed: ", conditionMessage(error))
+      message("raster analysis failed: ", conditionMessage(error))
       quit(status = 1)
     }
   )

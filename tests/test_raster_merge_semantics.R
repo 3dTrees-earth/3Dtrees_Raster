@@ -121,7 +121,7 @@ local({
 
   # LAScatalog returns chunk rasters in numeric catalog order. Keep that order:
   # overlapping FLT8S means are not associative at floating-point boundaries,
-  # and lexically sorting dtm_1...dtm_16 changes Julia's scientific result.
+  # and lexically sorting dtm_1...dtm_16 changes the scientific result.
   order_sensitive_values <- rep(NA_real_, 16L)
   order_sensitive_values[c(5L, 6L, 9L, 10L)] <- c(
     5.4698000000000002,
@@ -189,7 +189,7 @@ local({
   streamed_fallback <- terra::rast(streamed_fallback_path)
   stopifnot(terra::same.crs(streamed_fallback, empty_raster))
 
-  # Julia delegates DTM geometry to lidR's raster layout. When a LAS bound is
+  # The original script delegates DTM geometry to lidR's raster layout. When a LAS bound is
   # exactly grid-aligned, lidR 4.3.2 retains an additional border cell instead
   # of applying ordinary floor/ceiling point-bound coverage.
   exact_boundary_cloud_path <- file.path(
@@ -202,7 +202,7 @@ local({
     Z = c(1, 1.1, 1.2, 1.3)
   ))
   writeLAS(exact_boundary_cloud, exact_boundary_cloud_path)
-  julia_layout <- lidR:::raster_layout(
+  lidr_layout <- lidR:::raster_layout(
     readLAScatalog(exact_boundary_cloud_path),
     1,
     start = c(0, 0),
@@ -214,10 +214,10 @@ local({
     "exact_boundary_source.tif"
   )
   exact_boundary_source <- terra::rast(
-    xmin = julia_layout$xmin,
-    xmax = julia_layout$xmax,
-    ymin = julia_layout$ymin,
-    ymax = julia_layout$ymax,
+    xmin = lidr_layout$xmin,
+    xmax = lidr_layout$xmax,
+    ymin = lidr_layout$ymin,
+    ymax = lidr_layout$ymax,
     resolution = 1
   )
   terra::values(exact_boundary_source) <- seq_len(
@@ -231,18 +231,18 @@ local({
   exact_boundary_result <- build_chunk_virtual_raster(
     list(exact_boundary_source_path),
     work_directory,
-    "JULIA-LAYOUT-SOURCE"
+    "LIDR-LAYOUT-SOURCE"
   )
-  julia_covering <- cover_virtual_raster(
+  lidr_covering <- cover_virtual_raster(
     exact_boundary_result,
     exact_boundary_cloud_path,
     1,
     work_directory,
-    "JULIA-LAYOUT",
+    "LIDR-LAYOUT",
     extent_mode = "lidr"
   )
   stopifnot(terra::compareGeom(
-    julia_covering,
+    lidr_covering,
     exact_boundary_source,
     crs = FALSE,
     ext = TRUE,
@@ -298,10 +298,10 @@ local({
   # recompute any value.
   border_source_path <- file.path(work_directory, "layout_border_source.tif")
   border_source <- terra::rast(
-    xmin = julia_layout$xmin,
-    xmax = julia_layout$xmax,
-    ymin = julia_layout$ymin,
-    ymax = julia_layout$ymax,
+    xmin = lidr_layout$xmin,
+    xmax = lidr_layout$xmax,
+    ymin = lidr_layout$ymin,
+    ymax = lidr_layout$ymax,
     resolution = 1
   )
   border_xy <- terra::xyFromCell(border_source, seq_len(terra::ncell(border_source)))
@@ -313,14 +313,14 @@ local({
   border_result <- build_chunk_virtual_raster(
     list(border_source_path),
     work_directory,
-    "JULIA-EMPTY-BORDER"
+    "LIDR-EMPTY-BORDER"
   )
   border_covering <- cover_virtual_raster(
     border_result,
     exact_boundary_cloud_path,
     1,
     work_directory,
-    "JULIA-EMPTY-BORDER",
+    "LIDR-EMPTY-BORDER",
     extent_mode = "lidr"
   )
   stopifnot(terra::compareGeom(

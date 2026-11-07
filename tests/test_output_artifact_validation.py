@@ -79,7 +79,7 @@ class OutputArtifactValidationTest(unittest.TestCase):
         }
         for name in sidecars:
             (self.output / name).write_text("<PAMDataset/>", encoding="utf-8")
-        (self.output / "forest_structure.validation.json").write_text(
+        (self.output / "raster.validation.json").write_text(
             "{}",
             encoding="utf-8",
         )

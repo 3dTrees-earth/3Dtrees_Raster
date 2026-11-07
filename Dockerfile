@@ -70,8 +70,8 @@ LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_
 COPY --from=untwine /tmp/untwine /opt/untwine
 RUN /opt/untwine/bin/untwine --version
 
-COPY src /opt/foreststructure
-RUN chmod -R a+rX /opt/foreststructure \
-    && chmod a+rx /opt/foreststructure/container_entrypoint.sh
+COPY src /opt/raster
+RUN chmod -R a+rX /opt/raster \
+    && chmod a+rx /opt/raster/container_entrypoint.sh
 
-ENTRYPOINT ["/opt/foreststructure/container_entrypoint.sh"]
+ENTRYPOINT ["/opt/raster/container_entrypoint.sh"]

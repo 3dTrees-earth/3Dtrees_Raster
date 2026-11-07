@@ -1,5 +1,5 @@
 local({
-  work_directory <- tempfile("foreststructure_vrt_test_")
+  work_directory <- tempfile("raster_vrt_test_")
   dir.create(work_directory)
   on.exit(unlink(work_directory, recursive = TRUE, force = TRUE), add = TRUE)
 

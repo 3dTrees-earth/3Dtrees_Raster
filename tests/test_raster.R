@@ -8,7 +8,7 @@ invalid_catalog_workers <- vapply(c("0", "11", "1.5", "not-a-number"), function(
       FALSE
     },
     error = function(error) grepl(
-      "FORESTSTRUCTURE_CATALOG_WORKERS must be an integer from 1 to 10",
+      "RASTER_CATALOG_WORKERS must be an integer from 1 to 10",
       conditionMessage(error),
       fixed = TRUE
     )
@@ -21,7 +21,7 @@ worker_budget_rejected <- tryCatch(
     FALSE
   },
   error = function(error) grepl(
-    "exceeds FORESTSTRUCTURE_THREADS",
+    "exceeds RASTER_THREADS",
     conditionMessage(error),
     fixed = TRUE
   )
@@ -65,7 +65,7 @@ impossible <- tryCatch(
     FALSE
   },
   error = function(error) grepl(
-    "FORESTSTRUCTURE_FLAG memory_budget_exceeded",
+    "RASTER_FLAG memory_budget_exceeded",
     conditionMessage(error),
     fixed = TRUE
   )

@@ -1,4 +1,4 @@
-Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1")
+Sys.setenv(RASTER_SOURCE_ONLY = "1")
 
 runtime_arguments <- commandArgs(trailingOnly = TRUE)
 arguments <- commandArgs(trailingOnly = FALSE)

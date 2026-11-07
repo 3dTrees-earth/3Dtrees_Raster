@@ -22,7 +22,7 @@ SUPPORTED_DIMENSIONS = (
     "PredInstance_FM",
     "PredInstance_RCT",
 )
-VALIDATION_REPORT = "forest_structure.validation.json"
+VALIDATION_REPORT = "raster.validation.json"
 # Per-dimension products live in one folder per kind, named <dimension>_<folder>.<ext>.
 COLLECTION_FILES = (
     ("tile_metrics", "results", "csv"),
@@ -169,7 +169,7 @@ def write_report(report: dict[str, Any], path: Path) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("dataset_id", help="Output prefix: foreststructure, or a legacy dataset ID")
+    parser.add_argument("dataset_id", help="Output prefix: raster, or a legacy dataset ID")
     parser.add_argument("output_directory", type=Path)
     parser.add_argument("--report", type=Path)
     arguments = parser.parse_args()

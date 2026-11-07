@@ -3,6 +3,6 @@
 # so an explicit command runs as given. Flags (or no arguments) keep the
 # `docker run IMAGE --point-cloud ...` shorthand for the production runner.
 case "${1:-}" in
-  "" | -*) exec Rscript /opt/foreststructure/raster.R "$@" ;;
+  "" | -*) exec Rscript /opt/raster/raster.R "$@" ;;
   *) exec "$@" ;;
 esac

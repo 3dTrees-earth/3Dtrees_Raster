@@ -14,28 +14,28 @@ build:
 		--tag "$(IMAGE)" .
 
 test:
-	FORESTSTRUCTURE_IMAGE="$(IMAGE)" bash tests/test_container.sh
+	RASTER_IMAGE="$(IMAGE)" bash tests/test_container.sh
 
 test-raster:
-	FORESTSTRUCTURE_SKIP_BUILD=1 FORESTSTRUCTURE_IMAGE="$(IMAGE)" bash tests/test_raster.sh
+	RASTER_SKIP_BUILD=1 RASTER_IMAGE="$(IMAGE)" bash tests/test_raster.sh
 
 .PHONY: test-production-contract
 test-production-contract:
 	docker run --rm --network none --cpus 2 --memory 1g --memory-swap 1g \
-		--entrypoint Rscript --volume "$(CURDIR)/src:/opt/foreststructure:ro" \
+		--entrypoint Rscript --volume "$(CURDIR)/src:/opt/raster:ro" \
 		--volume "$(CURDIR)/tests:/tests:ro" "$(IMAGE)" \
 		/tests/test_production_contract.R
-	FORESTSTRUCTURE_IMAGE="$(IMAGE)" \
+	RASTER_IMAGE="$(IMAGE)" \
 		bash tests/test_production_contract.sh
 
 .PHONY: test-projected-3d-crs
 test-projected-3d-crs:
-	FORESTSTRUCTURE_IMAGE="$(IMAGE)" \
+	RASTER_IMAGE="$(IMAGE)" \
 		bash tests/test_projected_3d_crs.sh
 
 .PHONY: test-parallel-production
 test-parallel-production:
-	FORESTSTRUCTURE_BASELINE_IMAGE="$(IMAGE)" bash tests/test_parallel_production.sh
+	RASTER_IMAGE="$(IMAGE)" bash tests/test_parallel_production.sh
 
 .PHONY: test-denoising
 test-denoising:
@@ -46,8 +46,8 @@ test-denoising:
 	docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g \
 		--entrypoint Rscript --volume "$(CURDIR):/workspace:ro" \
 		--workdir /workspace/src "$(IMAGE)" \
-		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("analysis.R"); source("denoising.R"); source("../tests/test_denoising.R"); source("../tests/test_height_policy.R"); source("../tests/test_segment_catalog_boundaries.R")'
-	FORESTSTRUCTURE_BASELINE_IMAGE="$(IMAGE)" bash tests/test_denoising.sh
+		-e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("analysis.R"); source("denoising.R"); source("../tests/test_denoising.R"); source("../tests/test_height_policy.R"); source("../tests/test_segment_catalog_boundaries.R")'
+	RASTER_IMAGE="$(IMAGE)" bash tests/test_denoising.sh
 
 test-original-companion-crs-fallback:
 	docker run --rm --network none \
@@ -62,7 +62,7 @@ test-artifact-promotion:
 		--volume "$(CURDIR):/repo:ro" \
 		--workdir /repo/src \
 		"$(IMAGE)" \
-		-e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("/repo/src/raster.R"); source("/repo/tests/test_artifact_promotion.R"); source("/repo/tests/test_companion_bounds.R"); source("/repo/tests/test_resource_validation.R")'
+		-e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("/repo/src/raster.R"); source("/repo/tests/test_artifact_promotion.R"); source("/repo/tests/test_companion_bounds.R"); source("/repo/tests/test_resource_validation.R")'
 
 .PHONY: test-voxel-counts
 test-voxel-counts:
@@ -70,7 +70,7 @@ test-voxel-counts:
 		--env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
 		--volume "$(CURDIR):/repo:ro" "$(IMAGE)" \
 		/repo/tests/test_voxel_counts.py
-	FORESTSTRUCTURE_IMAGE="$(IMAGE)" \
+	RASTER_IMAGE="$(IMAGE)" \
 		bash tests/test_voxel_counts.sh
 
 # Differential fixture acceptance: ordered LAZ and canonical COPC must match for
@@ -80,13 +80,13 @@ test-copc-all-instance-dimensions:
 		--env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
 		--volume "$(CURDIR):/repo:ro" "$(IMAGE)" \
 		/repo/tests/test_indexed_copc_bounds.py
-	FORESTSTRUCTURE_IMAGE="$(IMAGE)" \
+	RASTER_IMAGE="$(IMAGE)" \
 	bash tests/test_copc_all_instance_dimensions.sh
 
 # Canonical conversion: add OriginalPointIndex, build spatial COPC with Untwine,
 # validate point identity/index completeness, and publish only after validation.
 build-original-order-copc:
-	FORESTSTRUCTURE_IMAGE="$(IMAGE)" \
-	bash tests/build_original_order_copc.sh \
+	RASTER_IMAGE="$(IMAGE)" \
+	bash scripts/build_original_order_copc.sh \
 		"$(ORIGINAL_LAZ)" \
 		"$(COPC_LAZ)"

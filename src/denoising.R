@@ -58,7 +58,7 @@ prepare_denoising_mask <- function(point_cloud, point_order_dimension, options,
       !nzchar(point_order_dimension)) stop("denoising requires OriginalPointIndex")
   input_points <- point_count_from_las_header(point_cloud)
   assert_lidr_point_count_supported(input_points)
-  message("FORESTSTRUCTURE_STAGE stage=denoise status=started")
+  message("RASTER_STAGE stage=denoise status=started")
   if (dir.exists(work_directory)) stop("denoising work directory must be new")
   dir.create(work_directory, recursive = TRUE)
   if (!dir.exists(work_directory)) stop("cannot create denoising work directory")
@@ -106,7 +106,7 @@ prepare_denoising_mask <- function(point_cloud, point_order_dimension, options,
     coordinate_changes = FALSE)
   jsonlite::write_json(summary, file.path(work_directory, "summary.json"),
                        auto_unbox = TRUE, pretty = TRUE, digits = NA)
-  message(sprintf("FORESTSTRUCTURE_STAGE stage=denoise status=completed points=%.0f rejected=%.0f",
+  message(sprintf("RASTER_STAGE stage=denoise status=completed points=%.0f rejected=%.0f",
                   input_points, rejected_points))
   list(directory = work_directory, core_size = settings$denoise_window_size,
        origin = c(0, 0), point_order_dimension = point_order_dimension,

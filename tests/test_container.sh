@@ -2,13 +2,13 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image_name="${FORESTSTRUCTURE_IMAGE:-3dtrees-raster:test}"
-docker_limits=(--cpus "${FORESTSTRUCTURE_CPUS:-10}" --memory "${FORESTSTRUCTURE_MEMORY:-70g}" --memory-swap "${FORESTSTRUCTURE_MEMORY:-70g}")
+image_name="${RASTER_IMAGE:-3dtrees-raster:test}"
+docker_limits=(--cpus "${RASTER_CPUS:-10}" --memory "${RASTER_MEMORY:-70g}" --memory-swap "${RASTER_MEMORY:-70g}")
 input_dir="$(mktemp -d)"
 results_dir="$(mktemp -d)"
 cleanup() {
   local status="$?"
-  if [[ "${status}" != 0 || "${FORESTSTRUCTURE_KEEP_TEST_ROOT:-0}" == 1 ]]; then
+  if [[ "${status}" != 0 || "${RASTER_KEEP_TEST_ROOT:-0}" == 1 ]]; then
     echo "Container gate inputs: ${input_dir}"
     echo "Container gate results and logs: ${results_dir} (exit ${status})"
   else
@@ -17,7 +17,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-if [[ "${FORESTSTRUCTURE_SKIP_BUILD:-0}" != "1" ]]; then
+if [[ "${RASTER_SKIP_BUILD:-0}" != "1" ]]; then
   docker build --tag "${image_name}" "${repo_dir}"
 fi
 # Exercise the optional observational export in the standard publish gate too.
@@ -37,7 +37,7 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("analysis.R"); source("denoising.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R"); source("../tests/test_resource_scheduler.R"); source("../tests/test_resource_memory.R"); source("../tests/test_denoising.R"); source("../tests/test_height_policy.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("analysis.R"); source("denoising.R"); source("../tests/test_runtime_helpers.R"); source("../tests/test_catalog_scheduler.R"); source("../tests/test_resource_scheduler.R"); source("../tests/test_resource_memory.R"); source("../tests/test_denoising.R"); source("../tests/test_height_policy.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
@@ -51,42 +51,42 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("analysis.R"); source("../tests/test_failed_dataset_regressions.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("analysis.R"); source("../tests/test_failed_dataset_regressions.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("raster.R"); source("../tests/test_raster.R"); source("../tests/test_instance_read_groups.R"); source("../tests/test_resource_validation.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("raster.R"); source("../tests/test_raster.R"); source("../tests/test_instance_read_groups.R"); source("../tests/test_resource_validation.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("analysis.R"); source("../tests/test_adaptive_chunks.R"); source("../tests/test_chm_adaptive_edges.R"); source("../tests/test_segment_catalog_boundaries.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("analysis.R"); source("../tests/test_adaptive_chunks.R"); source("../tests/test_chm_adaptive_edges.R"); source("../tests/test_segment_catalog_boundaries.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("analysis.R"); source("../tests/test_dtm_coordinate_scale.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("analysis.R"); source("../tests/test_dtm_coordinate_scale.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("analysis.R"); source("../tests/test_raster_merge_semantics.R"); source("../tests/test_surface_rasters.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("analysis.R"); source("../tests/test_raster_merge_semantics.R"); source("../tests/test_surface_rasters.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY = "1"); source("analysis.R"); source("aoi_conversion.R"); source("../tests/test_aoi_conversion.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("analysis.R"); source("aoi_conversion.R"); source("../tests/test_aoi_conversion.R")'
 galaxy_command="$(docker run --rm --network none "${docker_limits[@]}" \
   --user "$(id -u):$(id -g)" "${image_name}" /bin/bash -c 'echo galaxy-command-ok')"
 if [[ "${galaxy_command}" != "galaxy-command-ok" ]]; then
@@ -101,5 +101,5 @@ if ! grep -Fq -- "--instance-dimension" "${results_dir}/runner_help.txt"; then
 fi
 
 # Also test the production entry point that is published by the default image.
-FORESTSTRUCTURE_SKIP_BUILD=1 FORESTSTRUCTURE_IMAGE="${image_name}" \
+RASTER_SKIP_BUILD=1 RASTER_IMAGE="${image_name}" \
   bash "${repo_dir}/tests/test_raster.sh"

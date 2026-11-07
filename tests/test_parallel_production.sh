@@ -3,19 +3,19 @@
 # directories, current sources at one reference worker and at 1/2/4 workers.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_dir="${FORESTSTRUCTURE_SOURCE_DIR:-${repo}/src}"
+source_dir="${RASTER_SOURCE_DIR:-${repo}/src}"
 source_dir="$(cd "${source_dir}" && pwd)"
-# The runtime image needs the bundled untwine (voxel COPC); make passes the
-# freshly built image, the pinned digest predates it.
-baseline="${FORESTSTRUCTURE_BASELINE_IMAGE:-sha256:3bb86542fda4dfc189a88f6611c8da962b7f524edb4e1a473afe2684d5baf1e4}"
-untwine="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
+# The runtime image is the image under test (make passes it); untwine for the
+# COPC fixture comes from the pinned SmartTile image.
+baseline="${RASTER_IMAGE:-3dtrees-raster:test}"
+untwine="${RASTER_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
 # Resolve mutable tags once; record and execute exactly these local image IDs.
 baseline="$(docker image inspect --format '{{.Id}}' "${baseline}")"
 untwine="$(docker image inspect --format '{{.Id}}' "${untwine}")"
-root="$(mktemp -d "${TMPDIR:-/tmp}/foreststructure-parallel.XXXXXX")"
+root="$(mktemp -d "${TMPDIR:-/tmp}/raster-parallel.XXXXXX")"
 finish() {
   local status="$?"
-  if [[ "${status}" != 0 || "${FORESTSTRUCTURE_KEEP_TEST_ROOT:-0}" == 1 ]]; then
+  if [[ "${status}" != 0 || "${RASTER_KEEP_TEST_ROOT:-0}" == 1 ]]; then
     echo "Parallel acceptance evidence: ${root} (exit ${status})"
   else
     rm -rf "${root}"
@@ -41,8 +41,8 @@ hashes = {str(p.relative_to(root / 'sources')): hashlib.sha256(p.read_bytes()).h
            for variant in ('baseline-w1', 'candidate-w1', 'candidate-w2', 'candidate-w4')]
 ), indent=2) + '\n')
 PY
-docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
-  --entrypoint Rscript -v "${repo}/tests:/tests:ro" -v "${root}/input:/generated" \
+docker run "${limits[@]}" --env RASTER_FIXTURE_EPSG=32632 \
+  --entrypoint Rscript -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts -v "${root}/input:/generated" \
   "${baseline}" /tests/generate_test_cloud.R \
   /generated/patch.laz /generated/unused_aoi.geojson distinct-dimensions \
   > "${root}/fixture.log" 2>&1
@@ -68,11 +68,11 @@ ring = [[1002, 2003], [1078, 2003], [1078, 2077], [1002, 2077], [1002, 2003]]
 with open("/data/aoi.geojson", "w") as handle:
     json.dump(dict(type="Polygon", coordinates=[ring]), handle)
 ' >> "${root}/fixture.log" 2>&1
-docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
+docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
   -v "${root}/input:/data" "${baseline}" \
-  /tests/add_original_point_index.py /data/source.laz /data/indexed.laz \
+  /scripts/add_original_point_index.py /data/source.laz /data/indexed.laz \
   >> "${root}/fixture.log" 2>&1
-docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
+docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
   -v "${root}/input:/data" "${baseline}" \
   /tests/generate_high_ordinal_copc_input.py /data/indexed.laz /data/high.laz \
   >> "${root}/fixture.log" 2>&1
@@ -80,7 +80,7 @@ docker run "${limits[@]}" --entrypoint untwine -v "${root}/input:/data" \
   "${untwine}" -i /data/high.laz -o /data/input.copc.laz \
   >> "${root}/fixture.log" 2>&1
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
-  docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
+  docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
     -v "${root}/input:/data" "${baseline}" /tests/compare_las_point_order.py \
     /data/source.laz /data/input.copc.laz "/data/order_${dimension}.json" \
     --dimension "${dimension}" >> "${root}/fixture.log" 2>&1
@@ -109,17 +109,17 @@ run_case() {
   local case_dir="${root}/${name}"
   mkdir -p "${case_dir}/output" "${case_dir}/scratch"
   # Compare worker counts under one current scientific policy/source snapshot.
-  local mount=(-v "${root}/sources:/opt/foreststructure:ro") aoi=()
+  local mount=(-v "${root}/sources:/opt/raster:ro") aoi=()
   if [[ "${scope}" == aoi ]]; then aoi=(--aoi-geojson /input/aoi.geojson); fi
   local command=(docker run "${limits[@]}" "${mount[@]}" \
     --entrypoint bash --workdir /output --env TMPDIR=/scratch \
     --env PYTHONDONTWRITEBYTECODE=1 --env GALAXY_SLOTS=4 --env GALAXY_MEMORY_MB=4096 \
-    --env FORESTSTRUCTURE_THREADS=4 --env "FORESTSTRUCTURE_CATALOG_WORKERS=${workers}" \
+    --env RASTER_THREADS=4 --env "RASTER_CATALOG_WORKERS=${workers}" \
     -v "${root}/input:/input:ro" -v "${case_dir}/output:/output" \
     -v "${case_dir}/scratch:/scratch" -v "${case_dir}:/case" \
     -v "${root}/record_resources.py:/record_resources.py:ro" "${baseline}" -c \
     '"$@"; status=$?; python3 /record_resources.py "$status" || exit 99; exit "$status"' \
-    bash Rscript /opt/foreststructure/raster.R \
+    bash Rscript /opt/raster/raster.R \
     --denoise none --point-cloud /input/input.copc.laz --memory-budget-gib 3.4 \
     --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM \
     --target-chunk-points 5000 --voxel-count-chunk-points 250000 "${aoi[@]}")
@@ -131,7 +131,7 @@ PY
   local started="${SECONDS}"
   "${command[@]}" > "${case_dir}/run.log" 2>&1
   echo "$((SECONDS - started))" > "${case_dir}/elapsed_seconds.txt"
-  python3 "${repo}/tests/validate_output_artifacts.py" foreststructure \
+  python3 "${repo}/tests/validate_output_artifacts.py" raster \
     "${case_dir}/output" --report "${case_dir}/artifact_validation.json"
   test -z "$(find "${case_dir}/scratch" -mindepth 1 -print -quit)"
 }
@@ -140,6 +140,6 @@ for scope in full aoi; do
   for workers in 1 2 4; do run_case "${scope}" candidate "${workers}"; done
 done
 docker run "${limits[@]}" --entrypoint python3 \
-  -v "${repo}/tests:/tests:ro" -v "${root}:/data" "${baseline}" \
+  -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts -v "${root}:/data" "${baseline}" \
   /tests/compare_parallel_production.py /data
 echo 'Parallel production acceptance passed: current-source reference versus 1/2/4 workers, full extent and AOI'

@@ -57,7 +57,7 @@ def validate(metadata_path: Path, csv_path: Path, point_count: int) -> dict:
 
     # The index stays on disk, even if most observations were rejected. A set
     # of all source IDs in Python would be unbounded for a large merged COPC.
-    with tempfile.TemporaryDirectory(prefix="foreststructure_noise_validation_") as scratch:
+    with tempfile.TemporaryDirectory(prefix="raster_noise_validation_") as scratch:
         with sqlite3.connect(str(Path(scratch) / "ids.sqlite")) as database:
             database.execute("PRAGMA cache_size=-8192")
             database.execute("PRAGMA temp_store=FILE")

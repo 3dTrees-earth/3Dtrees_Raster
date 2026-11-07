@@ -71,9 +71,9 @@ def main() -> None:
     supported_lower, supported_upper = fixture["expected_supported_height_m"]
     extreme_lower = fixture["expected_high_outlier_minimum_height_m"]
     for name, output in outputs.items():
-        provenance = read_json(output / "foreststructure_run.json")
+        provenance = read_json(output / "raster_run.json")
         assert provenance["source_point_cloud_sha256"] == source_hash
-        performance = csv_rows(output / "foreststructure_performance.csv")[0]
+        performance = csv_rows(output / "raster_performance.csv")[0]
         scientific = provenance["scientific_parameters"]
         exact_text = performance["observed_maximum_voxel_height_m_exact"]
         assert isinstance(scientific["observed_maximum_voxel_height_m_exact"], str)
@@ -99,14 +99,14 @@ def main() -> None:
             temporary_disk_peak_mib=provenance["temporary_disk_peak_mib"],
             analysis_seconds=float(performance["total_seconds"]),
             denoise_seconds=float(performance.get("denoise_seconds", 0)),
-            voxel_seconds=read_json(output / "foreststructure_voxel_counts.json")["elapsed_seconds"],
+            voxel_seconds=read_json(output / "raster_voxel_counts.json")["elapsed_seconds"],
         )
-    assert not (outputs["none"] / "foreststructure_noise_points.csv").exists()
-    assert not (outputs["none"] / "foreststructure_denoising.json").exists()
+    assert not (outputs["none"] / "raster_noise_points.csv").exists()
+    assert not (outputs["none"] / "raster_denoising.json").exists()
     masks = []
     for name in ("knn-w1", "knn-w2"):
         output = outputs[name]
-        rows = csv_rows(output / "foreststructure_noise_points.csv")
+        rows = csv_rows(output / "raster_noise_points.csv")
         assert rows and set(rows[0]) == {"OriginalPointIndex"}
         mask = [int(row["OriginalPointIndex"]) for row in rows]
         assert len(mask) == len(set(mask)), "Noise mask contains duplicate source indices"
@@ -117,7 +117,7 @@ def main() -> None:
         # bound the share; the tall crown must survive as a crown (checked below).
         assert len(mask) <= 0.05 * fixture["points"], "kNN filter flagged more than 5 % of the cloud"
         masks.append(sorted(mask))
-        metadata = read_json(output / "foreststructure_denoising.json")
+        metadata = read_json(output / "raster_denoising.json")
         assert metadata["point_count"] == fixture["points"]
         assert metadata["rejected_points"] == len(mask)
         assert metadata["retained_points"] + len(mask) == fixture["points"]
@@ -130,7 +130,7 @@ def main() -> None:
         assert metadata["enabled"] is True
         assert metadata["method"] == "global_knn_distance"
         assert sum(part["core_points"] for part in metadata["partitions"]) == fixture["points"]
-        provenance = read_json(output / "foreststructure_run.json")
+        provenance = read_json(output / "raster_run.json")
         assert provenance["point_order_dimension"] == "OriginalPointIndex"
         assert set(provenance["processed_instance_dimensions"]) == set(fixture["supported_instance_ids"])
         assert provenance["catalog_workers"] == (1 if name == "knn-w1" else 2)
@@ -138,24 +138,24 @@ def main() -> None:
         assert provenance["denoising"]["source_sha256"] == source_hash
         # One KD-tree pass: the denoise stage schedules no catalog windows.
         assert not [plan for plan in provenance["resource_admission"] if plan["phase"] == "denoise"]
-        voxel = read_json(output / "foreststructure_voxel_counts.json")
+        voxel = read_json(output / "raster_voxel_counts.json")
         assert voxel["point_accounting"]["read"] == fixture["points"]
         assert voxel["dtm"]["denoising"] == provenance["denoising"]
         assert voxel["noise_mask_applied_to_counts"] is False
         # Raw export retains the high point rejected by the science mask. It is
         # normalized by this run's terrain, so compare its exact resulting bin.
         x, y, z = fixture["high_outlier"]["xyz"]
-        terrain = gdal.Open(str(output / "foreststructure_dtm.tif"))
+        terrain = gdal.Open(str(output / "raster_dtm.tif"))
         transform = terrain.GetGeoTransform()
         col, row = int((x - transform[0]) / transform[1]), int((y - transform[3]) / transform[5])
         elevation = float(terrain.GetRasterBand(1).ReadAsArray(col, row, 1, 1)[0, 0])
         height_lower = np.floor((z - elevation) / 0.5) * 0.5
-        matches = [record for record in csv_rows(output / "foreststructure_voxel_counts.csv")
+        matches = [record for record in csv_rows(output / "raster_voxel_counts.csv")
                    if float(record["x_center"]) == np.floor(x / 0.5) * 0.5 + 0.25
                    and float(record["y_center"]) == np.floor(y / 0.5) * 0.5 + 0.25
                    and float(record["height_lower_m"]) == height_lower]
         assert len(matches) == 1 and int(matches[0]["point_count"]) == 1, (name, matches)
-        assert supported_lower < maximum(output / "foreststructure_chm.tif") < supported_upper
+        assert supported_lower < maximum(output / "raster_chm.tif") < supported_upper
         for dimension, target_id in fixture["supported_instance_ids"].items():
             diagnostics_name = f"segment_diagnostics/{dimension}_segment_diagnostics.csv"
             before = csv_rows(outputs["none"] / diagnostics_name)
@@ -168,12 +168,12 @@ def main() -> None:
             assert float(selected_before["apex_z"]) > extreme_lower
             assert supported_lower < float(selected_after["apex_z"]) < supported_upper
     assert masks[0] == masks[1], "Worker/adaptive execution changed scientific rejection mask"
-    summaries = [read_json(outputs[name] / "foreststructure_denoising.json")
+    summaries = [read_json(outputs[name] / "raster_denoising.json")
                  for name in ("knn-w1", "knn-w2")]
     for summary in summaries:
         assert summary.pop("elapsed_seconds") >= 0
     assert summaries[0] == summaries[1]
-    assert maximum(outputs["none"] / "foreststructure_chm.tif") > extreme_lower
+    assert maximum(outputs["none"] / "raster_chm.tif") > extreme_lower
     worker_count = compare_products(outputs["knn-w1"], outputs["knn-w2"])
     report = dict(status="valid", source_sha256=source_hash, input_points=fixture["points"],
         rejected_points=len(masks[0]), supported_crown_points=len(fixture["supported_crown_indices"]),

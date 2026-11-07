@@ -108,7 +108,7 @@ admitted_task_wave <- function(costs, remaining, workers, available_bytes) {
   candidates <- head(remaining, max(1L, as.integer(workers)))
   fits <- cumsum(costs[candidates]) <= available_bytes
   if (!any(fits)) {
-    stop(sprintf(paste0("FORESTSTRUCTURE_FLAG memory_budget_exceeded: one spatial task ",
+    stop(sprintf(paste0("RASTER_FLAG memory_budget_exceeded: one spatial task ",
       "requires an estimated %.3f GiB with %.3f GiB available; geometry was not changed"),
       costs[[candidates[[1]]]] / 1024^3, max(0, available_bytes) / 1024^3))
   }

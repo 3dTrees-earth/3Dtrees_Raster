@@ -19,7 +19,7 @@ DTM_CATALOG_SELECTION <- "xyz"
 SEGMENT_CATALOG_BASE_SELECTION <- "xyzrn"
 SEGMENT_SELECTION <- "xyz"
 
-# COPC stores points in spatial hierarchy order, while the original ForestStructure script
+# COPC stores points in spatial hierarchy order, while the original forest-structure script
 # implicitly resolves several equal-value ties by input record order.  Sort each
 # independently read chunk by the persisted source ordinal before applying any
 # order-sensitive DTM, CHM, segmentation, or tile operation.  Plain LAS/LAZ runs
@@ -74,10 +74,10 @@ validated_catalog_worker_count <- function(value, thread_budget) {
   workers <- suppressWarnings(as.integer(value))
   if (length(workers) != 1L || is.na(workers) ||
       suppressWarnings(as.numeric(value)) != workers || workers < 1L || workers > 10L) {
-    stop("FORESTSTRUCTURE_CATALOG_WORKERS must be an integer from 1 to 10")
+    stop("RASTER_CATALOG_WORKERS must be an integer from 1 to 10")
   }
   if (workers > thread_budget) {
-    stop("FORESTSTRUCTURE_CATALOG_WORKERS exceeds FORESTSTRUCTURE_THREADS")
+    stop("RASTER_CATALOG_WORKERS exceeds RASTER_THREADS")
   }
   workers
 }
@@ -111,7 +111,7 @@ assert_memory_budget <- function(required_bytes, parameters, operation,
   }
   stop(sprintf(
     paste0(
-      "FORESTSTRUCTURE_FLAG %s: %s requires an estimated %.3f GiB ",
+      "RASTER_FLAG %s: %s requires an estimated %.3f GiB ",
       "at %.3f GiB RSS with a %.3f GiB internal budget"
     ),
     flag,
@@ -129,7 +129,7 @@ assert_loaded_dimensions <- function(las, allowed, phase) {
   if (length(unexpected) > 0L || length(missing) > 0L) {
     stop(sprintf(
       paste0(
-        "FORESTSTRUCTURE_FLAG selective_read_violation: %s loaded [%s]; ",
+        "RASTER_FLAG selective_read_violation: %s loaded [%s]; ",
         "allowed [%s]"
       ),
       phase,
@@ -182,7 +182,7 @@ assert_lidr_point_count_supported <- function(point_count) {
   if (point_count > MAX_LIDR_POINT_COUNT) {
     stop(sprintf(
       paste(
-        "FORESTSTRUCTURE_FLAG unsupported_lidr_point_count:",
+        "RASTER_FLAG unsupported_lidr_point_count:",
         "single point-cloud file contains %.0f points; lidR/R supports at most %.0f"
       ),
       point_count,
@@ -1206,11 +1206,11 @@ stream_virtual_raster <- function(result, output_path, label,
   convert_raster_format(output_path, label)
 }
 
-# FORESTSTRUCTURE_RASTER_FORMAT=COG rewrites a finished GeoTIFF as a Cloud
+# RASTER_FORMAT=COG rewrites a finished GeoTIFF as a Cloud
 # Optimized GeoTIFF; the CRS is aligned first because editing a COG in place
 # would break its layout.
 convert_raster_format <- function(path, label, resampling = "AVERAGE") {
-  if (!identical(Sys.getenv("FORESTSTRUCTURE_RASTER_FORMAT", "GTiff"), "COG")) {
+  if (!identical(Sys.getenv("RASTER_FORMAT", "GTiff"), "COG")) {
     return(invisible(path))
   }
   partial_path <- paste0(path, ".partial.tif")
@@ -1460,12 +1460,12 @@ write_global_dtm <- function(point_cloud, output_path, work_directory,
 # A DTM window holding more points than this is thinned for the ground filter,
 # which crashes on about 640 M points and only needs the low ones.
 dtm_thinning_points <- function() {
-  as.numeric(Sys.getenv("FORESTSTRUCTURE_DTM_THINNING_POINTS", "3e8"))
+  as.numeric(Sys.getenv("RASTER_DTM_THINNING_POINTS", "3e8"))
 }
 
 # Below this mean density voxels hold too few points for reduction to pay off.
 reduction_density_points_m2 <- function() {
-  as.numeric(Sys.getenv("FORESTSTRUCTURE_REDUCTION_DENSITY", "1e4"))
+  as.numeric(Sys.getenv("RASTER_REDUCTION_DENSITY", "1e4"))
 }
 
 dense_point_cloud <- function(point_cloud) {
@@ -1600,7 +1600,7 @@ record_chunk_observation <- function(directory, phase, point_count,
   if (oversized) {
     message(sprintf(
       paste0(
-        "FORESTSTRUCTURE_FLAG adaptive_chunk_oversize: %s chunk contained ",
+        "RASTER_FLAG adaptive_chunk_oversize: %s chunk contained ",
         "%.0f points above the approximate %.0f-point target"
       ),
       phase,
@@ -3242,7 +3242,7 @@ run_analysis <- function(parameters) {
   }
   run_work_directory <- file.path(
     work_root,
-    sprintf(".%s_forest_structure_%d", parameters$dataset_id, Sys.getpid())
+    sprintf(".%s_raster_%d", parameters$dataset_id, Sys.getpid())
   )
   dir.create(run_work_directory, recursive = TRUE, showWarnings = FALSE)
   temporary_disk_peak_bytes <- temporary_directory_bytes(run_work_directory)
@@ -3317,7 +3317,7 @@ run_analysis <- function(parameters) {
     catalog_workers,
     thread_budget
   ))
-  message("FORESTSTRUCTURE_STAGE stage=grid status=started")
+  message("RASTER_STAGE stage=grid status=started")
   grid_started <- proc.time()[["elapsed"]]
   aoi <- read_analysis_footprint(parameters$point_cloud, parameters$aoi)
   if (identical(aoi$source, "point_cloud_extent")) {
@@ -3333,9 +3333,9 @@ run_analysis <- function(parameters) {
   )
   grid_seconds <- elapsed_seconds(grid_started)
   message(sprintf("Optimized grid contains %d complete Analysis Tiles", nrow(tiles)))
-  message("FORESTSTRUCTURE_STAGE stage=grid status=completed")
+  message("RASTER_STAGE stage=grid status=completed")
 
-  message("FORESTSTRUCTURE_STAGE stage=dtm status=started")
+  message("RASTER_STAGE stage=dtm status=started")
   dtm_started <- proc.time()[["elapsed"]]
   dtm_path <- paths$dtm
   reduce_points <- isTRUE(parameter_or(parameters, "reduce_points", FALSE))
@@ -3372,14 +3372,14 @@ run_analysis <- function(parameters) {
     temporary_disk_peak_bytes,
     temporary_directory_bytes(run_work_directory)
   )
-  message("FORESTSTRUCTURE_STAGE stage=dtm status=completed")
+  message("RASTER_STAGE stage=dtm status=completed")
 
   if (isTRUE(parameter_or(parameters, "export_voxel_counts", FALSE))) {
-    message("FORESTSTRUCTURE_STAGE stage=voxel_counts status=started")
+    message("RASTER_STAGE stage=voxel_counts status=started")
     voxel_export <- write_voxel_counts(parameters, dtm_path, aoi, run_work_directory)
     temporary_disk_peak_bytes <- max(temporary_disk_peak_bytes,
       temporary_directory_bytes(run_work_directory) + voxel_export$temporary_disk_bytes)
-    message("FORESTSTRUCTURE_STAGE stage=voxel_counts status=completed")
+    message("RASTER_STAGE stage=voxel_counts status=completed")
   }
 
   instance_dimensions <- select_instance_dimensions(
@@ -3389,15 +3389,15 @@ run_analysis <- function(parameters) {
   analysis_cloud <- parameters$point_cloud
   analysis_policy <- parameters$memory_policy
   if (reduce_points && dense_point_cloud(parameters$point_cloud)) {
-    message("FORESTSTRUCTURE_STAGE stage=point_reduction status=started")
+    message("RASTER_STAGE stage=point_reduction status=started")
     analysis_cloud <- reduced_analysis_cloud(parameters, tiles, dtm_path,
                                              instance_dimensions, run_work_directory)
     if (!is.null(analysis_policy)) analysis_policy$source <- analysis_cloud
     parameters$dimension_point_clouds <- list()
-    message("FORESTSTRUCTURE_STAGE stage=point_reduction status=completed")
+    message("RASTER_STAGE stage=point_reduction status=completed")
   }
 
-  message("FORESTSTRUCTURE_STAGE stage=chm status=started")
+  message("RASTER_STAGE stage=chm status=started")
   chm_started <- proc.time()[["elapsed"]]
   # The DSM is a product of the production runner only.
   surface_rasters <- isTRUE(parameter_or(parameters, "surface_rasters", FALSE))
@@ -3430,7 +3430,7 @@ run_analysis <- function(parameters) {
     temporary_disk_peak_bytes,
     temporary_directory_bytes(run_work_directory)
   )
-  message("FORESTSTRUCTURE_STAGE stage=chm status=completed")
+  message("RASTER_STAGE stage=chm status=completed")
 
   parameters$observed_maximum_voxel_height_m <- chm_observations$maximum_voxel_height
   parameters$metric_height_upper_m <- metric_height_reference(
@@ -3441,7 +3441,7 @@ run_analysis <- function(parameters) {
     parameters$metric_height_upper_m,
     if (is.finite(parameters$maximum_height)) as.character(parameters$maximum_height) else "none"))
 
-  message("FORESTSTRUCTURE_STAGE stage=segmentation status=started")
+  message("RASTER_STAGE stage=segmentation status=started")
   segment_started <- proc.time()[["elapsed"]]
   segments_by_dimension <- list()
   segment_observation_summaries <- list()
@@ -3523,10 +3523,10 @@ run_analysis <- function(parameters) {
   segment_observations <- combine_chunk_observations(
     segment_observation_summaries
   )
-  message("FORESTSTRUCTURE_STAGE stage=segmentation status=completed")
+  message("RASTER_STAGE stage=segmentation status=completed")
 
   edge_flags <- compute_edge_flags(tiles, parameters$tile_size)
-  message("FORESTSTRUCTURE_STAGE stage=tiles status=started")
+  message("RASTER_STAGE stage=tiles status=started")
   tile_started <- proc.time()[["elapsed"]]
   tile_indices <- seq_len(nrow(tiles))
   tile_plan <- tile_worker_plan(thread_budget, length(tile_indices), catalog_workers)
@@ -3567,9 +3567,9 @@ run_analysis <- function(parameters) {
   base_result <- collect_tile_rows(tile_indices, calculate_row, tile_workers,
     task_windows = tile_windows, memory_policy = analysis_policy)
   tile_seconds <- elapsed_seconds(tile_started)
-  message("FORESTSTRUCTURE_STAGE stage=tiles status=completed")
+  message("RASTER_STAGE stage=tiles status=completed")
 
-  message("FORESTSTRUCTURE_STAGE stage=output status=started")
+  message("RASTER_STAGE stage=output status=started")
   output_started <- proc.time()[["elapsed"]]
   output_dimensions <- if (length(instance_dimensions) == 0) {
     list(NULL)
@@ -3639,6 +3639,6 @@ run_analysis <- function(parameters) {
       paths$performance
     )
   }
-  message("FORESTSTRUCTURE_STAGE stage=output status=completed")
+  message("RASTER_STAGE stage=output status=completed")
   invisible(output_paths)
 }

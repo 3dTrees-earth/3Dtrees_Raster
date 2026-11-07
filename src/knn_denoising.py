@@ -69,7 +69,7 @@ def main() -> None:
         n = reader.header.point_count
     required = n * BYTES_PER_POINT + 512 * 1024**2
     if required > args.memory_budget_bytes:
-        raise SystemExit(f"FORESTSTRUCTURE_FLAG memory_budget_exceeded: the kNN filter needs "
+        raise SystemExit(f"RASTER_FLAG memory_budget_exceeded: the kNN filter needs "
                          f"{required / 1024**3:.1f} GiB for {n} points, "
                          f"{args.memory_budget_bytes / 1024**3:.1f} GiB available")
     xyz, ids = read_points(args.input, args.order_dimension)

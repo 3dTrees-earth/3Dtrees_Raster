@@ -6,7 +6,7 @@ original R workflow is order-sensitive in a few tie-breaking operations, so the
 conversion must carry the source record position along with every point.  This
 helper performs only that reversible preparation step: it copies every source
 dimension unchanged, adds ``OriginalPointIndex``, and deliberately places the
-dimensions needed by ForestStructure inside lidR's first nine selectively
+dimensions needed by the raster tool inside lidR's first nine selectively
 readable ExtraBytes slots.
 """
 

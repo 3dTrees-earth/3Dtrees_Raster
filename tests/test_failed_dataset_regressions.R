@@ -115,7 +115,7 @@ unsupported <- tryCatch(
     FALSE
   },
   error = function(error) grepl(
-    "FORESTSTRUCTURE_FLAG unsupported_lidr_point_count",
+    "RASTER_FLAG unsupported_lidr_point_count",
     conditionMessage(error),
     fixed = TRUE
   )

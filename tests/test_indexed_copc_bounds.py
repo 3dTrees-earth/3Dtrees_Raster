@@ -9,7 +9,7 @@ import importlib.util
 import laspy
 import numpy as np
 
-VALIDATOR = Path(__file__).resolve().parents[1] / 'tests/validate_indexed_copc_streaming.py'
+VALIDATOR = Path(__file__).resolve().parents[1] / 'scripts/validate_indexed_copc_streaming.py'
 
 class BoundsValidation(unittest.TestCase):
     def test_crs_serializations_preserve_meaning_and_axis_order(self):

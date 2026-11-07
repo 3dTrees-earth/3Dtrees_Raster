@@ -56,7 +56,7 @@ def compare_raster(expected: Path, actual: Path) -> dict:
 
 
 def science_files(directory: Path) -> set[str]:
-    return {path.name for path in directory.iterdir()
+    return {str(path.relative_to(directory)) for path in directory.rglob('*')
             if path.suffix in ('.csv', '.geojson', '.tif') and 'performance' not in path.name}
 
 
@@ -66,7 +66,8 @@ def compare_case(root: Path, scope: str, workers: int, point_count: int) -> dict
     actual = case / 'output'
     names = science_files(expected)
     assert names == science_files(actual), case
-    assert len(names) == 14, (case, sorted(names))  # 3 label sets, 4 rasters, voxel CSV.
+    # 3 instance dimensions x 3 tables, DTM, CHM, DSM, voxel CSV, voxel raster and validity.
+    assert len(names) == 15, (case, sorted(names))
     checks = {}
     for name in sorted(names):
         source, candidate = expected / name, actual / name
@@ -78,8 +79,8 @@ def compare_case(root: Path, scope: str, workers: int, point_count: int) -> dict
             checks[name] = dict(status='valid', comparison='complete parsed equality')
         else:
             checks[name] = compare_raster(source, candidate)
-    baseline = read_json(expected / 'foreststructure_run.json')
-    provenance = read_json(actual / 'foreststructure_run.json')
+    baseline = read_json(expected / 'raster_run.json')
+    provenance = read_json(actual / 'raster_run.json')
     for field in ('status', 'source_point_cloud_sha256', 'point_order_dimension',
                   'processed_instance_dimensions', 'scientific_parameters',
                   'source_crs_wkt', 'raster_crs_wkt', 'footprint_source'):
@@ -105,8 +106,8 @@ def compare_case(root: Path, scope: str, workers: int, point_count: int) -> dict
     assert provenance['footprint_source'] == (
         'point_cloud_extent' if scope == 'full' else baseline['footprint_source']
     ), case
-    expected_counts = read_json(expected / 'foreststructure_voxel_counts.json')
-    counts = read_json(actual / 'foreststructure_voxel_counts.json')
+    expected_counts = read_json(expected / 'raster_voxel_counts.json')
+    counts = read_json(actual / 'raster_voxel_counts.json')
     # Paths, hashes of raster encodings and resource estimates can legitimately
     # differ. The voxel semantics, accounting and geometry cannot.
     for field in ('metric', 'units', 'voxel_size_m', 'point_accounting',

@@ -1,4 +1,4 @@
-# DSM: source analysis.R with FORESTSTRUCTURE_SOURCE_ONLY=1 first.
+# DSM: source analysis.R with RASTER_SOURCE_ONLY=1 first.
 
 # Native DSM: the highest absolute point Z per CHM cell, from the points the
 # CHM uses, keyed by the voxel-column centres the CHM is rasterized from.

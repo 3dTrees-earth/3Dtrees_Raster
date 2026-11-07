@@ -21,8 +21,8 @@ permissions:
 
 env:
   IMAGE_NAME: ghcr.io/3dtrees-earth/3dtrees_raster
-  FORESTSTRUCTURE_CPUS: "4"
-  FORESTSTRUCTURE_MEMORY: 12g
+  RASTER_CPUS: "4"
+  RASTER_MEMORY: 12g
 
 jobs:
   test:

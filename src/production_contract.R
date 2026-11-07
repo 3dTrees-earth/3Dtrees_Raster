@@ -26,7 +26,7 @@ production_resources <- function(memory_budget = NULL, env = Sys.getenv,
         is.finite(value) && value >= 2^60) return(Inf)
     if (length(value) == 1L && is.finite(value) && value > 0) value else Inf
   }
-  threads <- min(declared("GALAXY_SLOTS", TRUE), declared("FORESTSTRUCTURE_THREADS", TRUE))
+  threads <- min(declared("GALAXY_SLOTS", TRUE), declared("RASTER_THREADS", TRUE))
   cpu_path <- file.path(cgroup_root, "cpu.max")
   if (file.exists(cpu_path)) {
     fields <- strsplit(readLines(cpu_path, warn = FALSE, n = 1L), " +")[[1]]

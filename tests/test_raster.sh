@@ -2,22 +2,22 @@
 set -euo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image_name="${FORESTSTRUCTURE_IMAGE:-3dtrees-raster:test}"
+image_name="${RASTER_IMAGE:-3dtrees-raster:test}"
 test_root="$(mktemp -d)"
 trap 'rm -rf "${test_root}"' EXIT
 mkdir -p "${test_root}/input" "${test_root}/output" "${test_root}/work"
 
-if [[ "${FORESTSTRUCTURE_SKIP_BUILD:-0}" != "1" ]]; then
+if [[ "${RASTER_SKIP_BUILD:-0}" != "1" ]]; then
   docker build --tag "${image_name}" "${repo_dir}"
 fi
-docker run --rm --network none --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 --user "$(id -u):$(id -g)" --entrypoint Rscript --volume "${repo_dir}/tests:/tests:ro" --volume "${test_root}/input:/generated" "${image_name}" /tests/generate_test_cloud.R /generated/high_ordinal.laz /generated/aoi.geojson
+docker run --rm --network none --env RASTER_FIXTURE_EPSG=32632 --user "$(id -u):$(id -g)" --entrypoint Rscript --volume "${repo_dir}/tests:/tests:ro" --volume "${test_root}/input:/generated" "${image_name}" /tests/generate_test_cloud.R /generated/high_ordinal.laz /generated/aoi.geojson
 
 run_candidate() {
   local bucket_count="${1:-64}"
   local sensor="${2:-ULS}"
   local country="${3:-Test}"
   local memory_budget_gib="${4:-3}"
-  docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --env "FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT=${bucket_count}" --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${test_root}/output:/out" --volume "${test_root}/work:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 --output-dir /out --temp-dir /work --memory-budget-gib "${memory_budget_gib}" --sensor "${sensor}" --country "${country}" --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
+  docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --env "RASTER_SEGMENT_BUCKET_COUNT=${bucket_count}" --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${test_root}/output:/out" --volume "${test_root}/work:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 --output-dir /out --temp-dir /work --memory-budget-gib "${memory_budget_gib}" --sensor "${sensor}" --country "${country}" --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 }
 
 test "$(docker run --rm --network none "${image_name}" --version)" = "1.0.0"
@@ -74,7 +74,7 @@ jq -e '.memory_budget_gib == 3.4' "${test_root}/output/150_run.json" >/dev/null
 sor_output="${test_root}/sor_output"
 sor_work="${test_root}/sor_work"
 mkdir -p "${sor_output}" "${sor_work}"
-docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${sor_output}:/out" --volume "${sor_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 152 --output-dir /out --temp-dir /work --memory-budget-gib 3 --raster-format GTiff --denoise knn --instance-dimension PredInstance,PredInstance_SAT 2>&1 | tee "${test_root}/sor.log"
+docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${sor_output}:/out" --volume "${sor_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 152 --output-dir /out --temp-dir /work --memory-budget-gib 3 --raster-format GTiff --denoise knn --instance-dimension PredInstance,PredInstance_SAT 2>&1 | tee "${test_root}/sor.log"
 test "$(head -n 1 "${sor_output}/152_noise_points.csv")" = "OriginalPointIndex"
 jq -e '.enabled == true' "${sor_output}/152_denoising.json" >/dev/null
 test "$(raster_layouts "${sor_output}" 152_dtm.tif 152_chm.tif 152_dsm.tif 152_voxel_counts.tif 152_voxel_counts_validity.tif | sort -u)" = "GTiff"
@@ -92,7 +92,7 @@ failure_output="${test_root}/failure_output"
 failure_work="${test_root}/failure_work"
 mkdir -p "${failure_output}" "${failure_work}"
 set +e
-docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${failure_output}:/out" --volume "${failure_work}:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 151 --output-dir /out --temp-dir /work --memory-budget-gib 0.0001 --instance-dimension PredInstance > "${test_root}/budget_failure.log" 2>&1
+docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${failure_output}:/out" --volume "${failure_work}:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 151 --output-dir /out --temp-dir /work --memory-budget-gib 0.0001 --instance-dimension PredInstance > "${test_root}/budget_failure.log" 2>&1
 failure_status="$?"
 set -e
 if [[ "${failure_status}" == "0" ]]; then
@@ -108,7 +108,7 @@ test -z "$(find "${failure_work}" -mindepth 1 -print -quit)"
 default_output="${test_root}/default_dimensions_output"
 default_work="${test_root}/default_dimensions_work"
 mkdir -p "${default_output}" "${default_work}"
-docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env FORESTSTRUCTURE_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${default_output}:/out" --volume "${default_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 153 --output-dir /out --temp-dir /work --memory-budget-gib 3 --sensor NA --country NA 2>&1 | tee "${test_root}/default_dimensions.log"
+docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${default_output}:/out" --volume "${default_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 153 --output-dir /out --temp-dir /work --memory-budget-gib 3 --sensor NA --country NA 2>&1 | tee "${test_root}/default_dimensions.log"
 jq -e '.instance_dimension_selection == "all present" and .processed_instance_dimensions == ["PredInstance", "PredInstance_SAT", "PredInstance_FM"]' "${default_output}/153_run.json" >/dev/null
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
   cmp "${default_output}/tile_metrics/${dimension}_tile_metrics.csv" "${test_root}/output/tile_metrics/${dimension}_tile_metrics.csv"

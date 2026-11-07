@@ -66,7 +66,7 @@ for (dimension in names(dimension_values)) {
 }
 # Georeferenced export tests explicitly opt into a synthetic metric CRS.
 # Keep existing no-CRS regression fixtures unchanged by default.
-fixture_epsg <- Sys.getenv("FORESTSTRUCTURE_FIXTURE_EPSG", "")
+fixture_epsg <- Sys.getenv("RASTER_FIXTURE_EPSG", "")
 if (nzchar(fixture_epsg)) sf::st_crs(las) <- as.integer(fixture_epsg)
 writeLAS(las, arguments[[1]])
 

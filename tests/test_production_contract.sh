@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image="${FORESTSTRUCTURE_IMAGE:-3dtrees-raster:test}"
-untwine_image="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
+image="${RASTER_IMAGE:-3dtrees-raster:test}"
+untwine_image="${RASTER_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
 root="$(mktemp -d)"
 cleanup() {
-  if [[ "${FORESTSTRUCTURE_KEEP_TEST_ROOT:-0}" == 1 ]]; then
+  if [[ "${RASTER_KEEP_TEST_ROOT:-0}" == 1 ]]; then
     echo "Evidence: ${root}"
   else
     rm -rf "${root}"
@@ -25,12 +25,12 @@ root = pathlib.Path(sys.argv[1])
 }, indent=2) + '\n')
 PYCODE
 limits=(--rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)")
-docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
-  --entrypoint Rscript -v "${repo_dir}/tests:/tests:ro" -v "${root}/input:/generated" \
+docker run "${limits[@]}" --env RASTER_FIXTURE_EPSG=32632 \
+  --entrypoint Rscript -v "${repo_dir}/tests:/tests:ro" -v "${repo_dir}/scripts:/scripts:ro" -e PYTHONPATH=/scripts -v "${root}/input:/generated" \
   "${image}" /tests/generate_test_cloud.R /generated/source.laz /generated/aoi.geojson distinct-dimensions
-docker run "${limits[@]}" --entrypoint python3 -v "${repo_dir}/tests:/tests:ro" \
-  -v "${root}/input:/data" "${image}" /tests/add_original_point_index.py /data/source.laz /data/low.laz
-docker run "${limits[@]}" --entrypoint python3 -v "${repo_dir}/tests:/tests:ro" \
+docker run "${limits[@]}" --entrypoint python3 -v "${repo_dir}/tests:/tests:ro" -v "${repo_dir}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
+  -v "${root}/input:/data" "${image}" /scripts/add_original_point_index.py /data/source.laz /data/low.laz
+docker run "${limits[@]}" --entrypoint python3 -v "${repo_dir}/tests:/tests:ro" -v "${repo_dir}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
   -v "${root}/input:/data" "${image}" /tests/generate_high_ordinal_copc_input.py /data/low.laz /data/high.laz
 for layout in low high; do
   docker run "${limits[@]}" --entrypoint untwine -v "${root}/input:/data" \
@@ -38,14 +38,14 @@ for layout in low high; do
 done
 run() {
   local name="$1" cloud="$2"; shift 2
-  local source_mount=(-v "${root}/sources:/opt/foreststructure:ro")
+  local source_mount=(-v "${root}/sources:/opt/raster:ro")
   # Reference and candidates share the current scientific height policy.
   local paths=(--output-dir /out --temp-dir /work)
   if [[ "${name}" == full ]]; then paths=(); fi
   docker run "${limits[@]}" "${source_mount[@]}" \
     --workdir /out --env TMPDIR=/work \
-    --env GALAXY_SLOTS=2 --env GALAXY_MEMORY_MB=4096 --env FORESTSTRUCTURE_THREADS=2 \
-    --env FORESTSTRUCTURE_CATALOG_WORKERS=1 \
+    --env GALAXY_SLOTS=2 --env GALAXY_MEMORY_MB=4096 --env RASTER_THREADS=2 \
+    --env RASTER_CATALOG_WORKERS=1 \
     -v "${root}/input:/in:ro" -v "${root}/${name}:/out" -v "${root}/work:/work" \
     "${image}" --denoise none --point-cloud "/in/${cloud}" --original-point-cloud /in/source.laz \
     "${paths[@]}" "$@" > "${root}/${name}.log" 2>&1
@@ -54,21 +54,21 @@ run oracle low.copc.laz --dataset-id 150 --instance-dimension PredInstance,PredI
 run full high.copc.laz --target-chunk-points 500 --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 run aoi low.copc.laz --aoi-geojson /in/aoi.geojson --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 python3 "${repo_dir}/tests/compare_production_contract.py" "${root}"
-jq -e '.voxel_counts.enabled and .footprint_source == "point_cloud_extent" and .scheduler_resources.threads == 2 and .memory_budget_gib == 3.4 and .copc_projection.dimension == ["OriginalPointIndex", "PredInstance", "PredInstance_SAT", "PredInstance_FM"] and .catalog_spatial_streaming == "indexed LAZ projection"' "${root}/full/foreststructure_run.json"
-python3 "${repo_dir}/tests/validate_output_artifacts.py" foreststructure "${root}/full"
+jq -e '.voxel_counts.enabled and .footprint_source == "point_cloud_extent" and .scheduler_resources.threads == 2 and .memory_budget_gib == 3.4 and .copc_projection.dimension == ["OriginalPointIndex", "PredInstance", "PredInstance_SAT", "PredInstance_FM"] and .catalog_spatial_streaming == "indexed LAZ projection"' "${root}/full/raster_run.json"
+python3 "${repo_dir}/tests/validate_output_artifacts.py" raster "${root}/full"
 cat > "${root}/input/narrow.geojson" <<'JSON'
 {"type":"Polygon","coordinates":[[[1001,2001],[1005,2001],[1005,2005],[1001,2005],[1001,2001]]]}
 JSON
 run narrow high.copc.laz --aoi-geojson /in/narrow.geojson --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 jq -e '.features | length == 0' "${root}/narrow/tiles/PredInstance_tiles.geojson"
-jq -e '.point_accounting.included > 0 and .point_accounting.excluded_domain > 0' "${root}/narrow/foreststructure_voxel_counts.json"
+jq -e '.point_accounting.included > 0 and .point_accounting.excluded_domain > 0' "${root}/narrow/raster_voxel_counts.json"
 if run failure high.copc.laz --instance-dimension missing; then
   echo 'Missing dimension unexpectedly succeeded' >&2; exit 1
 fi
 for cloud in sat_only no_instances; do
   request=(--instance-dimension PredInstance_SAT)
   if [[ "${cloud}" == sat_only ]]; then request=(--instance-dimension PredInstance_FM); fi
-  if docker run "${limits[@]}" -v "${root}/sources:/opt/foreststructure:ro" \
+  if docker run "${limits[@]}" -v "${root}/sources:/opt/raster:ro" \
     -v "${root}/input:/in:ro" -v "${root}/failure:/out" -v "${root}/work:/work" \
     "${image}" --denoise none --point-cloud "/in/${cloud}.laz" --output-dir /out --temp-dir /work \
     "${request[@]}" > "${root}/${cloud}.log" 2>&1; then

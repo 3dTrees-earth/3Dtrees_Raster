@@ -319,7 +319,7 @@ def main() -> None:
         dimensions = args.dimension or [
             name for name in INSTANCE_DIMENSIONS if name in source_dimensions
         ]
-    # A geometry-only comparison cannot prove ForestStructure science parity.
+    # A geometry-only comparison cannot prove scientific parity.
     if not dimensions:
         raise ValueError("source has no supported instance dimensions to validate")
 

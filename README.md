@@ -21,11 +21,6 @@ runs as a Docker image, and is the raster step of the
 | Image | `ghcr.io/3dtrees-earth/3dtrees_raster:1.0.0` (public) |
 | Licence | GPL-3.0 |
 
-> **Naming.** The project was developed as *ForestStructure*. For compatibility
-> the image keeps that name internally: the runner lives in
-> `/opt/foreststructure`, operator settings use `FORESTSTRUCTURE_*` variables,
-> and output files start with `foreststructure_`.
-
 ## Quick start
 
 Put the point cloud (and optionally an area of interest) in one folder and run:
@@ -134,24 +129,24 @@ folders:
 | `segment_diagnostics/<dimension>_segment_diagnostics.csv` | One row per segment with the tree-acceptance checks, the apex position (`apex_x`, `apex_y`, source CRS) and the segment's crown area (`crown_area_m2`, occupied voxel columns × voxel area) and voxel volume (`voxel_volume_m3`, occupied voxels × voxel volume), the per-segment values the tile `tree_*` aggregates are computed from |
 | `tiles/<dimension>_tiles.geojson` | The tile metrics as polygons |
 
-Shared by all dimensions, each starting with the prefix `foreststructure`:
+Shared by all dimensions, each starting with the prefix `raster`:
 
 | File | Contents |
 | --- | --- |
-| `foreststructure_dtm.tif` | DTM GeoTIFF (Cloud Optimized by default) |
-| `foreststructure_chm.tif` | CHM GeoTIFF (Cloud Optimized by default): height above the DTM of the highest voxel per cell |
-| `foreststructure_dsm.tif` | [DSM](#dsm) on the CHM grid: absolute height of the highest point per cell |
-| `foreststructure_tiles.png` | Tile overview map |
-| `foreststructure_voxel_counts.csv` | Occupied voxels: `x_center,y_center,height_lower_m,height_upper_m,point_count` |
-| `foreststructure_voxel_counts.tif` | UInt32 point counts; with voxel size *s*, band *b* holds heights `[(b-1)·s, b·s)` m above the DTM |
-| `foreststructure_voxel_counts_validity.tif` | 0 excluded (outside the AOI or on its boundary), 1 valid, 2 invalid DTM |
-| `foreststructure_voxel_counts.copc.laz` | [Voxel points](#voxel-points-copc): one COPC point per occupied voxel at DTM height plus the band centre, with `point_count` and `height_above_dtm` |
-| `foreststructure_voxel_counts.json` | Grid, CRS, source and DTM hashes, policies and point accounting |
-| `foreststructure_noise_points.csv` | With `--denoise knn` only: one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
-| `foreststructure_denoising.json` | With `--denoise knn` only: parameters and per-window point accounting |
-| `foreststructure_run.json` | Run provenance: inputs, parameters, versions, resources |
-| `foreststructure_performance.csv` | Stage timings and memory observations |
-| `foreststructure_aoi_conversion.json` | The analysed footprint and its AOI conversion checks |
+| `raster_dtm.tif` | DTM GeoTIFF (Cloud Optimized by default) |
+| `raster_chm.tif` | CHM GeoTIFF (Cloud Optimized by default): height above the DTM of the highest voxel per cell |
+| `raster_dsm.tif` | [DSM](#dsm) on the CHM grid: absolute height of the highest point per cell |
+| `raster_tiles.png` | Tile overview map |
+| `raster_voxel_counts.csv` | Occupied voxels: `x_center,y_center,height_lower_m,height_upper_m,point_count` |
+| `raster_voxel_counts.tif` | UInt32 point counts; with voxel size *s*, band *b* holds heights `[(b-1)·s, b·s)` m above the DTM |
+| `raster_voxel_counts_validity.tif` | 0 excluded (outside the AOI or on its boundary), 1 valid, 2 invalid DTM |
+| `raster_voxel_counts.copc.laz` | [Voxel points](#voxel-points-copc): one COPC point per occupied voxel at DTM height plus the band centre, with `point_count` and `height_above_dtm` |
+| `raster_voxel_counts.json` | Grid, CRS, source and DTM hashes, policies and point accounting |
+| `raster_noise_points.csv` | With `--denoise knn` only: one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
+| `raster_denoising.json` | With `--denoise knn` only: parameters and per-window point accounting |
+| `raster_run.json` | Run provenance: inputs, parameters, versions, resources |
+| `raster_performance.csv` | Stage timings and memory observations |
+| `raster_aoi_conversion.json` | The analysed footprint and its AOI conversion checks |
 
 Voxel counts include every recorded point, also those flagged as noise. Zero
 means no recorded points, not absence of vegetation; read the validity raster
@@ -163,7 +158,7 @@ before interpreting missing CSV rows. See
 The DSM shares the CHM's grid: resolution (`--chm-resolution`), extent, Float32
 data type, nodata value (-999999), tiling, compression and COG layout.
 
-`foreststructure_dsm.tif` is computed natively in the CHM pass, from the same
+`raster_dsm.tif` is computed natively in the CHM pass, from the same
 points: denoised when the kNN filter is on, with a finite height of at least 0 m above the
 DTM. Each cell holds the highest **absolute** point Z (the input's vertical
 datum, not normalized) among those points. Points are assigned to cells through
@@ -248,10 +243,10 @@ source position of every point as `OriginalPointIndex`, as SmartTile supplies.
 To build one from an ordered LAS/LAZ:
 
 ```bash
-FORESTSTRUCTURE_IMAGE=3dtrees-raster:local \
-FORESTSTRUCTURE_TEST_CPUS=10 \
-FORESTSTRUCTURE_TEST_MEMORY_GIB=30 \
-bash tests/build_original_order_copc.sh \
+RASTER_IMAGE=3dtrees-raster:local \
+RASTER_TEST_CPUS=10 \
+RASTER_TEST_MEMORY_GIB=30 \
+bash scripts/build_original_order_copc.sh \
   /data/original.laz \
   /data/original.copc.laz \
   /data/original.copc.order.json
@@ -295,11 +290,11 @@ products only use occupied voxels, each instance's highest points and each voxel
 column's highest absolute point, so the pass keeps the original points that fix
 those and nothing else. The results are the same as from the whole cloud:
 checked on 2145 (59 M points on 30 × 31 m), all outputs identical. Voxel counts
-still read every point. `FORESTSTRUCTURE_REDUCTION_DENSITY` sets the threshold.
+still read every point. `RASTER_REDUCTION_DENSITY` sets the threshold.
 
 A DTM window above 300 M points would crash the ground filter, so such a cloud
 first keeps its lowest point per 5 cm cell for the DTM, as `lidR::lowest()` does.
-Forced onto 2145, the DTM stayed identical. `FORESTSTRUCTURE_DTM_THINNING_POINTS`
+Forced onto 2145, the DTM stayed identical. `RASTER_DTM_THINNING_POINTS`
 sets the limit. All other products still use the original points.
 
 The reduced cloud is a COPC with the same `OriginalPointIndex`, built with
@@ -363,7 +358,7 @@ provenance, with the exact maximum as `observed_maximum_voxel_height_m_exact`.
 
 ### Resources
 
-CPUs are the smallest of `GALAXY_SLOTS`, `FORESTSTRUCTURE_THREADS` and the
+CPUs are the smallest of `GALAXY_SLOTS`, `RASTER_THREADS` and the
 container quota, at most 10. Memory is the smaller of `GALAXY_MEMORY_MB` and the
 container limit, with 15 % headroom; `--memory-budget-gib` can lower it. The
 tool uses what the job gets. The memory request by input size belongs to the
@@ -376,7 +371,7 @@ the DTM, 192 for the CHM, 256 for segments and 128 for tiles. These come from
 real memory measured with one worker, plus a margin. A task that cannot fit
 stops the run before it reads points, with `memory_budget_exceeded`. A plain
 LAS/LAZ has no hierarchy, so every task reserves the whole file.
-`FORESTSTRUCTURE_CATALOG_WORKERS` (1–10) sets the worker count explicitly.
+`RASTER_CATALOG_WORKERS` (1–10) sets the worker count explicitly.
 
 ### Galaxy
 
@@ -406,6 +401,7 @@ point accounting.
 | `make test-production-contract` | COPC and LAS/LAZ layouts, AOI and full extent give the same results |
 | `make test-copc-all-instance-dimensions` | All instance dimensions from one COPC read |
 | `make test-projected-3d-crs` | Projected 3D and compound CRSs |
+| `make test-parallel-production` | One worker against 2 and 4 workers give identical results |
 
 Set `IMAGE` to test a built image, for example `make test-raster IMAGE=3dtrees-raster:local`.
 

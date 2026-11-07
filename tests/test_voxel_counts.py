@@ -187,7 +187,7 @@ class VoxelCountsTest(unittest.TestCase):
         definition = self.root / "source.wkt"
         definition.write_text(source_wkt + "\n")
         subprocess.run(["Rscript", "-e",
-            'Sys.setenv(FORESTSTRUCTURE_SOURCE_ONLY="1"); source("analysis.R"); '
+            'Sys.setenv(RASTER_SOURCE_ONLY="1"); source("analysis.R"); '
             'a <- commandArgs(TRUE); align_raster_file_crs(a[[1]], readLines(a[[2]]), "DTM")',
             str(self.root / "dtm.tif"), str(definition)], cwd=ROOT / "src", check=True)
         target = self.root / "published_dtm.tif"

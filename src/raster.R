@@ -124,8 +124,8 @@ script_directory <- if (length(script_argument)) {
 } else {
   getwd()
 }
-# Tests source this file with FORESTSTRUCTURE_SOURCE_ONLY=1 to reach its functions.
-source_only <- identical(Sys.getenv("FORESTSTRUCTURE_SOURCE_ONLY"), "1")
+# Tests source this file with RASTER_SOURCE_ONLY=1 to reach its functions.
+source_only <- identical(Sys.getenv("RASTER_SOURCE_ONLY"), "1")
 source(file.path(script_directory, "analysis.R"))
 source(file.path(script_directory, "aoi_conversion.R"))
 source(file.path(script_directory, "production_contract.R"))
@@ -239,7 +239,7 @@ parse_raster_parameters <- function() {
   if (!is.null(arguments$dataset_id) && (!is.finite(arguments$dataset_id) || arguments$dataset_id < 1)) {
     stop("--dataset-id must be a positive integer")
   }
-  if (is.null(arguments$dataset_id)) arguments$dataset_id <- "foreststructure"
+  if (is.null(arguments$dataset_id)) arguments$dataset_id <- "raster"
   for (directory in c(arguments$output_dir, arguments$temp_dir)) {
     if (!dir.exists(directory) || file.access(directory, mode = 2) != 0) {
       stop("output and temporary directories must exist and be writable")
@@ -503,8 +503,8 @@ main <- function() {
   }
   # Parse and validate every external path/resource setting before creating work.
   arguments <- parse_raster_parameters()
-  Sys.setenv(FORESTSTRUCTURE_RASTER_FORMAT = arguments$raster_format)
-  message("FORESTSTRUCTURE_STAGE stage=preflight status=started")
+  Sys.setenv(RASTER_FORMAT = arguments$raster_format)
+  message("RASTER_STAGE stage=preflight status=started")
   # Retain the user-requested path separately from later local staging paths.
   requested_point_cloud <- normalizePath(arguments$point_cloud, mustWork = TRUE)
   # Normalize optional companion evidence once; NULL remains an explicit absence.
@@ -544,7 +544,7 @@ main <- function() {
     if (!POINT_ORDER_DIMENSION %in% available) {
       stop(paste(
         "COPC scientific input requires the OriginalPointIndex ExtraByte;",
-        "rebuild COPC from the ordered source before ForestStructure"
+        "rebuild COPC from the ordered source before the raster tool"
       ))
     }
     # Validate optional provenance evidence, but do not substitute it for COPC.
@@ -585,7 +585,7 @@ main <- function() {
   missing <- character()
   input_sha256 <- sha256_file(point_cloud)
   job_directory <- tempfile(
-    pattern = sprintf("foreststructure_%s_", arguments$dataset_id),
+    pattern = sprintf("raster_%s_", arguments$dataset_id),
     tmpdir = arguments$temp_dir
   )
   incoming_directory <- tempfile(
@@ -650,7 +650,7 @@ main <- function() {
   }
 
   thread_count <- arguments$resources$threads
-  worker_request <- Sys.getenv("FORESTSTRUCTURE_CATALOG_WORKERS", "")
+  worker_request <- Sys.getenv("RASTER_CATALOG_WORKERS", "")
   catalog_worker_count <- validated_catalog_worker_count(
     if (nzchar(worker_request)) worker_request else as.character(min(10L, thread_count)),
     thread_count
@@ -660,7 +660,7 @@ main <- function() {
     catalog_worker_count
   ))
 
-  message("FORESTSTRUCTURE_STAGE stage=aoi_conversion status=started")
+  message("RASTER_STAGE stage=aoi_conversion status=started")
   generated_gpkg <- NULL
   if (is.null(aoi_geojson)) {
     footprint <- read_analysis_footprint(staged_point_cloud)
@@ -683,9 +683,9 @@ main <- function() {
     auto_unbox = TRUE,
     pretty = TRUE
   )
-  message("FORESTSTRUCTURE_STAGE stage=aoi_conversion status=completed")
+  message("RASTER_STAGE stage=aoi_conversion status=completed")
 
-  message("FORESTSTRUCTURE_STAGE stage=dimension_projection status=started")
+  message("RASTER_STAGE stage=dimension_projection status=started")
   # High-ordinal COPC fields are now in the verified indexed scratch projection.
 
   # Track the actual source and selector used for each instance dimension; these
@@ -747,16 +747,16 @@ main <- function() {
   }
   message(sprintf("SELECTOR phase=dtm selector=%s", point_order_selector))
   message(sprintf("SELECTOR phase=tile selector=%s", point_order_selector))
-  message("FORESTSTRUCTURE_STAGE stage=dimension_projection status=completed")
+  message("RASTER_STAGE stage=dimension_projection status=completed")
 
   segment_bucket_count <- suppressWarnings(as.integer(Sys.getenv(
-    "FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT",
+    "RASTER_SEGMENT_BUCKET_COUNT",
     as.character(SEGMENT_BUCKET_COUNT)
   )))
   if (!is.finite(segment_bucket_count) ||
       segment_bucket_count < 1L ||
       segment_bucket_count > 65536L) {
-    stop("FORESTSTRUCTURE_SEGMENT_BUCKET_COUNT must be an integer from 1 to 65536")
+    stop("RASTER_SEGMENT_BUCKET_COUNT must be an integer from 1 to 65536")
   }
   # Keep the original script's other scientific constants; accepted normalized heights
   # have no ceiling. Metric denominators use the exact CHM-pass voxel maxima.
@@ -841,9 +841,9 @@ main <- function() {
     parameters$memory_policy$task_fixed_bytes <-
       parameters$memory_policy$task_fixed_bytes + parameters$denoising$lookup_reserve_bytes
   }
-  message("FORESTSTRUCTURE_STAGE stage=analysis status=started")
+  message("RASTER_STAGE stage=analysis status=started")
   analysis_outputs <- run_analysis(parameters)
-  message("FORESTSTRUCTURE_STAGE stage=analysis status=completed")
+  message("RASTER_STAGE stage=analysis status=completed")
   performance <- fread(file.path(
     incoming_directory,
     paste0(arguments$dataset_id, "_performance.csv")
@@ -996,7 +996,7 @@ main <- function() {
     pretty = TRUE,
     null = "null"
   )
-  message("FORESTSTRUCTURE_STAGE stage=internal_validation status=started")
+  message("RASTER_STAGE stage=internal_validation status=started")
   validated_artifacts <- validate_incoming_artifacts(
     incoming_directory,
     arguments$dataset_id,
@@ -1015,7 +1015,7 @@ main <- function() {
     chm_resolution = arguments$chm_resolution,
     voxel_count_resolution = arguments$voxel_count_resolution
   )
-  message("FORESTSTRUCTURE_STAGE stage=internal_validation status=completed")
+  message("RASTER_STAGE stage=internal_validation status=completed")
   run_provenance$status <- "valid"
   write_json(
     run_provenance,
@@ -1027,7 +1027,7 @@ main <- function() {
     pretty = TRUE,
     null = "null"
   )
-  message("FORESTSTRUCTURE_STAGE stage=artifact_promotion status=started")
+  message("RASTER_STAGE stage=artifact_promotion status=started")
   promoted <- promote_artifacts(
     validated_artifacts,
     arguments$output_dir,
@@ -1039,7 +1039,7 @@ main <- function() {
     arguments$dataset_id,
     dimensions
   )
-  message("FORESTSTRUCTURE_STAGE stage=artifact_promotion status=completed")
+  message("RASTER_STAGE stage=artifact_promotion status=completed")
   message(sprintf(
     "Validated and promoted %d freshly recomputed artifact(s) for dataset %s",
     length(promoted),

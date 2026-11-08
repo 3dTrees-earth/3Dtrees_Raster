@@ -288,6 +288,22 @@ class VoxelCountsTest(unittest.TestCase):
             voxel.check_raster_budget(grid, 100, 120 * 1024**2)
         voxel.check_raster_budget(grid, 100, 256 * 1024**2)
 
+    def test_scratch_database_is_closed_before_cleanup(self):
+        # An open file blocks removing the scratch directory on NFS job dirs.
+        opened, connect = [], voxel.sqlite3.connect
+        def recording_connect(*args, **kwargs):
+            opened.append(connect(*args, **kwargs))
+            return opened[-1]
+        voxel.sqlite3.connect = recording_connect
+        try:
+            self.run_export()
+        finally:
+            voxel.sqlite3.connect = connect
+        self.assertTrue(opened)
+        for connection in opened:
+            with self.assertRaises(voxel.sqlite3.ProgrammingError):
+                connection.execute("SELECT 1")
+
     def test_insufficient_budget_fails_before_allocating_cube(self):
         with self.assertRaisesRegex(ValueError, "memory_budget_exceeded"):
             self.run_export(memory=.01)

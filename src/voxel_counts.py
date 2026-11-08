@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import argparse
 from collections import OrderedDict
+from contextlib import closing
 import csv
 import hashlib
 import json
@@ -465,7 +466,9 @@ def export(config):
         mask_ds, domain = make_validity_mask(paths["mask"], grid, geometry, terrain)
         mask = RasterSampler(mask_ds)
         with tempfile.TemporaryDirectory(prefix="voxel_counts_", dir=config["temp_dir"]) as scratch:
-            with sqlite3.connect(str(Path(scratch) / "counts.sqlite")) as connection:
+            # closing(): the connection context manager only commits; an open
+            # database on NFS keeps the scratch directory from being removed.
+            with closing(sqlite3.connect(str(Path(scratch) / "counts.sqlite"))) as connection, connection:
                 # Scratch database: a crash discards the whole job, so skip the
                 # rollback journal and fsyncs that made dense runs I/O bound.
                 connection.execute("PRAGMA journal_mode=OFF")

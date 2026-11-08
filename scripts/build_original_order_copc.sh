@@ -52,15 +52,15 @@ cleanup() {
 # Register cleanup immediately so later failures cannot leave large LAS files.
 trap cleanup EXIT
 
-# Select the ForestStructure image that supplies the indexing and validation
+# Select the raster image that supplies the indexing and validation
 # Python dependencies, while allowing callers to override the default tag.
-forest_image="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:copc-local}"
+forest_image="${RASTER_IMAGE:-3dtrees-raster:test}"
 # Select the Smart Tile image that supplies Untwine for COPC construction.
-smart_tile_image="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-3dtrees-smart-tile:34f492a-v2.3.1}"
+smart_tile_image="${RASTER_SMART_TILE_IMAGE:-3dtrees-smart-tile:34f492a-v2.3.1}"
 # Limit each conversion stage to the requested CPU allocation.
-test_cpus="${FORESTSTRUCTURE_TEST_CPUS:-10}"
+test_cpus="${RASTER_TEST_CPUS:-10}"
 # Apply the same hard memory and swap limit to every conversion stage.
-container_memory_gib="${FORESTSTRUCTURE_TEST_MEMORY_GIB:-30}"
+container_memory_gib="${RASTER_TEST_MEMORY_GIB:-30}"
 # Preserve host ownership on files written by the otherwise isolated containers.
 host_uid="$(id -u)"
 # Preserve the host group for the same output-permission reason.
@@ -85,12 +85,12 @@ docker run --rm --network none \
   --memory "${container_memory_gib}g" \
   --memory-swap "${container_memory_gib}g" \
   --user "${host_uid}:${host_gid}" \
-  --volume "${repo_dir}/tests:/tests:ro" \
+  --volume "${repo_dir}/scripts:/scripts:ro" \
   --volume "${source_laz}:/in/original.laz:ro" \
   --volume "${work_dir}:/work" \
   --entrypoint python3 \
   "${forest_image}" \
-  /tests/add_original_point_index.py \
+  /scripts/add_original_point_index.py \
   /in/original.laz /work/indexed_original.laz
 
 # `docker run` starts the isolated COPC construction process.
@@ -133,7 +133,7 @@ docker run --rm --network none \
   --memory "${container_memory_gib}g" \
   --memory-swap "${container_memory_gib}g" \
   --user "${host_uid}:${host_gid}" \
-  --volume "${repo_dir}/validation:/validators:ro" \
+  --volume "${repo_dir}/scripts:/validators:ro" \
   --volume "${source_laz}:/in/original.laz:ro" \
   --volume "${temporary_copc}:/in/indexed.copc.laz:ro" \
   --volume "$(dirname "${report}"):/report" \

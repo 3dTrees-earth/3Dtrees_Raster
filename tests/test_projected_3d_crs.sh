@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-image="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:copc-local}"
+image="${RASTER_IMAGE:-3dtrees-raster:test}"
 root="$(mktemp -d)"
 trap 'rm -rf "${root}"' EXIT
 mkdir -p "${root}/input" "${root}/two" "${root}/three" "${root}/work"
 limits=(--rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)")
-docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
+docker run "${limits[@]}" --env RASTER_FIXTURE_EPSG=32632 \
   --entrypoint Rscript -v "${repo}/tests:/tests:ro" -v "${root}/input:/generated" \
-  "${image}" /tests/generate_julia_memory_safe_fixture.R /generated/two.laz /generated/aoi.geojson distinct-dimensions
+  "${image}" /tests/generate_test_cloud.R /generated/two.laz /generated/aoi.geojson distinct-dimensions
 docker run "${limits[@]}" --entrypoint python3 -v "${root}/input:/data" "${image}" -c \
   'import laspy; p=laspy.read("/data/two.laz"); p.header.version=laspy.header.Version(1,4); p.header.add_crs(p.header.parse_crs().to_3d(),keep_compatibility=False); p.write("/data/three.laz")'
 for mode in two three; do

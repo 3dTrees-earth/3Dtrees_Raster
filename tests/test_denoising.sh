@@ -3,17 +3,17 @@
 # invariant science across scheduler/adaptive execution choices.
 set -euo pipefail
 repo="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_dir="${FORESTSTRUCTURE_SOURCE_DIR:-${repo}/src}"
-# The runtime image needs the bundled untwine (voxel COPC); make passes the
-# freshly built image, the pinned digest predates it.
-baseline="${FORESTSTRUCTURE_BASELINE_IMAGE:-sha256:c4323f2ef0298a192048f92496230edd588d79622c68d6e4847fc065007e227e}"
-untwine="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
+source_dir="${RASTER_SOURCE_DIR:-${repo}/src}"
+# The runtime image is the image under test (make passes it); untwine for the
+# COPC fixture comes from the pinned SmartTile image.
+baseline="${RASTER_IMAGE:-3dtrees-raster:test}"
+untwine="${RASTER_SMART_TILE_IMAGE:-smarttile:v2.4.0-4de4393}"
 baseline="$(docker image inspect --format '{{.Id}}' "${baseline}")"
 untwine="$(docker image inspect --format '{{.Id}}' "${untwine}")"
-root="$(mktemp -d "${TMPDIR:-/tmp}/foreststructure-denoising.XXXXXX")"
+root="$(mktemp -d "${TMPDIR:-/tmp}/raster-denoising.XXXXXX")"
 finish() {
   local status="$?"
-  if [[ "${status}" != 0 || "${FORESTSTRUCTURE_KEEP_TEST_ROOT:-0}" == 1 ]]; then
+  if [[ "${status}" != 0 || "${RASTER_KEEP_TEST_ROOT:-0}" == 1 ]]; then
     echo "Denoising acceptance evidence: ${root} (exit ${status})"
   else
     rm -rf "${root}"
@@ -23,7 +23,7 @@ trap finish EXIT
 mkdir -p "${root}/input" "${root}/sources"
 cp -a "${source_dir}/." "${root}/sources/"
 limits=(--rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)")
-reuse="${FORESTSTRUCTURE_DENOISING_REUSE_ROOT:-}"
+reuse="${RASTER_DENOISING_REUSE_ROOT:-}"
 if [[ -n "${reuse}" ]]; then
   # Reuse only prepared synthetic inputs while iterating candidate sources.
   # Every scientific case is recomputed under the current metric policy.
@@ -34,23 +34,23 @@ assert json.loads((root / 'input/fixture.json').read_text())['fixture_version'] 
 PY
   cp -a "${reuse}/input/." "${root}/input/"
 else
-docker run "${limits[@]}" --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
-  --entrypoint Rscript -v "${repo}/tests:/tests:ro" -v "${root}/input:/data" \
-  "${baseline}" /tests/generate_julia_memory_safe_fixture.R \
+docker run "${limits[@]}" --env RASTER_FIXTURE_EPSG=32632 \
+  --entrypoint Rscript -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts -v "${root}/input:/data" \
+  "${baseline}" /tests/generate_test_cloud.R \
   /data/patch.laz /data/unused_aoi.geojson distinct-dimensions > "${root}/fixture.log" 2>&1
-docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
+docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
   -v "${root}/input:/data" "${baseline}" /tests/generate_denoising_fixture.py \
   /data/patch.laz /data/source.laz /data/fixture.json >> "${root}/fixture.log" 2>&1
-docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
-  -v "${root}/input:/data" "${baseline}" /tests/add_original_point_index.py \
+docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
+  -v "${root}/input:/data" "${baseline}" /scripts/add_original_point_index.py \
   /data/source.laz /data/indexed.laz >> "${root}/fixture.log" 2>&1
-docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
+docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
   -v "${root}/input:/data" "${baseline}" /tests/generate_high_ordinal_copc_input.py \
   /data/indexed.laz /data/high.laz >> "${root}/fixture.log" 2>&1
 docker run "${limits[@]}" --entrypoint untwine -v "${root}/input:/data" \
   "${untwine}" -i /data/high.laz -o /data/input.copc.laz >> "${root}/fixture.log" 2>&1
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
-  docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
+  docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
     -v "${root}/input:/data" "${baseline}" /tests/compare_las_point_order.py \
     /data/source.laz /data/input.copc.laz "/data/order_${dimension}.json" \
     --dimension "${dimension}" >> "${root}/fixture.log" 2>&1
@@ -72,18 +72,18 @@ run_case() {
   mkdir -p "${case_dir}/output" "${case_dir}/scratch"
   echo "Running denoising acceptance: ${name}"
   local started="${SECONDS}"
-  docker run "${limits[@]}" -v "${root}/sources:/opt/foreststructure:ro" --entrypoint Rscript \
+  docker run "${limits[@]}" -v "${root}/sources:/opt/raster:ro" --entrypoint Rscript \
     --workdir /output --env TMPDIR=/scratch --env PYTHONDONTWRITEBYTECODE=1 \
-    --env GALAXY_SLOTS=2 --env GALAXY_MEMORY_MB=4096 --env FORESTSTRUCTURE_THREADS=2 \
-    --env "FORESTSTRUCTURE_CATALOG_WORKERS=${workers}" \
+    --env GALAXY_SLOTS=2 --env GALAXY_MEMORY_MB=4096 --env RASTER_THREADS=2 \
+    --env "RASTER_CATALOG_WORKERS=${workers}" \
     -v "${root}/input:/input:ro" -v "${case_dir}/output:/output" \
     -v "${case_dir}/scratch:/scratch" "${baseline}" \
-    /opt/foreststructure/run_julia_memory_safe.R --point-cloud /input/input.copc.laz \
+    /opt/raster/raster.R --point-cloud /input/input.copc.laz \
     --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM \
     --memory-budget-gib 3.4 --target-chunk-points "${target}" "$@" \
     > "${case_dir}/run.log" 2>&1
   echo "$((SECONDS - started))" > "${case_dir}/elapsed_seconds.txt"
-  python3 "${repo}/validation/validate_output_artifacts.py" foreststructure \
+  python3 "${repo}/tests/validate_output_artifacts.py" raster \
     "${case_dir}/output" --report "${case_dir}/artifact_validation.json"
   test -z "$(find "${case_dir}/scratch" -mindepth 1 -print -quit)"
 }
@@ -91,6 +91,6 @@ run_case() {
 run_case none 1 50000
 run_case knn-w1 1 50000 --denoise knn
 run_case knn-w2 2 5000 --denoise knn
-docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" \
+docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
   -v "${root}:/data" "${baseline}" /tests/compare_denoising.py /data
 echo 'Denoising acceptance passed: kNN filter off by default, uncapped heights, raw counts and execution invariance'

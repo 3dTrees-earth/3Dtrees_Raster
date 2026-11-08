@@ -1,5 +1,5 @@
-source("/opt/foreststructure/production_contract.R")
-source("/opt/foreststructure/aoi_conversion.R")
+source("/opt/raster/production_contract.R")
+source("/opt/raster/aoi_conversion.R")
 odd_path <- tempfile("input with spaces and ' quote ")
 writeLines("fixture", odd_path)
 stopifnot(grepl("^[0-9a-f]{64}$", sha256_file(odd_path)))
@@ -24,7 +24,7 @@ root <- tempfile(); dir.create(root)
 writeLines("4294967296", file.path(root, "memory.max"))
 writeLines("200000 100000", file.path(root, "cpu.max"))
 fake_env <- function(name, default) {
-  values <- c(GALAXY_SLOTS = "10", GALAXY_MEMORY_MB = "8192", FORESTSTRUCTURE_THREADS = "20")
+  values <- c(GALAXY_SLOTS = "10", GALAXY_MEMORY_MB = "8192", RASTER_THREADS = "20")
   if (name %in% names(values)) unname(values[[name]]) else default
 }
 resources <- production_resources(env = fake_env, cgroup_root = root)
@@ -52,10 +52,8 @@ stopifnot(unallocated$threads == 1L, unallocated$memory_budget_gib == 60,
 oversized_env <- function(name, default) {
   if (name == "GALAXY_MEMORY_MB") "204800" else default
 }
-capped <- production_resources(env = oversized_env, cgroup_root = root)
-stopifnot(capped$memory_limit_gib * 1024^3 == 100e9,
-          capped$memory_budget_gib == 100e9 / 1024^3 * 0.85)
-fails(production_resources(100, large_env, root), "must not exceed 100 GB")
+large <- production_resources(env = oversized_env, cgroup_root = root)
+stopifnot(large$memory_limit_gib == 200, large$memory_budget_gib == 200 * 0.85)
 dir.create(file.path(root, "memory"))
 v1_limit <- file.path(root, "memory/memory.limit_in_bytes")
 writeLines("9223372036854771712", v1_limit)

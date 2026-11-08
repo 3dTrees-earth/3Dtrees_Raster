@@ -1,4 +1,4 @@
-"""Add known noise and a supported tall crown to the small Julia fixture.
+"""Add known noise and a supported tall crown to the small test cloud.
 
 This is a synthetic test only. The source positions, labels and record order
 are saved before canonical COPC conversion so later tests can verify identity.

@@ -1,4 +1,4 @@
-stopifnot(identical(JULIA_MEMORY_SAFE_SEGMENT_SELECTION, "xyz"))
+stopifnot(identical(SEGMENT_SELECTION, "xyz"))
 stopifnot(identical(validated_catalog_worker_count("1", 20L), 1L))
 stopifnot(identical(validated_catalog_worker_count("2", 20L), 2L))
 invalid_catalog_workers <- vapply(c("0", "11", "1.5", "not-a-number"), function(value) {
@@ -8,7 +8,7 @@ invalid_catalog_workers <- vapply(c("0", "11", "1.5", "not-a-number"), function(
       FALSE
     },
     error = function(error) grepl(
-      "FORESTSTRUCTURE_CATALOG_WORKERS must be an integer from 1 to 10",
+      "RASTER_CATALOG_WORKERS must be an integer from 1 to 10",
       conditionMessage(error),
       fixed = TRUE
     )
@@ -21,7 +21,7 @@ worker_budget_rejected <- tryCatch(
     FALSE
   },
   error = function(error) grepl(
-    "exceeds FORESTSTRUCTURE_THREADS",
+    "exceeds RASTER_THREADS",
     conditionMessage(error),
     fixed = TRUE
   )
@@ -31,12 +31,12 @@ stopifnot(
   segment_selection_from_names(
     c("PredInstance", "unrelated"),
     "PredInstance",
-    JULIA_MEMORY_SAFE_SEGMENT_SELECTION
+    SEGMENT_SELECTION
   ) == "xyz1"
 )
 beyond_nine <- tryCatch({
   segment_selection_from_names(c(paste0("extra_", 1:14), "PredInstance"),
-    "PredInstance", JULIA_MEMORY_SAFE_SEGMENT_SELECTION)
+    "PredInstance", SEGMENT_SELECTION)
   FALSE
 }, error = function(e) grepl("verified streaming projection", conditionMessage(e)))
 stopifnot(beyond_nine)
@@ -65,7 +65,7 @@ impossible <- tryCatch(
     FALSE
   },
   error = function(error) grepl(
-    "FORESTSTRUCTURE_FLAG memory_budget_exceeded",
+    "RASTER_FLAG memory_budget_exceeded",
     conditionMessage(error),
     fixed = TRUE
   )

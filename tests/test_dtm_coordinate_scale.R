@@ -9,7 +9,7 @@ las <- LAS(ground)
 las <- las_reoffset(las, xoffset = 292142, yoffset = 6456591, zoffset = 0)
 las <- las_rescale(las, xscale = 0.00025, yscale = 0.00025, zscale = 0.001)
 
-# Julia's upstream implementation passes the classified LAS directly to TIN.
+# The original implementation passes the classified LAS directly to TIN.
 # Preserve that first attempt, but retry the specific lidR integer-conversion
 # failure with the legacy floating-point TIN and the unchanged LAS coordinates.
 stopifnot(exists("legacy_tin", inherits = FALSE))

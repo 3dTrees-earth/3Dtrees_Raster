@@ -1,4 +1,4 @@
-# Source run_julia_memory_safe.R in source-only mode before this test.
+# Source raster.R in source-only mode before this test.
 local({
   root <- tempfile("companion_bounds_")
   dir.create(root)

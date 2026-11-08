@@ -6,7 +6,7 @@ suppressPackageStartupMessages({
 arguments <- commandArgs(trailingOnly = TRUE)
 if (!length(arguments) %in% c(2L, 3L)) {
   stop(paste(
-    "usage: generate_julia_memory_safe_fixture.R OUTPUT.laz AOI.geojson",
+    "usage: generate_test_cloud.R OUTPUT.laz AOI.geojson",
     "[distinct-dimensions]"
   ))
 }
@@ -66,7 +66,7 @@ for (dimension in names(dimension_values)) {
 }
 # Georeferenced export tests explicitly opt into a synthetic metric CRS.
 # Keep existing no-CRS regression fixtures unchanged by default.
-fixture_epsg <- Sys.getenv("FORESTSTRUCTURE_FIXTURE_EPSG", "")
+fixture_epsg <- Sys.getenv("RASTER_FIXTURE_EPSG", "")
 if (nzchar(fixture_epsg)) sf::st_crs(las) <- as.integer(fixture_epsg)
 writeLAS(las, arguments[[1]])
 

@@ -5,13 +5,13 @@ set -euo pipefail
 # Resolve repository helpers without depending on the invocation directory.
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # Pin/override the two images involved in analysis and canonical COPC creation.
-image_name="${FORESTSTRUCTURE_JULIA_IMAGE:-3dtrees-foreststructure:copc-local}"
-smart_tile_image="${FORESTSTRUCTURE_SMART_TILE_IMAGE:-3dtrees-smart-tile:34f492a-v2.3.1}"
+image_name="${RASTER_IMAGE:-3dtrees-raster:test}"
+smart_tile_image="${RASTER_SMART_TILE_IMAGE:-3dtrees-smart-tile:34f492a-v2.3.1}"
 # Isolate all generated fixtures, work files, and outputs in one private root.
 test_root="$(mktemp -d)"
 # Preserve evidence only when explicitly requested during debugging.
 cleanup() {
-  if [[ "${FORESTSTRUCTURE_KEEP_TEST_ROOT:-0}" == "1" ]]; then
+  if [[ "${RASTER_KEEP_TEST_ROOT:-0}" == "1" ]]; then
     echo "Preserving test root: ${test_root}"
   else
     rm -rf "${test_root}"
@@ -30,27 +30,27 @@ mkdir -p \
 
 # Generate a deterministic fixture in which all three instance dimensions differ.
 docker run --rm --network none \
-  --env FORESTSTRUCTURE_FIXTURE_EPSG=32632 \
+  --env RASTER_FIXTURE_EPSG=32632 \
   --user "$(id -u):$(id -g)" \
   --entrypoint Rscript \
   --volume "${repo_dir}/tests:/tests:ro" \
   --volume "${test_root}/input:/generated" \
   "${image_name}" \
-  /tests/generate_julia_memory_safe_fixture.R \
+  /tests/generate_test_cloud.R \
   /generated/distinct.laz /generated/aoi.geojson distinct-dimensions
 
 # Convert that ordered LAZ to canonical COPC under a small regression-test budget.
-FORESTSTRUCTURE_JULIA_IMAGE="${image_name}" \
-FORESTSTRUCTURE_SMART_TILE_IMAGE="${smart_tile_image}" \
-FORESTSTRUCTURE_TEST_CPUS=2 \
-FORESTSTRUCTURE_TEST_MEMORY_GIB=4 \
-  bash "${repo_dir}/tests/build_original_order_copc.sh" \
+RASTER_IMAGE="${image_name}" \
+RASTER_SMART_TILE_IMAGE="${smart_tile_image}" \
+RASTER_TEST_CPUS=2 \
+RASTER_TEST_MEMORY_GIB=4 \
+  bash "${repo_dir}/scripts/build_original_order_copc.sh" \
   "${test_root}/input/distinct.laz" \
   "${test_root}/input/distinct.copc.laz" \
   "${test_root}/input/order-validation.json"
 
-# Run one ForestStructure input through an identical resource/science envelope.
-run_foreststructure() {
+# Run one raster input through an identical resource/science envelope.
+run_raster() {
   # The first three arguments identify input, published output, and scratch work.
   local point_cloud="$1"
   local output_dir="$2"
@@ -66,8 +66,8 @@ run_foreststructure() {
     --memory 4g \
     --memory-swap 4g \
     --user "$(id -u):$(id -g)" \
-    --env FORESTSTRUCTURE_THREADS=2 \
-    --env FORESTSTRUCTURE_CATALOG_WORKERS=1 \
+    --env RASTER_THREADS=2 \
+    --env RASTER_CATALOG_WORKERS=1 \
     --volume "${test_root}/input:/in:ro" \
     --volume "${output_dir}:/out" \
     --volume "${work_dir}:/work" \
@@ -85,13 +85,13 @@ run_foreststructure() {
 }
 
 # First produce the ordered-LAZ oracle using the same candidate implementation.
-run_foreststructure \
+run_raster \
   "${test_root}/input/distinct.laz" \
   "${test_root}/ordered-output" \
   "${test_root}/ordered-work" \
   2>&1 | tee "${test_root}/ordered.log"
 # Then process canonical COPC while supplying LAZ only as identity evidence.
-run_foreststructure \
+run_raster \
   "${test_root}/input/distinct.copc.laz" \
   "${test_root}/copc-output" \
   "${test_root}/copc-work" \
@@ -114,12 +114,26 @@ for raster in voxel_counts.tif voxel_counts_validity.tif; do
   cmp "${test_root}/ordered-output/150_${raster}" \
       "${test_root}/copc-output/150_${raster}"
 done
-# DTM and CHM must also be byte-identical between ordered LAZ and COPC.
-for raster in dtm.tif chm.tif; do
-  cmp \
-    "${test_root}/ordered-output/150_${raster}" \
-    "${test_root}/copc-output/150_${raster}"
-done
+# The DTM must be byte-identical. The CHM grid follows the header bounds, and a
+# COPC's header can reach one cell further at the far edges, where it then holds
+# the points on that edge. Every shared cell must be identical.
+cmp "${test_root}/ordered-output/150_dtm.tif" "${test_root}/copc-output/150_dtm.tif"
+docker run --rm --network none --user "$(id -u):$(id -g)" --entrypoint python3 \
+  --volume "${test_root}:/check:ro" "${image_name}" -c '
+import numpy as np
+from osgeo import gdal
+gdal.UseExceptions()
+for name in ("150_chm.tif", "150_dsm.tif"):
+    a, b = (gdal.Open(f"/check/{side}-output/{name}") for side in ("ordered", "copc"))
+    ga, gb = a.GetGeoTransform(), b.GetGeoTransform()
+    assert ga[:3] + ga[4:] == gb[:3] + gb[4:], name
+    rows = round((gb[3] - ga[3]) / ga[1])
+    assert rows in (0, 1) and b.RasterXSize - a.RasterXSize in (0, 1), name
+    assert b.RasterYSize - a.RasterYSize == rows, name
+    x = a.GetRasterBand(1).ReadAsArray()
+    y = b.GetRasterBand(1).ReadAsArray()[rows:rows + a.RasterYSize, :a.RasterXSize]
+    assert np.array_equal(x, y), name
+'
 
 # Guard fixture quality: distinct dimension inputs must not collapse to the same
 # results, otherwise the equality checks above would not prove dimension routing.
@@ -151,7 +165,7 @@ jq -e '
   .processed_instance_dimensions == [
     "PredInstance", "PredInstance_SAT", "PredInstance_FM"
   ]
-' "${test_root}/copc-output/150_julia_memory_safe_run.json" >/dev/null
+' "${test_root}/copc-output/150_run.json" >/dev/null
 
 # Reach this line only after both differential science and provenance checks pass.
 echo "COPC all-instance-dimension differential acceptance passed"

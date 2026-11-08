@@ -35,7 +35,7 @@ FIXED_MEMORY_RESERVE = 192 * 1024**2
 MINIMUM_MEMORY = 256 * 1024**2
 FETCH_ROWS = 65536
 POINT_SCALE = 0.001
-UNTWINE = os.environ.get("FORESTSTRUCTURE_UNTWINE", "/opt/untwine/bin/untwine")
+UNTWINE = os.environ.get("RASTER_UNTWINE", "/opt/untwine/bin/untwine")
 
 
 def sha256_file(path):
@@ -94,7 +94,7 @@ def create_raster(path, grid, bands, datatype, nodata=None):
     ds = gdal.GetDriverByName("GTiff").Create(
         str(path), grid["width"], grid["height"], bands, datatype,
         options=["TILED=YES", "BLOCKXSIZE=128", "BLOCKYSIZE=128",
-                 "COMPRESS=LZW", "BIGTIFF=YES", "INTERLEAVE=BAND"])
+                 "COMPRESS=DEFLATE", "BIGTIFF=YES", "INTERLEAVE=BAND"])
     ds.SetGeoTransform(grid["transform"])
     ds.SetProjection(grid["crs_wkt"])
     if nodata is not None:
@@ -104,12 +104,12 @@ def create_raster(path, grid, bands, datatype, nodata=None):
 
 
 def convert_raster_format(path, resampling):
-    """Rewrite a finished GeoTIFF as a COG when FORESTSTRUCTURE_RASTER_FORMAT=COG."""
-    if os.environ.get("FORESTSTRUCTURE_RASTER_FORMAT", "GTiff") != "COG":
+    """Rewrite a finished GeoTIFF as a COG when RASTER_FORMAT=COG."""
+    if os.environ.get("RASTER_FORMAT", "GTiff") != "COG":
         return
     partial = f"{path}.partial.tif"
     converted = gdal.Translate(partial, str(path), format="COG", creationOptions=[
-        "COMPRESS=LZW", "BIGTIFF=IF_SAFER", f"RESAMPLING={resampling}"])
+        "COMPRESS=DEFLATE", "BIGTIFF=IF_SAFER", f"RESAMPLING={resampling}"])
     if converted is None:
         raise ValueError(f"could not write {Path(path).name} as a COG")
     converted = None

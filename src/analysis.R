@@ -3376,7 +3376,8 @@ run_analysis <- function(parameters) {
 
   if (isTRUE(parameter_or(parameters, "export_voxel_counts", FALSE))) {
     message("RASTER_STAGE stage=voxel_counts status=started")
-    voxel_export <- write_voxel_counts(parameters, dtm_path, aoi, run_work_directory)
+    voxel_export <- write_voxel_counts(parameters, dtm_path, aoi, run_work_directory,
+                                       workers = thread_budget)
     temporary_disk_peak_bytes <- max(temporary_disk_peak_bytes,
       temporary_directory_bytes(run_work_directory) + voxel_export$temporary_disk_bytes)
     message("RASTER_STAGE stage=voxel_counts status=completed")

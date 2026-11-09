@@ -385,10 +385,14 @@ extension: a symlink to an extension-less Galaxy dataset is rejected by rlas.
 ### Voxel counts
 
 Voxel counts read every record, including points the noise filter flags, and
-never use the reduced cloud. They stream the point cloud in batches, so memory
-does not grow with the cloud. The multiband GeoTIFF, the CSV and the COPC hold
-the same voxels and counts; the metadata JSON records the grid, the CRS and the
-point accounting.
+never use the reduced cloud. They decode only X, Y and Z and stream the point
+cloud in batches, so memory does not grow with the cloud. A COPC's chunks are
+split across one worker process per job thread; each counts its share and the
+counts are summed, which gives the same result as one process. A plain LAS/LAZ
+is read by one process with that many decoding threads. Each worker reserves
+192 MiB, and fewer workers start when the memory budget is small. The
+multiband GeoTIFF, the CSV and the COPC hold the same voxels and counts; the
+metadata JSON records the grid, the CRS and the point accounting.
 
 ## Tests
 
@@ -396,7 +400,7 @@ point accounting.
 | --- | --- |
 | `make test` | Unit tests in R and Python, the image entry point, then `make test-raster` |
 | `make test-raster` | A synthetic COPC end to end: products, layouts, provenance |
-| `make test-voxel-counts` | Voxel counts, the AOI without occupied voxels, and the point reduction |
+| `make test-voxel-counts` | Voxel counts, the AOI without occupied voxels, COPC workers against one process, and the point reduction |
 | `make test-denoising` | The kNN filter against `lidR::sor()` and the uncapped heights |
 | `make test-production-contract` | COPC and LAS/LAZ layouts, AOI and full extent give the same results |
 | `make test-copc-all-instance-dimensions` | All instance dimensions from one COPC read |

@@ -2,27 +2,28 @@
 """Full-source voxel counts using the existing laspy/GDAL stack and disk reduction.
 
 Read record batches (also for COPC), never a spatial query with an unbounded
-number of points. SQLite holds the sparse cube; GDAL writes one 2D block/band
-at a time. Neither the cloud, DTM nor dense 3D cube is materialized in memory.
+number of points. A COPC's chunks are counted by worker processes. A sorted
+NumPy table holds the sparse cube; GDAL writes one 2D block/band at a time.
+Neither the cloud, DTM nor dense 3D cube is materialized in memory.
 """
 from __future__ import annotations
 
 import argparse
-from collections import OrderedDict
-from contextlib import closing
+from collections import OrderedDict, namedtuple
 import csv
 import hashlib
 import json
 import math
+import multiprocessing
 import os
 from pathlib import Path
-import sqlite3
 import shutil
 import subprocess
 import tempfile
 import time
 
 import laspy
+from laspy.copc import load_octree_for_query
 import numpy as np
 from osgeo import gdal, ogr, osr
 import pyproj
@@ -34,6 +35,9 @@ NODATA = 4294967295
 MAX_BANDS = 65535  # TIFF SamplesPerPixel limit; fail explicitly, never truncate.
 FIXED_MEMORY_RESERVE = 192 * 1024**2
 MINIMUM_MEMORY = 256 * 1024**2
+# Interpreter, GDAL and laspy of one count worker; 10 workers on 707 peaked at
+# 1.3 GiB for the whole step.
+WORKER_MEMORY_RESERVE = 192 * 1024**2
 FETCH_ROWS = 65536
 POINT_SCALE = 0.001
 UNTWINE = os.environ.get("RASTER_UNTWINE", "/opt/untwine/bin/untwine")
@@ -195,69 +199,172 @@ def make_validity_mask(path, grid, geometry, dtm):
     return output, totals
 
 
-def accumulate(source, connection, grid, mask, dtm, chunk_points):
-    connection.execute("""CREATE TABLE counts (
-        block INTEGER, height INTEGER, cell INTEGER, n INTEGER NOT NULL,
-        PRIMARY KEY(block,height,cell)) WITHOUT ROWID""")
-    counters = dict(read=0, nonfinite=0, excluded_domain=0, invalid_dtm=0,
-                    negative_height=0, included=0)
+def merge_counts(keys, counts):
+    """Sorted unique voxel keys with their summed counts."""
+    keys, counts = np.concatenate(keys), np.concatenate(counts)
+    order = np.argsort(keys, kind="stable")
+    keys, counts = keys[order], counts[order]
+    starts = np.r_[0, np.flatnonzero(np.diff(keys)) + 1] if len(keys) else np.empty(0, np.int64)
+    return keys[starts], np.add.reduceat(counts, starts) if len(keys) else counts
+
+
+class CountTable:
+    """Voxel keys with counts. Per-batch tables are small next to the points;
+    they are merged by sorting once the pending rows outgrow the merged table."""
+
+    def __init__(self, budget):
+        self.budget = budget
+        self.keys, self.counts = np.empty(0, np.int64), np.empty(0, np.int64)
+        self.pending_keys, self.pending_counts, self.pending = [], [], 0
+
+    def add(self, keys, counts):
+        self.pending_keys.append(keys)
+        self.pending_counts.append(counts.astype(np.int64))
+        self.pending += len(keys)
+        if self.pending > max(len(self.keys), 4_000_000):
+            # Sorting needs the merged and pending rows twice, 16 B each.
+            if 4 * 16 * (len(self.keys) + self.pending) > self.budget:
+                raise ValueError("memory_budget_exceeded: voxel count table")
+            self.result()
+
+    def result(self):
+        self.keys, self.counts = merge_counts([self.keys, *self.pending_keys],
+                                              [self.counts, *self.pending_counts])
+        self.pending_keys, self.pending_counts, self.pending = [], [], 0
+        return self.keys, self.counts
+
+
+COUNTERS = ("read", "nonfinite", "excluded_domain", "invalid_dtm", "negative_height", "included")
+
+
+def count_points(points, grid, mask, dtm, counters, table):
+    """Count one batch into `table`; return its highest height band or -1."""
+    counters["read"] += len(points)
+    x, y, z = np.asarray(points.x), np.asarray(points.y), np.asarray(points.z)
+    finite = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
+    counters["nonfinite"] += int(np.count_nonzero(~finite))
+    x, y, z = x[finite], y[finite], z[finite]
+    # Own XY edges by increasing-coordinate [lower, upper) intervals,
+    # independent of GDAL's top-down row convention at exact Y boundaries.
+    col_all = np.floor((x - grid["transform"][0]) / RESOLUTION)
+    iy_all = np.floor((y - (grid["transform"][3] - grid["height"] * RESOLUTION)) / RESOLUTION)
+    domain = mask.sample(grid["transform"][0] + (col_all + 0.5) * RESOLUTION,
+                         grid["transform"][3] - grid["height"] * RESOLUTION + (iy_all + 0.5) * RESOLUTION)
+    terrain = dtm.sample(x, y)
+    counters["excluded_domain"] += int(np.count_nonzero((domain == 0) | np.isnan(domain)))
+    invalid = (domain == 2) | ((domain == 1) & ~np.isfinite(terrain))
+    counters["invalid_dtm"] += int(np.count_nonzero(invalid))
+    eligible = (domain == 1) & np.isfinite(terrain)
+    x, y, h = x[eligible], y[eligible], z[eligible] - terrain[eligible]
+    negative = h < 0
+    counters["negative_height"] += int(np.count_nonzero(negative))
+    x, y, h = x[~negative], y[~negative], h[~negative]
+    counters["included"] += len(h)
+    if not len(h):
+        return -1
+    if not np.all(np.isfinite(h)) or np.max(h) >= MAX_BANDS * RESOLUTION:
+        raise ValueError("normalized height exceeds GeoTIFF band capacity; review source outliers (no points truncated)")
+    col = np.floor((x - grid["transform"][0]) / RESOLUTION).astype(np.int64)
+    row = grid["height"] - 1 - np.floor((y - (grid["transform"][3] - grid["height"] * RESOLUTION)) / RESOLUTION).astype(np.int64)
+    iz = np.floor(h / RESOLUTION).astype(np.int64)
+    # Pack the integer address instead of sorting Python/structured XYZ
+    # tuples. A single int64 sort keeps dense batches fast and small.
     across = (grid["width"] + BLOCK - 1) // BLOCK
-    maximum = -1
-    actual_peak = 0
-    for points in source.chunk_iterator(chunk_points):
-        counters["read"] += len(points)
-        actual_peak = max(actual_peak, len(points))
-        x, y, z = np.asarray(points.x), np.asarray(points.y), np.asarray(points.z)
-        finite = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
-        counters["nonfinite"] += int(np.count_nonzero(~finite))
-        x, y, z = x[finite], y[finite], z[finite]
-        # Own XY edges by increasing-coordinate [lower, upper) intervals,
-        # independent of GDAL's top-down row convention at exact Y boundaries.
-        col_all = np.floor((x - grid["transform"][0]) / RESOLUTION)
-        iy_all = np.floor((y - (grid["transform"][3] - grid["height"] * RESOLUTION)) / RESOLUTION)
-        domain = mask.sample(grid["transform"][0] + (col_all + 0.5) * RESOLUTION,
-                             grid["transform"][3] - grid["height"] * RESOLUTION + (iy_all + 0.5) * RESOLUTION)
-        terrain = dtm.sample(x, y)
-        counters["excluded_domain"] += int(np.count_nonzero((domain == 0) | np.isnan(domain)))
-        invalid = (domain == 2) | ((domain == 1) & ~np.isfinite(terrain))
-        counters["invalid_dtm"] += int(np.count_nonzero(invalid))
-        eligible = (domain == 1) & np.isfinite(terrain)
-        x, y, h = x[eligible], y[eligible], z[eligible] - terrain[eligible]
-        negative = h < 0
-        counters["negative_height"] += int(np.count_nonzero(negative))
-        x, y, h = x[~negative], y[~negative], h[~negative]
-        counters["included"] += len(h)
-        if not len(h):
-            continue
-        if not np.all(np.isfinite(h)) or np.max(h) >= MAX_BANDS * RESOLUTION:
-            raise ValueError("normalized height exceeds GeoTIFF band capacity; review source outliers (no points truncated)")
-        col = np.floor((x - grid["transform"][0]) / RESOLUTION).astype(np.int64)
-        row = grid["height"] - 1 - np.floor((y - (grid["transform"][3] - grid["height"] * RESOLUTION)) / RESOLUTION).astype(np.int64)
-        iz = np.floor(h / RESOLUTION).astype(np.int64)
-        maximum = max(maximum, int(iz.max()))
-        # Pack the integer address instead of sorting Python/structured XYZ
-        # tuples. A single int64 sort keeps dense batches fast and small.
-        block = (row // BLOCK) * across + col // BLOCK
-        keys = ((block * MAX_BANDS + iz) * (BLOCK * BLOCK) +
-                (row % BLOCK) * BLOCK + col % BLOCK)
-        unique, counts = np.unique(keys, return_counts=True)
-        # Split the sorted addresses in NumPy and hand SQLite plain Python
-        # lists; per-voxel NumPy scalar arithmetic dominated dense batches.
-        connection.executemany(
-            "INSERT INTO counts VALUES (?,?,?,?) ON CONFLICT(block,height,cell) DO UPDATE SET n=n+excluded.n",
-            zip((unique // (MAX_BANDS * BLOCK * BLOCK)).tolist(),
-                ((unique // (BLOCK * BLOCK)) % MAX_BANDS).tolist(),
-                (unique % (BLOCK * BLOCK)).tolist(), counts.tolist()))
-    connection.commit()
+    block = (row // BLOCK) * across + col // BLOCK
+    keys = ((block * MAX_BANDS + iz) * (BLOCK * BLOCK) +
+            (row % BLOCK) * BLOCK + col % BLOCK)
+    table.add(*np.unique(keys, return_counts=True))
+    return int(iz.max())
+
+
+XYZ = laspy.DecompressionSelection.xy_returns_channel() | laspy.DecompressionSelection.Z
+CopcChunk = namedtuple("CopcChunk", "offset byte_size point_count")
+WORKER = {}
+
+
+def copc_chunks(path):
+    """Every non-empty COPC node: one independently compressed LAZ chunk each."""
+    with laspy.CopcReader.open(path) as reader:
+        nodes = load_octree_for_query(reader.source, reader.copc_info, reader.root_page)
+        return sorted((CopcChunk(n.offset, n.byte_size, n.point_count) for n in nodes if n.point_count > 0),
+                      key=lambda c: c.offset)
+
+
+def start_worker(path, dtm_path, mask_path, grid, resolution, chunk_points):
+    global RESOLUTION
+    RESOLUTION = resolution
+    gdal.UseExceptions()
+    gdal.SetCacheMax(32 * 1024 * 1024)
+    WORKER.update(reader=laspy.CopcReader.open(path, decompression_selection=XYZ),
+                  dtm=RasterSampler(gdal.Open(dtm_path)), mask=RasterSampler(gdal.Open(mask_path)),
+                  grid=grid, chunk_points=chunk_points)
+
+
+def count_chunks(chunks):
+    """Worker: decode and count a run of COPC chunks, at most chunk_points per batch."""
+    counters, table, maximum, peak = dict.fromkeys(COUNTERS, 0), CountTable(math.inf), -1, 0
+    batch, size = [], 0
+    for chunk in [*chunks, None]:
+        if batch and (chunk is None or size + chunk.point_count > WORKER["chunk_points"]):
+            points = WORKER["reader"]._fetch_and_decompress_points_of_nodes(batch)
+            peak = max(peak, len(points))
+            maximum = max(maximum, count_points(points, WORKER["grid"], WORKER["mask"],
+                                                WORKER["dtm"], counters, table))
+            batch, size = [], 0
+        if chunk is not None:
+            batch.append(chunk)
+            size += chunk.point_count
+    return counters, *table.result(), maximum, peak
+
+
+def accumulate(source, grid, mask, dtm, chunk_points, budget, config, workers):
+    counters, table, maximum, actual_peak = dict.fromkeys(COUNTERS, 0), CountTable(budget), -1, 0
+    chunks = copc_chunks(config["point_cloud"]) if workers > 1 and source.header.are_points_compressed and \
+        any(v.record_id == 1 and v.user_id == "copc" for v in source.header.vlrs) else []
+    if chunks:
+        # Counting does not depend on point order, so COPC chunks can be split
+        # across processes and their tables summed: results stay identical.
+        per_worker = max(1, chunk_points // workers)
+        target = max(1, sum(c.point_count for c in chunks) // (workers * 8))
+        tasks, task, size = [], [], 0
+        for chunk in chunks:
+            task.append(chunk)
+            size += chunk.point_count
+            if size >= target:
+                tasks.append(task)
+                task, size = [], 0
+        tasks += [task] if task else []
+        rayon = os.environ.get("RAYON_NUM_THREADS")
+        os.environ["RAYON_NUM_THREADS"] = "1"
+        try:
+            with multiprocessing.get_context("spawn").Pool(
+                    workers, start_worker, (config["point_cloud"], config["dtm"], config["paths"]["mask"],
+                                            grid, RESOLUTION, per_worker)) as pool:
+                for part, keys, counts, part_max, part_peak in pool.imap_unordered(count_chunks, tasks):
+                    for name in COUNTERS:
+                        counters[name] += part[name]
+                    table.add(keys, counts)
+                    maximum, actual_peak = max(maximum, part_max), max(actual_peak, part_peak)
+        finally:
+            if rayon is None:
+                os.environ.pop("RAYON_NUM_THREADS")
+            else:
+                os.environ["RAYON_NUM_THREADS"] = rayon
+    else:
+        for points in source.chunk_iterator(chunk_points):
+            actual_peak = max(actual_peak, len(points))
+            maximum = max(maximum, count_points(points, grid, mask, dtm, counters, table))
+    merged_keys, merged_counts = table.result()
     if counters["read"] != source.header.point_count:
         raise ValueError("source header/stream point count mismatch")
     if sum(v for k, v in counters.items() if k != "read") != counters["read"]:
         raise ValueError("point accounting is not exhaustive")
-    total, maximum_count, occupied = connection.execute(
-        "SELECT coalesce(sum(n),0), coalesce(max(n),0), count(*) FROM counts").fetchone()
+    total = int(merged_counts.sum())
+    maximum_count = int(merged_counts.max()) if len(merged_counts) else 0
+    occupied = len(merged_keys)
     if total != counters["included"] or maximum_count >= NODATA:
         raise ValueError("count conservation or UInt32 overflow check failed")
-    return max(1, maximum + 1), counters, occupied, actual_peak
+    return max(1, maximum + 1), counters, occupied, actual_peak, (merged_keys, merged_counts)
 
 
 def voxel_point_header(grid, crs_wkt):
@@ -311,7 +418,8 @@ def check_copc(copc_path, occupied, included):
         raise ValueError("voxel COPC lost voxels or counts")
 
 
-def write_counts(connection, paths, grid, bands, mask, terrain, points_path, crs_wkt):
+def write_counts(table, paths, grid, bands, mask, terrain, points_path, crs_wkt):
+    keys, counts = table
     raster = create_raster(paths["raster"], grid, bands, gdal.GDT_UInt32, NODATA)
     for k in range(bands):
         band = raster.GetRasterBand(k + 1)
@@ -331,14 +439,15 @@ def write_counts(connection, paths, grid, bands, mask, terrain, points_path, crs
             valid = mask.GetRasterBand(1).ReadAsArray(xoff, yoff, width, height) == 1
             empty = np.where(valid, 0, NODATA).astype(np.uint32)
             band_index, values = 0, None
-            cursor = connection.execute(
-                "SELECT height,cell,n FROM counts WHERE block=? ORDER BY height,cell", (block,))
-            # Bounded pieces of one block, converted to arrays: no per-voxel
-            # Python loop and no unbounded fetch for dense blocks.
-            while piece := cursor.fetchmany(FETCH_ROWS):
-                rows = np.array(piece, dtype=np.int64)
-                k, n = rows[:, 0], rows[:, 2]
-                row, col = rows[:, 1] // BLOCK, rows[:, 1] % BLOCK
+            # Keys sort by block, height band, then cell: one block is one
+            # contiguous slice, already in the order the writers need.
+            first_key = block * MAX_BANDS * BLOCK * BLOCK
+            lo, hi = np.searchsorted(keys, [first_key, first_key + MAX_BANDS * BLOCK * BLOCK])
+            for start in range(lo, hi, FETCH_ROWS):
+                piece = keys[start:min(start + FETCH_ROWS, hi)]
+                k, n = (piece // (BLOCK * BLOCK)) % MAX_BANDS, counts[start:start + len(piece)]
+                cell = piece % (BLOCK * BLOCK)
+                row, col = cell // BLOCK, cell % BLOCK
                 if not valid[row, col].all():
                     raise ValueError("occupied voxel outside valid mask")
                 # Same float64 operation order as the former scalar writer, so
@@ -386,7 +495,7 @@ def raster_memory_bytes(grid, bands):
 
     BigTIFF needs offset and byte-count arrays per tile per band. Reserve twice
     their 16-byte payload plus per-band objects/metadata; the 192 MiB fixed reserve
-    in check_raster_budget covers GDAL/SQLite caches and the bounded samplers.
+    in check_raster_budget covers GDAL caches and the bounded samplers.
     """
     tiles = math.ceil(grid["width"] / BLOCK) * math.ceil(grid["height"] / BLOCK)
     return tiles * bands * 32 + bands * 4096
@@ -436,7 +545,8 @@ def export(config):
     if budget < MINIMUM_MEMORY:
         raise ValueError("memory_budget_exceeded: voxel export needs at least 256 MiB available")
     paths = config["paths"]
-    with laspy.open(config["point_cloud"]) as source:
+    # Only X, Y and Z are read; skipping the other fields saves decompression.
+    with laspy.open(config["point_cloud"], decompression_selection=XYZ) as source:
         # The product domain is the usable AOI, independent of potentially
         # stale/pre-quantization LAS header extrema. All source records stream.
         extent = geometry.GetEnvelope()
@@ -455,49 +565,48 @@ def export(config):
             raise ValueError("grid exceeds integer voxel-address capacity")
         mask_bookkeeping = raster_memory_bytes(grid, 1)
         check_raster_budget(grid, 1, budget)
-        # Reserve GDAL/SQLite caches, raster directories and batch temporaries.
+        # Reserve GDAL caches, raster directories and batch temporaries.
         # Dataset 226 batches measured ~670 B of RSS per point; admit four
         # records plus 400 B of float/int64 temporaries per point.
+        available = budget - FIXED_MEMORY_RESERVE - mask_bookkeeping
+        # Workers share the batch size, so only their fixed reserve is extra.
+        workers = max(1, min(int(config.get("workers", 1)), int(available // (2 * WORKER_MEMORY_RESERVE))))
+        available -= (workers - 1) * WORKER_MEMORY_RESERVE
         chunk_points = min(int(config.get("chunk_points", 2_000_000)),
-                           int((budget - FIXED_MEMORY_RESERVE - mask_bookkeeping) / (4 * source.header.point_format.size + 400)))
+                           int(available / (4 * source.header.point_format.size + 400)))
         if chunk_points < 1:
             raise ValueError("chunk_points must be positive within the memory budget")
         terrain = RasterSampler(dtm_ds)
         mask_ds, domain = make_validity_mask(paths["mask"], grid, geometry, terrain)
+        # Close and reopen read-only: GTiff completes the file on close, and
+        # count workers read the mask from disk.
+        mask_ds = None
+        mask_ds = gdal.Open(paths["mask"])
         mask = RasterSampler(mask_ds)
         with tempfile.TemporaryDirectory(prefix="voxel_counts_", dir=config["temp_dir"]) as scratch:
-            # closing(): the connection context manager only commits; an open
-            # database on NFS keeps the scratch directory from being removed.
-            with closing(sqlite3.connect(str(Path(scratch) / "counts.sqlite"))) as connection, connection:
-                # Scratch database: a crash discards the whole job, so skip the
-                # rollback journal and fsyncs that made dense runs I/O bound.
-                connection.execute("PRAGMA journal_mode=OFF")
-                connection.execute("PRAGMA synchronous=OFF")
-                connection.execute("PRAGMA locking_mode=EXCLUSIVE")
-                connection.execute("PRAGMA cache_size=-65536")
-                connection.execute("PRAGMA temp_store=FILE")
-                bands, counters, occupied, peak = accumulate(source, connection, grid, mask, terrain, chunk_points)
-                raster_resources = check_raster_budget(grid, bands, budget, mask_bookkeeping)
-                # Admission uses uncompressed tiled size, conservative CSV rows and
-                # uncompressed voxel points (scratch LAS plus untwine's spill);
-                # compression is data dependent and must not be assumed here.
-                required_disk = block_count * BLOCK * BLOCK * 4 * bands + occupied * (128 + 3 * 64)
-                if shutil.disk_usage(Path(paths["raster"]).parent).free < required_disk:
-                    raise ValueError("disk_budget_exceeded: insufficient free space for voxel products")
-                points_path = Path(scratch) / "voxel_points.las"
-                point_crs = source.header.parse_crs() if crs is not None else None
-                point_crs_wkt = point_crs.to_wkt() if point_crs else grid["crs_wkt"]
-                if write_counts(connection, paths, grid, bands, mask_ds, terrain,
-                                points_path, point_crs_wkt) != counters["included"]:
-                    raise ValueError("CSV/raster export lost counts")
-                # Untwine cannot index an empty cloud; without occupied voxels
-                # there is no COPC and the metadata says so.
-                if occupied:
-                    untwine_scratch = Path(scratch) / "untwine"
-                    untwine_scratch.mkdir()
-                    write_copc(points_path, paths["copc"], untwine_scratch)
-                    check_copc(paths["copc"], occupied, counters["included"])
-                disk_bytes = sum(p.stat().st_size for p in Path(scratch).iterdir() if p.is_file())
+            bands, counters, occupied, peak, table = accumulate(
+                source, grid, mask, terrain, chunk_points, budget, config, workers)
+            raster_resources = check_raster_budget(grid, bands, budget, mask_bookkeeping)
+            # Admission uses uncompressed tiled size, conservative CSV rows and
+            # uncompressed voxel points (scratch LAS plus untwine's spill);
+            # compression is data dependent and must not be assumed here.
+            required_disk = block_count * BLOCK * BLOCK * 4 * bands + occupied * (128 + 3 * 64)
+            if shutil.disk_usage(Path(paths["raster"]).parent).free < required_disk:
+                raise ValueError("disk_budget_exceeded: insufficient free space for voxel products")
+            points_path = Path(scratch) / "voxel_points.las"
+            point_crs = source.header.parse_crs() if crs is not None else None
+            point_crs_wkt = point_crs.to_wkt() if point_crs else grid["crs_wkt"]
+            if write_counts(table, paths, grid, bands, mask_ds, terrain,
+                            points_path, point_crs_wkt) != counters["included"]:
+                raise ValueError("CSV/raster export lost counts")
+            # Untwine cannot index an empty cloud; without occupied voxels
+            # there is no COPC and the metadata says so.
+            if occupied:
+                untwine_scratch = Path(scratch) / "untwine"
+                untwine_scratch.mkdir()
+                write_copc(points_path, paths["copc"], untwine_scratch)
+                check_copc(paths["copc"], occupied, counters["included"])
+            disk_bytes = sum(p.stat().st_size for p in Path(scratch).iterdir() if p.is_file())
         mask = mask_ds = None
         convert_raster_format(paths["raster"], "AVERAGE")
         convert_raster_format(paths["mask"], "NEAREST")

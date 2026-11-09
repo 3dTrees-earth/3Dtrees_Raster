@@ -22,7 +22,7 @@ validate_voxel_count_parameters <- function(parameters) {
   }
 }
 
-write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
+write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory, workers = 1L) {
   staging <- tempfile(".voxel_incoming_", tmpdir = parameters$output_dir)
   dir.create(staging)
   on.exit(unlink(staging, recursive = TRUE, force = TRUE), add = TRUE)
@@ -45,12 +45,16 @@ write_voxel_counts <- function(parameters, dtm_path, aoi, work_directory) {
     source_sha256 = parameter_or(parameters, "point_cloud_sha256", NULL),
     dtm_denoising = if (is.null(parameters$denoising)) NULL else parameters$denoising$summary,
     memory_available_gib = available,
-    resolution = parameter_or(parameters, "voxel_count_resolution", 0.5)
+    resolution = parameter_or(parameters, "voxel_count_resolution", 0.5),
+    workers = as.integer(workers)
   )
   config_path <- file.path(work_directory, "voxel_config.json")
   jsonlite::write_json(config, config_path, auto_unbox = TRUE, null = "null")
-  status <- system2("python3", c(shQuote(file.path(script_directory, "voxel_counts.py")),
-                                 shQuote(config_path)))
+  # A COPC is counted by `workers` processes; a plain LAZ is decoded with as
+  # many lazrs threads.
+  status <- system2("env", c(sprintf("RAYON_NUM_THREADS=%d", as.integer(workers)), "python3",
+                             shQuote(file.path(script_directory, "voxel_counts.py")),
+                             shQuote(config_path)))
   if (!identical(status, 0L)) stop("voxel point-count export failed")
   artifacts <- validate_voxel_count_artifacts(staging, parameters$dataset_id,
     parameter_or(parameters, "voxel_count_resolution", 0.5))

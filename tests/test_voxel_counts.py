@@ -18,6 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 spec = importlib.util.spec_from_file_location("voxel_counts", ROOT / "src/voxel_counts.py")
 voxel = importlib.util.module_from_spec(spec)
+# Count workers are spawned processes; they import the module by this name.
+sys.modules["voxel_counts"] = voxel
 spec.loader.exec_module(voxel)
 
 
@@ -288,21 +290,46 @@ class VoxelCountsTest(unittest.TestCase):
             voxel.check_raster_budget(grid, 100, 120 * 1024**2)
         voxel.check_raster_budget(grid, 100, 256 * 1024**2)
 
-    def test_scratch_database_is_closed_before_cleanup(self):
-        # An open file blocks removing the scratch directory on NFS job dirs.
-        opened, connect = [], voxel.sqlite3.connect
-        def recording_connect(*args, **kwargs):
-            opened.append(connect(*args, **kwargs))
-            return opened[-1]
-        voxel.sqlite3.connect = recording_connect
-        try:
-            self.run_export()
-        finally:
-            voxel.sqlite3.connect = connect
-        self.assertTrue(opened)
-        for connection in opened:
-            with self.assertRaises(voxel.sqlite3.ProgrammingError):
-                connection.execute("SELECT 1")
+    def test_copc_workers_match_one_process(self):
+        # Enough points for several COPC chunks, so the workers split them.
+        rng = np.random.default_rng(7)
+        header = laspy.LasHeader(point_format=0, version="1.2")
+        header.scales = np.array([.001, .001, .001])
+        header.offsets = np.array([1000, 2000, 0])
+        cloud = laspy.LasData(header)
+        n = 400_000
+        cloud.x = rng.uniform(1000, 1004, n)
+        cloud.y = rng.uniform(2000, 2004, n)
+        cloud.z = rng.uniform(-1, 30, n)
+        cloud.write(self.root / "dense.las")
+        cloud.write(self.root / "dense.laz")
+        scratch = self.root / "untwine"
+        scratch.mkdir()
+        voxel.write_copc(self.root / "dense.las", self.root / "dense.copc.laz", scratch)
+        self.assertGreater(len(voxel.copc_chunks(str(self.root / "dense.copc.laz"))), 1)
+        runs = {}
+        for name, source, workers in [("copc_1", "dense.copc.laz", 1), ("copc_4", "dense.copc.laz", 4),
+                                      ("laz_4", "dense.laz", 4)]:
+            out = self.root / name
+            out.mkdir()
+            paths = dict(csv=str(out / "counts.csv"), raster=str(out / "counts.tif"),
+                         mask=str(out / "validity.tif"), metadata=str(out / "counts.json"),
+                         copc=str(out / "counts.copc.laz"))
+            result = voxel.export(dict(point_cloud=str(self.root / source),
+                dtm=str(self.root / "dtm.tif"), aoi=str(self.root / "aoi.gpkg"), temp_dir=str(out),
+                paths=paths, chunk_points=50_000, memory_available_gib=2, workers=workers,
+                source_sha256="fixture"))
+            runs[name] = (result, paths)
+        base, base_paths = runs["copc_1"]
+        self.assertEqual(base["point_accounting"]["read"], 400_000)
+        self.assertGreater(base["occupied_voxels"], 1000)
+        for name in ("copc_4", "laz_4"):
+            result, paths = runs[name]
+            for key in ("csv", "raster", "mask"):
+                with open(base_paths[key], "rb") as a, open(paths[key], "rb") as b:
+                    self.assertEqual(a.read(), b.read(), f"{name} {key}")
+            for key in ("point_accounting", "occupied_voxels", "band_count", "domain_cells"):
+                self.assertEqual(base[key], result[key], f"{name} {key}")
 
     def test_insufficient_budget_fails_before_allocating_cube(self):
         with self.assertRaisesRegex(ValueError, "memory_budget_exceeded"):

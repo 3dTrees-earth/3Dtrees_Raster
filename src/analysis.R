@@ -1768,7 +1768,76 @@ chm_column_maxima <- function(points) {
 # that separately per adaptive read can move a boundary point by one cell.
 # Instead retain at most one maximum per 0.2 m XY column of the baseline 60 m
 # parent (about 90,000 rows), then rasterize that parent exactly once.
-adaptive_chm_read_clusters <- function(chunk, read_size, source_bounds = NULL) {
+# One half-open read rectangle inside `parent`, as adaptive children are built.
+rectangle_cluster <- function(parent, rectangle) {
+  child <- lidR:::LAScluster(
+    list(x = rectangle[[1]] + rectangle[[3]] / 2, y = rectangle[[2]] + rectangle[[4]] / 2),
+    rectangle[[3]], rectangle[[4]], 0, lidR:::LIDRRECTANGLE,
+    parent@files, parent@name, sf::st_crs(parent), parent@index
+  )
+  child@select <- parent@select
+  child
+}
+
+cluster_key <- function(cluster) {
+  bounds <- sf::st_bbox(cluster)
+  sprintf("%.6f %.6f %.6f %.6f", bounds$xmin, bounds$ymin, bounds$xmax, bounds$ymax)
+}
+
+# A CHM read whose COPC count is far above the chunk target, a dense patch in a
+# cloud whose window size came from the mean density, is split into quarters.
+chm_split_points <- function() {
+  as.numeric(Sys.getenv("RASTER_CHM_SPLIT_POINTS", "5e7"))
+}
+
+# Rectangles (xmin, ymin, width, height) that replace each overfull child read,
+# keyed by that child. Quarters keep the half-open read boundaries, so every
+# point still belongs to exactly one read of its parent; CHM and DSM keep the
+# maximum per cell across reads, as adaptive children already do.
+plan_dense_chm_reads <- function(catalog, read_size, alignment, source_bounds,
+                                 boundary_read_adjustment, memory_policy,
+                                 limit = chm_split_points(), max_depth = 4L) {
+  if (is.null(memory_policy)) return(list())
+  chunks <- lidR:::engine_chunks(catalog, alignment)
+  candidates <- lapply(unlist(lapply(chunks, adaptive_chm_read_clusters, read_size,
+                                     source_bounds), recursive = FALSE), function(child) {
+    bounds <- sf::st_bbox(child)
+    list(root = cluster_key(child), parent = child,
+         rectangle = c(bounds$xmin, bounds$ymin, bounds$xmax - bounds$xmin,
+                       bounds$ymax - bounds$ymin))
+  })
+  plan <- list()
+  depth <- 0L
+  while (length(candidates) && depth < max_depth) {
+    windows <- lapply(candidates, function(candidate) catalog_task_window(
+      adjust_catalog_boundary_read(rectangle_cluster(candidate$parent, candidate$rectangle),
+                                   boundary_read_adjustment)))
+    counts <- task_memory_estimates(windows, memory_policy, "CHM")$counts
+    following <- list()
+    for (i in which(counts > limit)) {
+      candidate <- candidates[[i]]
+      r <- unname(candidate$rectangle)
+      w <- r[[3]] / 2
+      h <- r[[4]] / 2
+      quarters <- list(c(r[[1]], r[[2]], w, h), c(r[[1]] + w, r[[2]], w, h),
+                       c(r[[1]], r[[2]] + h, w, h), c(r[[1]] + w, r[[2]] + h, w, h))
+      kept <- Filter(function(existing) !identical(existing, r), plan[[candidate$root]])
+      plan[[candidate$root]] <- c(kept, quarters)
+      following <- c(following, lapply(quarters, function(quarter)
+        list(root = candidate$root, parent = candidate$parent, rectangle = quarter)))
+    }
+    candidates <- following
+    depth <- depth + 1L
+  }
+  if (length(plan)) {
+    message(sprintf("CHM: %d dense read(s) split into %d smaller reads above %.0f points",
+                    length(plan), sum(lengths(plan)), limit))
+  }
+  plan
+}
+
+adaptive_chm_read_clusters <- function(chunk, read_size, source_bounds = NULL,
+                                       dense_plan = NULL) {
   bounds <- sf::st_bbox(chunk)
   # LAScatalog probes callbacks with a zero-area dummy chunk before scheduling.
   if (bounds$xmax <= bounds$xmin || bounds$ymax <= bounds$ymin) return(list())
@@ -1796,7 +1865,14 @@ adaptive_chm_read_clusters <- function(chunk, read_size, source_bounds = NULL) {
         chunk@files, chunk@name, sf::st_crs(chunk), chunk@index
       )
       child@select <- chunk@select
-      children[[length(children) + 1L]] <- child
+      rectangles <- if (length(dense_plan)) dense_plan[[cluster_key(child)]]
+      if (is.null(rectangles)) {
+        children[[length(children) + 1L]] <- child
+      } else {
+        for (rectangle in rectangles) {
+          children[[length(children) + 1L]] <- rectangle_cluster(child, rectangle)
+        }
+      }
     }
   }
   children
@@ -1808,12 +1884,13 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
                                observation_directory = NULL,
                                target_chunk_points = 0, read_size,
                                source_bounds = NULL, denoising = NULL,
-                               boundary_read_adjustment = NULL, dsm = FALSE) {
+                               boundary_read_adjustment = NULL, dsm = FALSE,
+                               dense_plan = NULL) {
   # Bound both lidR and data.table scratch allocations inside this worker.
   configure_catalog_worker()
   bounds <- sf::st_bbox(chunk)
   if (bounds$xmax <= bounds$xmin || bounds$ymax <= bounds$ymin) return(NULL)
-  children <- adaptive_chm_read_clusters(chunk, read_size, source_bounds)
+  children <- adaptive_chm_read_clusters(chunk, read_size, source_bounds, dense_plan)
   maxima <- data.table(X = numeric(), Y = numeric(), Z = numeric())
   dsm_maxima <- data.table(X = numeric(), Y = numeric(), Z = numeric())
   header <- NULL
@@ -1897,18 +1974,33 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
   }
   boundary_read_adjustment <- if (is.null(point_order_dimension)) NULL else
     catalog_boundary_read_adjustment(point_cloud)
-  callback <- if (chunk_size < raster_chunk_size) {
-    function(chunk, ...) adaptive_chm_chunk(
-      chunk, ..., read_size = chunk_size, source_bounds = source_bounds
-    )
+  # The same chunks apply_catalog_chunks() will schedule below.
+  chunk_settings <- lidR:::engine_parse_options(list(automerge = FALSE, drop_null = FALSE,
+                                                     raster_alignment = chm_resolution))
+  dense_plan <- plan_dense_chm_reads(catalog, chunk_size,
+    if (chunk_settings$check_alignment) chunk_settings$raster_alignment else FALSE,
+    source_bounds, boundary_read_adjustment, memory_policy)
+  has_dense_reads <- function(chunk) {
+    any(vapply(adaptive_chm_read_clusters(chunk, chunk_size, source_bounds),
+               function(child) cluster_key(child) %in% names(dense_plan), logical(1)))
+  }
+  callback <- if (chunk_size < raster_chunk_size || length(dense_plan)) {
+    function(chunk, ...) {
+      if (chunk_size < raster_chunk_size || has_dense_reads(chunk)) {
+        adaptive_chm_chunk(chunk, ..., read_size = chunk_size, source_bounds = source_bounds,
+                           dense_plan = dense_plan)
+      } else {
+        chm_chunk(chunk, ...)
+      }
+    }
   } else {
     chm_chunk
   }
   # A parent processes these child reads sequentially. Admission must reserve
   # their largest live window, rather than all points in the 60 m parent.
-  task_windows_fn <- if (chunk_size < raster_chunk_size) {
+  task_windows_fn <- if (chunk_size < raster_chunk_size || length(dense_plan)) {
     function(chunk) lapply(
-      adaptive_chm_read_clusters(chunk, chunk_size, source_bounds),
+      adaptive_chm_read_clusters(chunk, chunk_size, source_bounds, dense_plan),
       function(child) catalog_task_window(adjust_catalog_boundary_read(child, boundary_read_adjustment))
     )
   } else if (!is.null(boundary_read_adjustment)) {

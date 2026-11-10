@@ -507,6 +507,9 @@ main <- function() {
   message("RASTER_STAGE stage=preflight status=started")
   # Retain the user-requested path separately from later local staging paths.
   requested_point_cloud <- normalizePath(arguments$point_cloud, mustWork = TRUE)
+  # lidR/rlas cannot read a larger file; fail with the real reason before any
+  # header parsing reports it as a missing dimension.
+  assert_lidr_point_count_supported(point_count_from_las_header(requested_point_cloud))
   # Normalize optional companion evidence once; NULL remains an explicit absence.
   original_point_cloud <- if (is.null(arguments$original_point_cloud)) {
     NULL

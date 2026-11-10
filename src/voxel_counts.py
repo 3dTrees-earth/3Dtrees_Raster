@@ -367,7 +367,7 @@ def accumulate(source, grid, mask, dtm, chunk_points, budget, config, workers):
     return max(1, maximum + 1), counters, occupied, actual_peak, (merged_keys, merged_counts)
 
 
-def voxel_point_header(grid, crs_wkt):
+def voxel_point_header(grid, crs_wkt, z_range):
     """LAS 1.4 header for one point per occupied voxel (format 6, as COPC needs)."""
     header = laspy.LasHeader(point_format=6, version="1.4")
     header.add_extra_dims([
@@ -376,8 +376,11 @@ def voxel_point_header(grid, crs_wkt):
         laspy.ExtraBytesParams(name="height_above_dtm", type=np.float32,
                                description="voxel centre above the DTM (m)"),
     ])
+    # Z keeps offset 0 unless the voxel heights would overflow the int32 range,
+    # as with geocentric coordinates; then it starts at the lowest DTM metre.
+    z_offset = 0.0 if max(abs(z) for z in z_range) / POINT_SCALE < 2**31 - 1 else math.floor(z_range[0])
     header.offsets = np.array([grid["transform"][0],
-                               grid["transform"][3] - grid["height"] * RESOLUTION, 0.0])
+                               grid["transform"][3] - grid["height"] * RESOLUTION, z_offset])
     header.scales = np.array([POINT_SCALE] * 3)
     if crs_wkt:
         header.add_crs(pyproj.CRS.from_wkt(crs_wkt))
@@ -418,6 +421,15 @@ def check_copc(copc_path, occupied, included):
         raise ValueError("voxel COPC lost voxels or counts")
 
 
+def z_range(terrain, bands):
+    """Lowest and highest voxel-point Z: DTM extremes plus the band span."""
+    try:
+        low, high = terrain.band.ComputeRasterMinMax(False)
+    except RuntimeError:  # no valid DTM cell, so no voxel point either
+        return 0.0, 0.0
+    return low, high + bands * RESOLUTION
+
+
 def write_counts(table, paths, grid, bands, mask, terrain, points_path, crs_wkt):
     keys, counts = table
     raster = create_raster(paths["raster"], grid, bands, gdal.GDT_UInt32, NODATA)
@@ -432,7 +444,7 @@ def write_counts(table, paths, grid, bands, mask, terrain, points_path, crs_wkt)
                         "height_reference": "DTM", "zero": "no recorded eligible points"})
     exported = 0
     with open(paths["csv"], "w", newline="", encoding="utf-8") as output, \
-            laspy.open(points_path, mode="w", header=voxel_point_header(grid, crs_wkt)) as points:
+            laspy.open(points_path, mode="w", header=voxel_point_header(grid, crs_wkt, z_range(terrain, bands))) as points:
         writer = csv.writer(output)
         writer.writerow(["x_center", "y_center", "height_lower_m", "height_upper_m", "point_count"])
         for block, xoff, yoff, width, height in grid_blocks(grid):

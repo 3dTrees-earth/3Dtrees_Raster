@@ -19,6 +19,12 @@ ENV OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 BLIS_NUM_THREADS=1
 
 ARG LIDR_VERSION=4.3.2
 ARG LIDR_SHA256=3df920ff4146b0c29680c68e1fd654091906addbbdf9e3ae7e2fa8e964fec4e0
+# rlas is built from source with a patch that reports point counts above
+# 2,147,483,647 as 64-bit numbers instead of refusing the file; lidR only ever
+# reads spatial windows of such a cloud.
+ARG RLAS_VERSION=1.8.6
+ARG RLAS_SHA256=5dfac7e0943580987036c737383ed2ad4cb915557d4b3e9bc26156946307eff5
+COPY patches/rlas-1.8.6-64bit-point-count.patch /tmp/rlas.patch
 
 RUN install2.r --error --skipinstalled \
     argparse \
@@ -33,10 +39,18 @@ RUN install2.r --error --skipinstalled \
     Rcpp \
     RcppArmadillo \
     rgl \
-    rlas \
     sf \
     stars \
     terra \
+    && wget --quiet \
+      "https://cran.r-project.org/src/contrib/Archive/rlas/rlas_${RLAS_VERSION}.tar.gz" \
+      -O /tmp/rlas.tar.gz \
+    && printf '%s  %s\n' "${RLAS_SHA256}" /tmp/rlas.tar.gz \
+      | sha256sum --check --strict \
+    && tar -xzf /tmp/rlas.tar.gz -C /tmp \
+    && patch -d /tmp/rlas -p1 < /tmp/rlas.patch \
+    && R CMD INSTALL /tmp/rlas \
+    && rm -rf /tmp/rlas /tmp/rlas.tar.gz /tmp/rlas.patch \
     && wget --quiet \
       "https://cran.r-project.org/src/contrib/Archive/lidR/lidR_${LIDR_VERSION}.tar.gz" \
       -O /tmp/lidR.tar.gz \

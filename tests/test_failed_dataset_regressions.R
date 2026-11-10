@@ -109,9 +109,11 @@ stopifnot(!raster_extent_covers_point_bounds(
 
 stopifnot(assert_lidr_point_count_supported(MAX_LIDR_POINT_COUNT) ==
   MAX_LIDR_POINT_COUNT)
+# Dataset 816: above R's integer range, read through the image's 64-bit rlas.
+stopifnot(assert_lidr_point_count_supported(3612171632) == 3612171632)
 unsupported <- tryCatch(
   {
-    assert_lidr_point_count_supported(MAX_LIDR_POINT_COUNT + 1)
+    assert_lidr_point_count_supported(2 * MAX_LIDR_POINT_COUNT)
     FALSE
   },
   error = function(error) grepl(

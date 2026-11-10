@@ -43,7 +43,10 @@ stopifnot(beyond_nine)
 
 dtm_body <- paste(deparse(body(dtm_chunk)), collapse = "\n")
 stopifnot(grepl("last_returns = FALSE", dtm_body, fixed = TRUE))
-tile_body <- paste(deparse(body(calculate_tile_metrics)), collapse = "\n")
+# Single tiles and tile blocks both read through read_tile_points().
+tile_body <- paste(deparse(body(read_tile_points)), collapse = "\n")
+stopifnot(grepl("read_tile_points", paste(deparse(body(calculate_tile_metrics)), collapse = "\n"),
+                fixed = TRUE))
 # Tile reads must stay spatial/selective while requesting OriginalPointIndex in
 # COPC mode; checking a literal ``select = "xyz"`` would enforce the old LAZ-only
 # implementation and prevent deterministic order restoration.
@@ -120,3 +123,20 @@ disk_result <- finalize_segment_store(store, adapter_parameters, "disk")
 memory_result <- finalize_segment_store(store, adapter_parameters, "memory")
 stopifnot(identical(disk_result, memory_result))
 unlink(store_directory, recursive = TRUE, force = TRUE)
+
+# A block read split into tiles gives each tile the rows LASlib's -inside
+# filter would keep (xmin <= X < xmax, ymin <= Y < ymax), in block order.
+block_points <- LAS(data.table::data.table(
+  X = c(0, 5, 10, 19.999, 20, 25, 40, 10, 30),
+  Y = c(0, 5, 10, 19.999, 0, 25, 5, 20, 39.999),
+  Z = 1
+))
+block_windows <- list(c(0, 0, 20, 20), c(20, 0, 40, 20), c(0, 20, 20, 40), c(20, 20, 40, 40))
+block_rows <- tile_point_rows(block_points, block_windows)
+for (index in seq_along(block_windows)) {
+  window <- block_windows[[index]]
+  expected <- which(block_points$X >= window[[1]] & block_points$X < window[[3]] &
+                    block_points$Y >= window[[2]] & block_points$Y < window[[4]])
+  stopifnot(identical(as.integer(block_rows[[index]]), as.integer(expected)))
+}
+stopifnot(identical(unname(lengths(block_rows)), c(4L, 1L, 1L, 2L)))

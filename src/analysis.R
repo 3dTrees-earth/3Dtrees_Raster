@@ -3503,7 +3503,8 @@ run_analysis <- function(parameters) {
   reduce_points <- isTRUE(parameter_or(parameters, "reduce_points", FALSE))
   dtm_source <- if (reduce_points && dtm_needs_thinning(parameters)) {
     run_point_reduction("thin", parameters$point_cloud,
-                        file.path(run_work_directory, "dtm_points.laz"), parameters)
+      file.path(run_work_directory, if (is.null(parameters$point_order_dimension)) "dtm_points.laz"
+                else "dtm_points.copc.laz"), parameters)
   } else {
     parameters$point_cloud
   }

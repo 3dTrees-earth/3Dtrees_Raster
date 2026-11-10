@@ -373,10 +373,11 @@ stops the run before it reads points, with `memory_budget_exceeded`. A plain
 LAS/LAZ has no hierarchy, so every task reserves the whole file.
 `RASTER_CATALOG_WORKERS` (1–10) sets the worker count explicitly.
 
-CHM and DSM windows are sized from the mean point density. Before they run,
-every planned read is counted in the COPC hierarchy, and a read above 50 million
-points (`RASTER_CHM_SPLIT_POINTS`), a dense patch in a sparser cloud, is split
-into quarters, down to four levels. The maximum per cell is the same either way.
+CHM, DSM and segment windows are sized from the mean point density. Before
+they run, every planned read is counted in the COPC hierarchy, and a read above
+50 million points (`RASTER_SPLIT_POINTS`), a dense patch in a sparser cloud, is
+split into quarters, down to four levels. The CHM keeps the maximum per cell
+and segments are merged by source order, so results do not change.
 
 Tile metrics read neighbouring tiles together, about 20 million points per
 block (`RASTER_TILE_BLOCK_POINTS`), and give each tile exactly the points a

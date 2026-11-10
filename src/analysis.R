@@ -1784,23 +1784,21 @@ cluster_key <- function(cluster) {
   sprintf("%.6f %.6f %.6f %.6f", bounds$xmin, bounds$ymin, bounds$xmax, bounds$ymax)
 }
 
-# A CHM read whose COPC count is far above the chunk target, a dense patch in a
-# cloud whose window size came from the mean density, is split into quarters.
-chm_split_points <- function() {
-  as.numeric(Sys.getenv("RASTER_CHM_SPLIT_POINTS", "5e7"))
+# A CHM or segment read whose COPC count is far above the chunk target, a dense
+# patch in a cloud whose window size came from the mean density, is split into
+# quarters.
+read_split_points <- function() {
+  as.numeric(Sys.getenv("RASTER_SPLIT_POINTS", "5e7"))
 }
 
-# Rectangles (xmin, ymin, width, height) that replace each overfull child read,
-# keyed by that child. Quarters keep the half-open read boundaries, so every
-# point still belongs to exactly one read of its parent; CHM and DSM keep the
-# maximum per cell across reads, as adaptive children already do.
-plan_dense_chm_reads <- function(catalog, read_size, alignment, source_bounds,
-                                 boundary_read_adjustment, memory_policy,
-                                 limit = chm_split_points(), max_depth = 4L) {
-  if (is.null(memory_policy)) return(list())
-  chunks <- lidR:::engine_chunks(catalog, alignment)
-  candidates <- lapply(unlist(lapply(chunks, adaptive_chm_read_clusters, read_size,
-                                     source_bounds), recursive = FALSE), function(child) {
+# Rectangles (xmin, ymin, width, height) that replace each overfull read, keyed
+# by that read. Quarters keep the half-open read boundaries, so every point
+# still belongs to exactly one read: CHM and DSM keep the maximum per cell, and
+# segment summaries are merged by source order, whatever the windows.
+plan_dense_reads <- function(reads, boundary_read_adjustment, memory_policy, phase,
+                             limit = read_split_points(), max_depth = 4L) {
+  if (is.null(memory_policy) || !length(reads)) return(list())
+  candidates <- lapply(reads, function(child) {
     bounds <- sf::st_bbox(child)
     list(root = cluster_key(child), parent = child,
          rectangle = c(bounds$xmin, bounds$ymin, bounds$xmax - bounds$xmin,
@@ -1812,7 +1810,7 @@ plan_dense_chm_reads <- function(catalog, read_size, alignment, source_bounds,
     windows <- lapply(candidates, function(candidate) catalog_task_window(
       adjust_catalog_boundary_read(rectangle_cluster(candidate$parent, candidate$rectangle),
                                    boundary_read_adjustment)))
-    counts <- task_memory_estimates(windows, memory_policy, "CHM")$counts
+    counts <- task_memory_estimates(windows, memory_policy, phase)$counts
     following <- list()
     for (i in which(counts > limit)) {
       candidate <- candidates[[i]]
@@ -1830,10 +1828,28 @@ plan_dense_chm_reads <- function(catalog, read_size, alignment, source_bounds,
     depth <- depth + 1L
   }
   if (length(plan)) {
-    message(sprintf("CHM: %d dense read(s) split into %d smaller reads above %.0f points",
-                    length(plan), sum(lengths(plan)), limit))
+    message(sprintf("%s: %d dense read(s) split into %d smaller reads above %.0f points",
+                    phase, length(plan), sum(lengths(plan)), limit))
   }
   plan
+}
+
+# The chunks apply_catalog_chunks() will schedule with these options.
+scheduled_chunks <- function(catalog, .options) {
+  settings <- lidR:::engine_parse_options(.options)
+  lidR:::engine_chunks(catalog, if (settings$check_alignment) settings$raster_alignment else FALSE)
+}
+
+# One segment chunk read as several dense-patch pieces, merged as one result.
+combine_segment_parts <- function(parts) {
+  parts <- Filter(function(part) !is.null(part) && length(part$paths), parts)
+  if (!length(parts)) return(list(paths = NULL))
+  dimensions <- unique(unlist(lapply(parts, function(part) names(part$dimension_paths))))
+  list(
+    paths = do.call(c, lapply(parts, `[[`, "paths")),
+    dimension_paths = setNames(lapply(dimensions, function(dimension)
+      do.call(c, lapply(parts, function(part) part$dimension_paths[[dimension]]))), dimensions)
+  )
 }
 
 adaptive_chm_read_clusters <- function(chunk, read_size, source_bounds = NULL,
@@ -1974,12 +1990,11 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
   }
   boundary_read_adjustment <- if (is.null(point_order_dimension)) NULL else
     catalog_boundary_read_adjustment(point_cloud)
-  # The same chunks apply_catalog_chunks() will schedule below.
-  chunk_settings <- lidR:::engine_parse_options(list(automerge = FALSE, drop_null = FALSE,
-                                                     raster_alignment = chm_resolution))
-  dense_plan <- plan_dense_chm_reads(catalog, chunk_size,
-    if (chunk_settings$check_alignment) chunk_settings$raster_alignment else FALSE,
-    source_bounds, boundary_read_adjustment, memory_policy)
+  dense_plan <- if (is.null(memory_policy)) list() else plan_dense_reads(
+    unlist(lapply(scheduled_chunks(catalog, list(automerge = FALSE, drop_null = FALSE,
+                                                 raster_alignment = chm_resolution)),
+                  adaptive_chm_read_clusters, chunk_size, source_bounds), recursive = FALSE),
+    boundary_read_adjustment, memory_policy, "CHM")
   has_dense_reads <- function(chunk) {
     any(vapply(adaptive_chm_read_clusters(chunk, chunk_size, source_bounds),
                function(child) cluster_key(child) %in% names(dense_plan), logical(1)))
@@ -2344,14 +2359,35 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
   opt_progress(catalog) <- FALSE
   boundary_read_adjustment <- if (is.null(point_order_dimension)) NULL else
     catalog_boundary_read_adjustment(point_cloud)
-  task_windows_fn <- if (is.null(boundary_read_adjustment)) NULL else function(chunk)
-    catalog_task_window(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
+  segment_options <- list(automerge = FALSE, drop_null = FALSE)
+  dense_plan <- if (is.null(memory_policy)) list() else plan_dense_reads(
+    scheduled_chunks(catalog, segment_options), boundary_read_adjustment, memory_policy, "segment")
+  task_windows_fn <- if (length(dense_plan)) {
+    function(chunk) {
+      rectangles <- dense_plan[[cluster_key(chunk)]]
+      reads <- if (is.null(rectangles)) list(chunk) else
+        lapply(rectangles, rectangle_cluster, parent = chunk)
+      lapply(reads, function(read)
+        catalog_task_window(adjust_catalog_boundary_read(read, boundary_read_adjustment)))
+    }
+  } else if (!is.null(boundary_read_adjustment)) {
+    function(chunk)
+      catalog_task_window(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
+  } else {
+    NULL
+  }
+  callback <- function(chunk, ...) {
+    rectangles <- if (length(dense_plan)) dense_plan[[cluster_key(chunk)]]
+    if (is.null(rectangles)) return(segment_chunk(chunk, ...))
+    combine_segment_parts(lapply(rectangles, function(rectangle)
+      segment_chunk(rectangle_cluster(chunk, rectangle), ...)))
+  }
   message(sprintf(
     "Reading segment dimensions with LAS selection %s",
     selection
   ))
   chunks <- apply_catalog_chunks(
-      catalog, segment_chunk, workers, "segment",
+      catalog, callback, workers, "segment",
       memory_policy = memory_policy,
       task_windows_fn = task_windows_fn,
       dtm_path = dtm_path,
@@ -2370,7 +2406,7 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
       target_chunk_points = target_chunk_points,
       denoising = denoising,
       boundary_read_adjustment = boundary_read_adjustment,
-      .options = list(automerge = FALSE, drop_null = FALSE)
+      .options = segment_options
   )
   assert_catalog_completed(chunks, "segment")
   dimension_chunks <- setNames(lapply(instance_dimensions, function(dimension) {

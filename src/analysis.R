@@ -14,7 +14,9 @@ suppressPackageStartupMessages({
 # large scratch buffer per thread inside the single LAScatalog worker.
 DATA_TABLE_THREADS <- 1L
 SEGMENT_BUCKET_COUNT <- 64L
-MAX_LIDR_POINT_COUNT <- .Machine$integer.max
+# The image's rlas reports larger counts as 64-bit numbers, and lidR only reads
+# spatial windows, so a file may hold up to 2^53 points.
+MAX_LIDR_POINT_COUNT <- 2^53
 DTM_CATALOG_SELECTION <- "xyz"
 SEGMENT_CATALOG_BASE_SELECTION <- "xyzrn"
 SEGMENT_SELECTION <- "xyz"
@@ -2762,19 +2764,8 @@ vertical_complexity <- function(z, height_upper_m) {
 
 # Calculate tile metrics from a spatial window.  COPC still
 # supplies only the requested window; order restoration occurs after that read.
-calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters) {
-  bounds <- st_bbox(tile)
-  height_reference <- parameter_or(parameters, "metric_height_upper_m", parameters$maximum_height)
-  voxel_total <- round(
-    (parameters$tile_size / parameters$voxel_resolution)^2 *
-      ((height_reference - parameters$vegetation_minimum_height) /
-         parameters$voxel_resolution)
-  )
-  if (!is.finite(voxel_total) || voxel_total <= 0 || voxel_total > 2^53 - 1) {
-    stop("Metric voxel volume exceeds exact numeric support or is not positive")
-  }
-  empty <- empty_metric_values(voxel_total, height_reference)
-
+# Points of one window in source order, without points the noise filter rejected.
+read_tile_points <- function(point_cloud, bounds, parameters) {
   las <- readLAS(
     point_cloud,
     # Add OriginalPointIndex to XYZ only when the active input is canonical COPC.
@@ -2788,7 +2779,7 @@ calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters) {
       bounds[["xmin"]], bounds[["ymin"]], bounds[["xmax"]], bounds[["ymax"]]
     )
   )
-  if (is.empty(las)) return(empty)
+  if (is.empty(las)) return(las)
   # Fail closed if selective COPC reading omitted the required order key.
   assert_loaded_dimensions(
     las,
@@ -2801,7 +2792,50 @@ calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters) {
     parameters$point_order_dimension,
     "tile"
   )
-  las <- apply_denoising_mask(las, parameters$denoising)
+  apply_denoising_mask(las, parameters$denoising)
+}
+
+# Row numbers of each tile's points in a block read, in one pass over the
+# points. LASlib's -inside keeps xmin <= X < xmax and ymin <= Y < ymax at the
+# same ten-decimal bounds; grid tiles do not overlap, so each point has at most
+# one tile. Rows stay in the block's restored source order.
+tile_point_rows <- function(block_las, windows) {
+  bounds <- t(vapply(windows, function(window) as.numeric(sprintf("%.10f", window)), numeric(4)))
+  xs <- sort(unique(bounds[, 1]))
+  ys <- sort(unique(bounds[, 2]))
+  cell <- function(ix, iy) ix + iy * (length(xs) + 1)
+  tile <- match(cell(findInterval(block_las@data$X, xs), findInterval(block_las@data$Y, ys)),
+                cell(match(bounds[, 1], xs), match(bounds[, 2], ys)))
+  inside <- which(!is.na(tile))
+  inside <- inside[block_las@data$X[inside] < bounds[tile[inside], 3] &
+                   block_las@data$Y[inside] < bounds[tile[inside], 4]]
+  split(inside, factor(tile[inside], levels = seq_along(windows)))
+}
+
+# The same subset filter_poi() would return for these rows.
+tile_points_from_block <- function(block_las, rows) {
+  if (length(rows) == npoints(block_las)) block_las else block_las[rows]
+}
+
+calculate_tile_metrics <- function(point_cloud, tile, dtm, parameters, block_las = NULL,
+                                   block_rows = NULL) {
+  bounds <- st_bbox(tile)
+  height_reference <- parameter_or(parameters, "metric_height_upper_m", parameters$maximum_height)
+  voxel_total <- round(
+    (parameters$tile_size / parameters$voxel_resolution)^2 *
+      ((height_reference - parameters$vegetation_minimum_height) /
+         parameters$voxel_resolution)
+  )
+  if (!is.finite(voxel_total) || voxel_total <= 0 || voxel_total > 2^53 - 1) {
+    stop("Metric voxel volume exceeds exact numeric support or is not positive")
+  }
+  empty <- empty_metric_values(voxel_total, height_reference)
+
+  las <- if (is.null(block_las)) {
+    read_tile_points(point_cloud, bounds, parameters)
+  } else {
+    tile_points_from_block(block_las, block_rows)
+  }
   if (is.empty(las)) return(empty)
 
   las <- normalize_height(las, dtm)
@@ -3530,43 +3564,68 @@ run_analysis <- function(parameters) {
   message("RASTER_STAGE stage=tiles status=started")
   tile_started <- proc.time()[["elapsed"]]
   tile_indices <- seq_len(nrow(tiles))
-  tile_plan <- tile_worker_plan(thread_budget, length(tile_indices), catalog_workers)
+  # Match the decimal bounds passed to the tile reader's -inside filter.
+  tile_windows <- lapply(tile_indices, function(index)
+    as.numeric(sprintf("%.10f", st_bbox(tiles[index, ]))))
+  # Neighbouring tiles share one read: every per-tile COPC query decoded the
+  # coarse octree levels again, which dominated large areas.
+  analysis_bounds <- point_cloud_xy_bounds(analysis_cloud)
+  analysis_density <- point_count_from_las_header(analysis_cloud) /
+    max(1, (analysis_bounds[["xmax"]] - analysis_bounds[["xmin"]]) *
+           (analysis_bounds[["ymax"]] - analysis_bounds[["ymin"]]))
+  tile_blocks <- plan_tile_blocks(tile_windows, parameters$tile_size,
+    analysis_density, analysis_policy, workers = min(thread_budget, catalog_workers))
+  block_windows <- lapply(tile_blocks, function(block) tile_block_window(tile_windows[block]))
+  tile_plan <- tile_worker_plan(thread_budget, length(tile_blocks), catalog_workers)
   tile_workers <- tile_plan$process_workers
   tile_threads_per_worker <- tile_plan$threads_per_worker
-  calculate_row <- function(index) {
+  calculate_block <- function(block_index) {
     if (tile_workers > 1L) {
       set_lidr_threads(tile_threads_per_worker)
     }
     worker_dtm <- rast(dtm_path)
-    metrics <- calculate_tile_metrics(
-      analysis_cloud,
-      tiles[index, ],
-      worker_dtm,
-      parameters
-    )
-    build_tile_row(
-      parameters$point_cloud_display_name,
-      tiles[index, ],
-      edge_flags[[index]],
-      nrow(tiles),
-      metrics,
-      empty_tree_metrics(),
-      parameters$sensor,
-      parameters$country
-    )
+    block <- tile_blocks[[block_index]]
+    block_las <- if (length(block) > 1L) {
+      window <- block_windows[[block_index]]
+      read_tile_points(analysis_cloud,
+        c(xmin = window[[1]], ymin = window[[2]], xmax = window[[3]], ymax = window[[4]]),
+        parameters)
+    }
+    block_rows <- if (!is.null(block_las)) {
+      if (is.empty(block_las)) lapply(block, function(index) integer())
+      else tile_point_rows(block_las, tile_windows[block])
+    }
+    lapply(seq_along(block), function(position) {
+      index <- block[[position]]
+      metrics <- calculate_tile_metrics(
+        analysis_cloud,
+        tiles[index, ],
+        worker_dtm,
+        parameters,
+        block_las = block_las,
+        block_rows = block_rows[[position]]
+      )
+      build_tile_row(
+        parameters$point_cloud_display_name,
+        tiles[index, ],
+        edge_flags[[index]],
+        nrow(tiles),
+        metrics,
+        empty_tree_metrics(),
+        parameters$sensor,
+        parameters$country
+      )
+    })
   }
   if (length(tile_indices) > 0L) {
     message(sprintf(
-      "Calculating %d tile metric rows with %d process worker(s), %d lidR thread(s) each",
-      length(tile_indices),
+      "Calculating %d tile metric rows in %d block(s) with %d process worker(s), %d lidR thread(s) each",
+      length(tile_indices), length(tile_blocks),
       tile_workers, tile_threads_per_worker
     ))
   }
-  # Match the decimal bounds passed to the tile reader's -inside filter.
-  tile_windows <- lapply(tile_indices, function(index)
-    as.numeric(sprintf("%.10f", st_bbox(tiles[index, ]))))
-  base_result <- collect_tile_rows(tile_indices, calculate_row, tile_workers,
-    task_windows = tile_windows, memory_policy = analysis_policy)
+  base_result <- collect_tile_block_rows(tile_indices, tile_blocks, calculate_block,
+    tile_workers, task_windows = block_windows, memory_policy = analysis_policy)
   tile_seconds <- elapsed_seconds(tile_started)
   message("RASTER_STAGE stage=tiles status=completed")
 

@@ -373,6 +373,17 @@ stops the run before it reads points, with `memory_budget_exceeded`. A plain
 LAS/LAZ has no hierarchy, so every task reserves the whole file.
 `RASTER_CATALOG_WORKERS` (1–10) sets the worker count explicitly.
 
+Tile metrics read neighbouring tiles together, about 20 million points per
+block (`RASTER_TILE_BLOCK_POINTS`), and give each tile exactly the points a
+single-tile read would return. Each worker gets at least two blocks, and a
+block in a much denser patch goes back to one read per tile.
+
+The image builds rlas 1.8.6 from source with
+`patches/rlas-1.8.6-64bit-point-count.patch`: a file with more than
+2,147,483,647 points reports its count as a 64-bit number instead of being
+refused. lidR only reads spatial windows of it, so such clouds run like any
+other.
+
 ### Galaxy
 
 The Galaxy wrapper lives in

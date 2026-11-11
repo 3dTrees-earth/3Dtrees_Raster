@@ -94,4 +94,8 @@ run_case knn-w1 1 50000 --denoise knn
 run_case knn-w2 2 5000 --denoise knn
 docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
   -v "${root}:/data" "${baseline}" /tests/compare_denoising.py /data
-echo 'Denoising acceptance passed: kNN filter on by default, uncapped heights, raw counts and execution invariance'
+# Window by window, split into quarters by a small budget, equals one tree.
+docker run "${limits[@]}" --entrypoint python3 --env PYTHONDONTWRITEBYTECODE=1 \
+  -v "${root}/sources:/opt/raster:ro" -v "${repo}/tests:/tests:ro" -v "${root}/input:/input:ro" \
+  -v "${root}:/data" "${baseline}" /tests/compare_knn_windows.py /input/input.copc.laz /data
+echo 'Denoising acceptance passed: kNN filter on by default, windows equal one tree, uncapped heights, raw counts and execution invariance'

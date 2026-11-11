@@ -29,6 +29,8 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 BYTES_PER_POINT = 96  # coordinates, ordinals, KD-tree, distances and query batches
+# A window read also holds the decoded point records and the buffer's points.
+WINDOW_BYTES_PER_POINT = 320
 QUERY_BATCH = 2_000_000
 
 
@@ -80,30 +82,36 @@ def window_distances(reader, window, size, neighbors, threads, budget, header, d
         upper = np.array([x0 + size + buffer, y0 + size + buffer, header.maxs[2] + 1])
         nodes = load_octree_for_query(reader.source, reader.copc_info, reader.root_page,
                                       query_bounds=Bounds(lower, upper))
-        if sum(node.point_count for node in nodes) * BYTES_PER_POINT * 2 > budget:
+        if sum(node.point_count for node in nodes) * WINDOW_BYTES_PER_POINT > budget:
             raise SystemExit(f"RASTER_FLAG memory_budget_exceeded: the kNN window at {x0:.0f} {y0:.0f} "
                              f"reads too many points for {budget / 1024**3:.1f} GiB")
         points = reader._fetch_and_decompress_points_of_nodes(nodes)
-        xyz = np.column_stack([np.asarray(points.x), np.asarray(points.y), np.asarray(points.z)])
-        inside = ((xyz[:, 0] >= lower[0]) & (xyz[:, 0] <= upper[0]) &
-                  (xyz[:, 1] >= lower[1]) & (xyz[:, 1] <= upper[1]))
-        xyz = xyz[inside]
+        x, y = np.asarray(points.x), np.asarray(points.y)
+        inside = (x >= lower[0]) & (x <= upper[0]) & (y >= lower[1]) & (y <= upper[1])
+        xyz = np.column_stack([x[inside], y[inside], np.asarray(points.z)[inside]])
+        all_ids = np.asarray(points.array[dimension])[inside]
+        del points, x, y
         core = ((np.floor(xyz[:, 0] / size) == window[0]) & (np.floor(xyz[:, 1] / size) == window[1]))
         if not core.any():
             return np.empty(0), np.empty(0)
         local = xyz - xyz.min(axis=0)
         tree = cKDTree(local, leafsize=32, balanced_tree=False, compact_nodes=False)
         query = local[core]
-        d, _ = tree.query(query, k=neighbors, workers=threads)
+        # Batched like the whole-cloud tree: distances and indices are k wide,
+        # so keep only each point's mean distance and its k-th neighbour.
+        mean_distance, kth = np.empty(len(query)), np.empty(len(query))
+        for start in range(0, len(query), QUERY_BATCH):
+            d, _ = tree.query(query[start:start + QUERY_BATCH], k=neighbors, workers=threads)
+            mean_distance[start:start + QUERY_BATCH] = d[:, 1:].sum(axis=1) / (neighbors - 1)
+            kth[start:start + QUERY_BATCH] = d[:, -1]
         # Every k-th neighbour must be closer than the edge of the read, or a
         # point outside it could be nearer: then read a wider buffer.
         edge = np.minimum.reduce([xyz[core, 0] - lower[0], upper[0] - xyz[core, 0],
                                   xyz[core, 1] - lower[1], upper[1] - xyz[core, 1]])
         whole = (lower[0] <= header.mins[0] and lower[1] <= header.mins[1] and
                  upper[0] >= header.maxs[0] and upper[1] >= header.maxs[1])
-        if whole or np.all(d[:, -1] < edge):
-            ids = np.asarray(points.array[dimension])[inside][core].astype(np.float64)
-            return d[:, 1:].sum(axis=1) / (neighbors - 1), ids
+        if whole or np.all(kth < edge):
+            return mean_distance, all_ids[core].astype(np.float64)
         buffer *= 2
 
 
@@ -167,7 +175,9 @@ def main() -> None:
         raise ValueError("--denoise-neighbors must be at least 2 (it counts the point itself)")
     with laspy.open(args.input) as reader:
         n = reader.header.point_count
-    if n > args.neighbors and is_copc(args.input):
+    # One tree over the whole cloud when it fits; window by window otherwise.
+    whole_cloud_bytes = n * BYTES_PER_POINT + 512 * 1024**2
+    if n > args.neighbors and whole_cloud_bytes > args.memory_budget_bytes and is_copc(args.input):
         manifest = windowed(args, n, args.memory_budget_bytes - 512 * 1024**2)
         (args.output_dir / "manifest.json").write_text(json.dumps(manifest, allow_nan=False))
         return

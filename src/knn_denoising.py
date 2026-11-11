@@ -3,10 +3,16 @@
 
 Each point's mean distance to its k nearest neighbours, counting the point itself
 as lidR::sor() does (so k = 8 averages over 7 other points); a point is noise when
-that distance exceeds the cloud's mean plus `sigma` standard deviations. One
-multithreaded KD-tree over all points gives the same decisions as lidR, without
-windows. Rejected source ordinals are written per fixed XY window (float64
-little-endian, ascending) so later reads load only the windows they overlap.
+that distance exceeds the cloud's mean plus `sigma` standard deviations. Rejected
+source ordinals are written per fixed XY window (float64 little-endian,
+ascending) so later reads load only the windows they overlap.
+
+A COPC is processed window by window: each window's points and a buffer around
+it are read through the spatial index (XYZ and the extra bytes that hold the
+order key, nothing else), and the buffer grows until every point's k-th
+neighbour lies inside the read, so the distances equal those of one tree over
+the whole cloud. The distances are kept on disk until the cloud's mean and
+standard deviation are known. A plain LAS/LAZ uses one tree over all points.
 """
 from __future__ import annotations
 
@@ -14,7 +20,11 @@ import argparse
 import json
 from pathlib import Path
 
+import math
+import tempfile
+
 import laspy
+from laspy.copc import Bounds, load_octree_for_query
 import numpy as np
 from scipy.spatial import cKDTree
 
@@ -52,6 +62,96 @@ def knn_distances(xyz: np.ndarray, neighbors: int, threads: int) -> np.ndarray:
     return distances
 
 
+XYZ_AND_EXTRA_BYTES = (laspy.DecompressionSelection.xy_returns_channel()
+                       | laspy.DecompressionSelection.Z | laspy.DecompressionSelection.ALL_EXTRA_BYTES)
+
+
+def is_copc(path: Path) -> bool:
+    with laspy.open(path) as reader:
+        return any(v.user_id == "copc" and v.record_id == 1 for v in reader.header.vlrs)
+
+
+def window_distances(reader, window, size, neighbors, threads, budget, header, dimension):
+    """Distances and ordinals of one window's points, read with an exact buffer."""
+    x0, y0 = window[0] * size, window[1] * size
+    buffer = size / 4
+    while True:
+        lower = np.array([x0 - buffer, y0 - buffer, header.mins[2] - 1])
+        upper = np.array([x0 + size + buffer, y0 + size + buffer, header.maxs[2] + 1])
+        nodes = load_octree_for_query(reader.source, reader.copc_info, reader.root_page,
+                                      query_bounds=Bounds(lower, upper))
+        if sum(node.point_count for node in nodes) * BYTES_PER_POINT * 2 > budget:
+            raise SystemExit(f"RASTER_FLAG memory_budget_exceeded: the kNN window at {x0:.0f} {y0:.0f} "
+                             f"reads too many points for {budget / 1024**3:.1f} GiB")
+        points = reader._fetch_and_decompress_points_of_nodes(nodes)
+        xyz = np.column_stack([np.asarray(points.x), np.asarray(points.y), np.asarray(points.z)])
+        inside = ((xyz[:, 0] >= lower[0]) & (xyz[:, 0] <= upper[0]) &
+                  (xyz[:, 1] >= lower[1]) & (xyz[:, 1] <= upper[1]))
+        xyz = xyz[inside]
+        core = ((np.floor(xyz[:, 0] / size) == window[0]) & (np.floor(xyz[:, 1] / size) == window[1]))
+        if not core.any():
+            return np.empty(0), np.empty(0)
+        local = xyz - xyz.min(axis=0)
+        tree = cKDTree(local, leafsize=32, balanced_tree=False, compact_nodes=False)
+        query = local[core]
+        d, _ = tree.query(query, k=neighbors, workers=threads)
+        # Every k-th neighbour must be closer than the edge of the read, or a
+        # point outside it could be nearer: then read a wider buffer.
+        edge = np.minimum.reduce([xyz[core, 0] - lower[0], upper[0] - xyz[core, 0],
+                                  xyz[core, 1] - lower[1], upper[1] - xyz[core, 1]])
+        whole = (lower[0] <= header.mins[0] and lower[1] <= header.mins[1] and
+                 upper[0] >= header.maxs[0] and upper[1] >= header.maxs[1])
+        if whole or np.all(d[:, -1] < edge):
+            ids = np.asarray(points.array[dimension])[inside][core].astype(np.float64)
+            return d[:, 1:].sum(axis=1) / (neighbors - 1), ids
+        buffer *= 2
+
+
+def windowed(args, n, budget) -> dict:
+    """Window-by-window distances, then the global threshold over all of them."""
+    with laspy.CopcReader.open(args.input, decompression_selection=XYZ_AND_EXTRA_BYTES) as reader:
+        header = reader.header
+        size = args.window_size
+        xs = range(math.floor(header.mins[0] / size), math.floor(header.maxs[0] / size) + 1)
+        ys = range(math.floor(header.mins[1] / size), math.floor(header.maxs[1] / size) + 1)
+        with tempfile.TemporaryDirectory(dir=args.output_dir, prefix=".distances_") as scratch:
+            windows, count, total = [], 0, 0.0
+            for ix in xs:
+                for iy in ys:
+                    d, ids = window_distances(reader, (ix, iy), size, args.neighbors,
+                                              args.threads, budget, header, args.order_dimension)
+                    if not len(d):
+                        continue
+                    if np.any((ids < 0) | (ids != np.floor(ids)) | (ids > 2**53)):
+                        raise ValueError("denoising requires exact finite nonnegative source ordinals")
+                    path = Path(scratch) / f"{ix}_{iy}.npy"
+                    np.save(path, np.column_stack([d, ids]))
+                    windows.append(((ix, iy), path, len(d)))
+                    count += len(d)
+                    total += math.fsum(d)
+            if count != n:
+                raise ValueError(f"windows hold {count} of {n} points")
+            mean = total / count
+            squares = math.fsum(math.fsum((np.load(path)[:, 0] - mean) ** 2) for _, path, _ in windows)
+            sd = math.sqrt(squares / (count - 1))
+            threshold = mean + args.sigma * sd
+            partitions, rejected_total = [], 0
+            for (ix, iy), path, core in sorted(windows):
+                values = np.load(path)
+                rejected = np.sort(values[values[:, 0] > threshold, 1])
+                filename = f"core_{ix}_{iy}.bin"
+                if len(rejected):
+                    rejected.astype("<f8").tofile(args.output_dir / filename)
+                rejected_total += len(rejected)
+                partitions.append(dict(ix=ix, iy=iy, filename=filename, core_points=int(core),
+                                       rejected_points=int(len(rejected)),
+                                       accepted_points=int(core - len(rejected)),
+                                       insufficient_context_points=0))
+    return dict(point_count=int(n), rejected_points=int(rejected_total), distance_mean_m=mean,
+                distance_sd_m=sd, threshold_m=threshold, insufficient_context_points=0,
+                partitions=partitions)
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
@@ -67,6 +167,10 @@ def main() -> None:
         raise ValueError("--denoise-neighbors must be at least 2 (it counts the point itself)")
     with laspy.open(args.input) as reader:
         n = reader.header.point_count
+    if n > args.neighbors and is_copc(args.input):
+        manifest = windowed(args, n, args.memory_budget_bytes - 512 * 1024**2)
+        (args.output_dir / "manifest.json").write_text(json.dumps(manifest, allow_nan=False))
+        return
     required = n * BYTES_PER_POINT + 512 * 1024**2
     if required > args.memory_budget_bytes:
         raise SystemExit(f"RASTER_FLAG memory_budget_exceeded: the kNN filter needs "

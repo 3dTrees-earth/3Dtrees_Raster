@@ -32,9 +32,10 @@ import numpy as np
 from scipy.spatial import cKDTree
 
 BYTES_PER_POINT = 96  # coordinates, ordinals, KD-tree, distances and query batches
-# A window read holds the decoded records of every node it touches (records plus
-# float X, Y, Z and masks), and the tree, distances and copies of the points inside.
-DECODED_BYTES_PER_POINT = 40
+# A window read holds the compressed bytes and the decoded records of every node
+# it touches plus float X, Y, Z, their copies inside the box and masks; then the
+# tree, distances and copies of the points inside.
+DECODED_BYTES_PER_POINT = 72
 WINDOW_BYTES_PER_POINT = 320
 QUERY_BATCH = 2_000_000
 # A 60 m window splits down to 60 / 2^6 < 1 m before the budget is declared too small.
@@ -95,9 +96,9 @@ def window_distances(reader, window, size, neighbors, threads, budget, header, d
     upper = np.array([x1 + buffer, y1 + buffer, header.maxs[2] + 1])
     nodes = load_octree_for_query(reader.source, reader.copc_info, reader.root_page,
                                   query_bounds=Bounds(lower, upper))
-    # Decoded nodes cost their records plus float coordinates; the points
-    # inside the read then cost WINDOW_BYTES_PER_POINT each.
-    if sum(node.point_count for node in nodes) * (header.point_format.size + DECODED_BYTES_PER_POINT) > budget:
+    # Decoding costs decoded_bytes(); the points inside the read then cost
+    # WINDOW_BYTES_PER_POINT each.
+    if decoded_bytes(nodes, header) > budget:
         return quarters(reader, window, size, neighbors, threads, budget, header, dimension,
                         part, depth, (x0, x1, y0, y1))
     xyz, all_ids = read_box(reader, nodes, lower, upper, dimension)
@@ -140,12 +141,24 @@ def window_distances(reader, window, size, neighbors, threads, budget, header, d
     return mean_distance, all_ids[core].astype(np.float64)
 
 
+def decoded_bytes(nodes, header):
+    """Peak bytes of read_box() over these nodes."""
+    return sum(node.byte_size + node.point_count * (header.point_format.size + DECODED_BYTES_PER_POINT)
+               for node in nodes)
+
+
 def read_box(reader, nodes, lower, upper, dimension):
     """XYZ and ordinals of the nodes' points inside the XY box."""
     points = reader._fetch_and_decompress_points_of_nodes(nodes)
-    x, y = np.asarray(points.x), np.asarray(points.y)
-    inside = (x >= lower[0]) & (x <= upper[0]) & (y >= lower[1]) & (y <= upper[1])
-    xyz = np.column_stack([x[inside], y[inside], np.asarray(points.z)[inside]])
+    x = np.asarray(points.x)
+    inside = (x >= lower[0]) & (x <= upper[0])
+    del x
+    y = np.asarray(points.y)
+    inside &= (y >= lower[1]) & (y <= upper[1])
+    del y
+    xyz = np.empty((np.count_nonzero(inside), 3))
+    for axis, name in enumerate("xyz"):
+        xyz[:, axis] = np.asarray(getattr(points, name))[inside]
     ids = np.asarray(points.array[dimension])[inside] if dimension else None
     return xyz, ids
 
@@ -160,9 +173,8 @@ def bounded_distances(reader, query, radius, neighbors, threads, budget, header)
     upper = np.append((query[:, :2] + reach).max(axis=0) + header.mins[:2], header.maxs[2] + 1)
     nodes = load_octree_for_query(reader.source, reader.copc_info, reader.root_page,
                                   query_bounds=Bounds(lower, upper))
-    per_point = header.point_format.size + DECODED_BYTES_PER_POINT + WINDOW_BYTES_PER_POINT
     best = np.full((len(query), neighbors), np.inf)
-    for batch in node_batches(nodes, budget // per_point):
+    for batch in node_batches(nodes, header, budget):
         xyz, _ = read_box(reader, batch, lower, upper, None)
         if not len(xyz):
             continue
@@ -173,15 +185,16 @@ def bounded_distances(reader, query, radius, neighbors, threads, budget, header)
     return best[:, 1:].sum(axis=1) / (neighbors - 1)
 
 
-def node_batches(nodes, limit):
-    """Consecutive groups of nodes holding at most `limit` points (one node at least)."""
-    batch, points = [], 0
+def node_batches(nodes, header, budget):
+    """Consecutive groups of nodes whose read and tree fit the budget (one node at least)."""
+    batch, cost = [], 0
     for node in nodes:
-        if batch and points + node.point_count > limit:
+        node_cost = decoded_bytes([node], header) + node.point_count * WINDOW_BYTES_PER_POINT
+        if batch and cost + node_cost > budget:
             yield batch
-            batch, points = [], 0
+            batch, cost = [], 0
         batch.append(node)
-        points += node.point_count
+        cost += node_cost
     if batch:
         yield batch
 

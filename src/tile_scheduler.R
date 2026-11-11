@@ -53,7 +53,7 @@ collect_tile_rows <- function(
     runner(tile_indices, calculate_row, tile_workers)
   } else {
     run_memory_admitted_tasks(tile_indices, calculate_row, tile_workers,
-      task_windows, memory_policy, "tiles", runner = runner)
+      task_windows, memory_policy, "tiles")
   }
   validate_tile_rows(tile_indices, rows)
   if (length(rows)) {
@@ -128,7 +128,7 @@ collect_tile_block_rows <- function(
     runner(block_indices, calculate_block, workers)
   } else {
     run_memory_admitted_tasks(block_indices, calculate_block, workers,
-      task_windows, memory_policy, "tiles", runner = runner)
+      task_windows, memory_policy, "tiles")
   }
   rows <- vector("list", length(tile_indices))
   for (i in seq_along(blocks)) {

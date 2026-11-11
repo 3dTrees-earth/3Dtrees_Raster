@@ -5,14 +5,14 @@
 # per fixed XY window so later reads load only the windows they overlap.
 # Coordinates and classes stay untouched.
 denoising_defaults <- function() {
-  list(denoise = "none", denoise_neighbors = 8L, denoise_sigma = 2,
+  list(denoise = "knn", denoise_neighbors = 8L, denoise_sigma = 2,
        denoise_window_size = 60)
 }
 
 add_denoising_arguments <- function(parser) {
   defaults <- denoising_defaults()
   parser$add_argument("--denoise", choices = c("none", "knn"), default = defaults$denoise,
-    help = "kNN distance outlier filter before terrain/metrics (default: none); raw voxel counts remain unfiltered")
+    help = "kNN distance outlier filter before terrain/metrics (default: knn; none switches it off); raw voxel counts remain unfiltered")
   parser$add_argument("--denoise-neighbors", type = "integer", default = defaults$denoise_neighbors,
     help = sprintf("Nearest neighbours per point, counting the point itself as lidR::sor() does (default: %s)", defaults$denoise_neighbors))
   parser$add_argument("--denoise-sigma", type = "double", default = defaults$denoise_sigma,

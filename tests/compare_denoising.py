@@ -64,7 +64,7 @@ def main() -> None:
         order = read_json(root / f"input/order_{dimension}.json")
         assert order["multiset_equal"] and order["original_point_index_unique"], order
         assert order["original_point_index_restores_expected_order"], order
-    outputs = {name: root / name / "output" for name in ("none", "knn-w1", "knn-w2")}
+    outputs = {name: root / name / "output" for name in ("none", "default", "knn-w1", "knn-w2")}
     resources = {}
     height_domains = {}
     observed_height_maxima = {}
@@ -175,13 +175,15 @@ def main() -> None:
     assert summaries[0] == summaries[1]
     assert maximum(outputs["none"] / "raster_chm.tif") > extreme_lower
     worker_count = compare_products(outputs["knn-w1"], outputs["knn-w2"])
+    # Without a flag the filter runs, exactly as --denoise knn.
+    compare_products(outputs["knn-w1"], outputs["default"])
     report = dict(status="valid", source_sha256=source_hash, input_points=fixture["points"],
         rejected_points=len(masks[0]), supported_crown_points=len(fixture["supported_crown_indices"]),
         injected_outliers_rejected=2, additional_source_points_flagged=len(masks[0]) - 2,
         denoising_parameters={key: summaries[0][key] for key in (
             "algorithm", "method", "k", "sigma", "threshold_m",
             "window_size_m", "origin")},
-        default_cli_enables_denoising=False,
+        default_cli_enables_denoising=True,
         metric_height_policy="observed_voxel_height_v1", metric_height_upper_m=height_domains,
         observed_maximum_voxel_height_m=observed_height_maxima,
         supported_crown_height_interval_m=fixture["expected_supported_height_m"],

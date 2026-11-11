@@ -11,7 +11,8 @@ local({
             isTRUE(all.equal(validate_denoising_options(parser$parse_args(character())), settings)))
   rejects <- function(expression) inherits(tryCatch(force(expression), error = identity), "error")
   stopifnot(is.null(prepare_denoising_mask("unused", NULL, list(denoise = "none"), directory, 1L)),
-            is.null(prepare_denoising_mask("unused", NULL, list(), directory, 1L)),
+            # The filter is on by default, so it needs the order key.
+            rejects(prepare_denoising_mask("unused", NULL, list(), directory, 1L)),
             rejects(prepare_denoising_mask("unused", NULL, list(denoise = "knn"), directory, 1L)))
   for (field in names(settings)[-1L]) {
     for (value in list(NA_real_, Inf, 0, -1, "bad", numeric())) {

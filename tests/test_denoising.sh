@@ -87,10 +87,11 @@ run_case() {
     "${case_dir}/output" --report "${case_dir}/artifact_validation.json"
   test -z "$(find "${case_dir}/scratch" -mindepth 1 -print -quit)"
 }
-# The ordinary production invocation must not filter without a denoise flag.
-run_case none 1 50000
+# The filter is on by default; --denoise none switches it off.
+run_case none 1 50000 --denoise none
+run_case default 1 50000
 run_case knn-w1 1 50000 --denoise knn
 run_case knn-w2 2 5000 --denoise knn
 docker run "${limits[@]}" --entrypoint python3 -v "${repo}/tests:/tests:ro" -v "${repo}/scripts:/scripts:ro" -e PYTHONPATH=/scripts \
   -v "${root}:/data" "${baseline}" /tests/compare_denoising.py /data
-echo 'Denoising acceptance passed: kNN filter off by default, uncapped heights, raw counts and execution invariance'
+echo 'Denoising acceptance passed: kNN filter on by default, uncapped heights, raw counts and execution invariance'

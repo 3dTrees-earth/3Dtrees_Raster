@@ -21,6 +21,7 @@ import json
 from pathlib import Path
 
 import math
+import os
 import tempfile
 
 import laspy
@@ -177,7 +178,10 @@ def main() -> None:
         n = reader.header.point_count
     # One tree over the whole cloud when it fits; window by window otherwise.
     whole_cloud_bytes = n * BYTES_PER_POINT + 512 * 1024**2
-    if n > args.neighbors and whole_cloud_bytes > args.memory_budget_bytes and is_copc(args.input):
+    # RASTER_KNN_WINDOWED=1 forces windows, so tests can compare both paths.
+    windowed_wanted = (whole_cloud_bytes > args.memory_budget_bytes
+                       or os.environ.get("RASTER_KNN_WINDOWED") == "1")
+    if n > args.neighbors and windowed_wanted and is_copc(args.input):
         manifest = windowed(args, n, args.memory_budget_bytes - 512 * 1024**2)
         (args.output_dir / "manifest.json").write_text(json.dumps(manifest, allow_nan=False))
         return

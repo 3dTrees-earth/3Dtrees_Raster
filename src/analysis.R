@@ -789,6 +789,10 @@ dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
   )
   # Match the record sequence of the original LAZ-based workflow.
   las <- restore_original_point_order(las, point_order_dimension, "DTM")
+  # Rejected points often define the window's edge; keep the unfiltered
+  # window's grid so the DTM still covers the full extent (NA left to TIN
+  # extrapolation, as without the filter).
+  layout <- if (!is.null(denoising)) lidR:::raster_layout(las, dtm_resolution, format = "terra")
   las <- apply_denoising_mask(las, denoising)
   # The order is now encoded by the rows themselves; do not retain a redundant
   # eight-byte ordinal per point through the memory-intensive PTD/TIN stages.
@@ -807,7 +811,7 @@ dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
     ptd(res = ptd_resolution),
     last_returns = FALSE
   )
-  surface <- classified_ground_surface(las, dtm_resolution)
+  surface <- classified_ground_surface(las, if (is.null(layout)) dtm_resolution else layout)
   if (is.null(surface)) empty_chunk_raster(chunk, dtm_resolution) else surface
 }
 
@@ -899,6 +903,8 @@ empty_chunk_raster <- function(chunk, resolution) {
   raster
 }
 
+# `dtm_resolution` is a cell size or, with the noise filter, the unfiltered
+# window's raster template.
 classified_ground_surface <- function(las, dtm_resolution) {
   classifications <- las[["Classification"]]
   if (is.null(classifications)) {

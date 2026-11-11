@@ -47,9 +47,9 @@ def run(name, budget, windowed):
 
 whole, whole_manifest = run("knn-whole", 3 * 1024**3, False)
 assert not splits and not open_points
-# The fixture's three COPC nodes need about 11 MB to decode, so every read fits
-# 16 MiB; ten times the cost per point inside a read caps reads at about 5,200
-# points, which splits the windows and streams open points node by node.
+# The fixture's three COPC nodes need about 13 MB to decode, so every read fits
+# 16 MiB; ten times the cost per point inside a read caps reads at about 4,500
+# points, which splits the windows and sends open points to the bounded search.
 knn_denoising.WINDOW_BYTES_PER_POINT *= 10
 windows, windows_manifest = run("knn-windows", 528 * 1024**2, True)
 assert splits, "the budget did not split any window"

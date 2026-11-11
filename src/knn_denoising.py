@@ -34,10 +34,13 @@ from scipy.spatial import cKDTree
 BYTES_PER_POINT = 96  # coordinates, ordinals, KD-tree, distances and query batches
 # A window read holds the compressed bytes and the decoded records of every node
 # it touches plus float X, Y, Z, their copies inside the box and masks; then the
-# tree, distances and copies of the points inside.
-DECODED_BYTES_PER_POINT = 72
-WINDOW_BYTES_PER_POINT = 320
+# tree, distances and copies of the points inside. Measured: 1887 (2.0 B TLS
+# points) peaked at 59 GiB of anonymous memory with 72 and 320 for a 53 GiB budget.
+DECODED_BYTES_PER_POINT = 100
+WINDOW_BYTES_PER_POINT = 370
 QUERY_BATCH = 2_000_000
+# Nodes read at once for far neighbours: small, so the search radius shrinks early.
+BOUNDED_BATCH_POINTS = 1_000_000
 # A 60 m window splits down to 60 / 2^6 < 1 m before the budget is declared too small.
 MAX_SPLITS = 6
 
@@ -124,21 +127,30 @@ def window_distances(reader, window, size, neighbors, threads, budget, header, d
         mean_distance[start:start + QUERY_BATCH] = d[:, 1:].sum(axis=1) / (neighbors - 1)
         kth[start:start + QUERY_BATCH] = d[:, -1]
     del tree
+    ids = all_ids[core].astype(np.float64)
+    del xyz, all_ids, core
     # A point is exact when its k-th neighbour is closer than every side of the
     # read that has cloud beyond it; otherwise a point outside could be nearer.
-    sides = [(xyz[core, 0] - lower[0], lower[0] > header.mins[0]),
-             (upper[0] - xyz[core, 0], upper[0] < header.maxs[0]),
-             (xyz[core, 1] - lower[1], lower[1] > header.mins[1]),
-             (upper[1] - xyz[core, 1], upper[1] < header.maxs[1])]
+    low, high = lower - header.mins, upper - header.mins
+    sides = [(query[:, 0] - low[0], lower[0] > header.mins[0]),
+             (high[0] - query[:, 0], upper[0] < header.maxs[0]),
+             (query[:, 1] - low[1], lower[1] > header.mins[1]),
+             (high[1] - query[:, 1], upper[1] < header.maxs[1])]
     edge = np.minimum.reduce([distance if open_ else np.full(len(distance), np.inf)
                               for distance, open_ in sides])
+    del sides
     open_points = np.flatnonzero(kth >= edge)
     if len(open_points):
         # The k-th distance found so far bounds the true one, so the box of
         # each open point plus that radius holds all its true neighbours.
-        mean_distance[open_points] = bounded_distances(
-            reader, query[open_points], kth[open_points], neighbors, threads, budget, header)
-    return mean_distance, all_ids[core].astype(np.float64)
+        # (It is infinite where the read held fewer than k points.) Only the
+        # window's distances and ordinals stay in memory meanwhile.
+        open_query, open_kth = query[open_points], kth[open_points]
+        del query, kth, edge
+        mean_distance[open_points] = far_distances(
+            reader, open_query, open_kth, buffer, neighbors, threads,
+            budget - mean_distance.nbytes - ids.nbytes, header)
+    return mean_distance, ids
 
 
 def decoded_bytes(nodes, header):
@@ -163,40 +175,75 @@ def read_box(reader, nodes, lower, upper, dimension):
     return xyz, ids
 
 
+def far_distances(reader, query, radius, buffer, neighbors, threads, budget, header):
+    """Exact mean distances of points whose k-th neighbour may lie beyond the
+    read. A point with fewer than k neighbours in the read has no bound yet: its
+    search radius starts at twice the buffer and doubles until k neighbours lie
+    within it, instead of searching the whole cloud at once."""
+    mean = np.empty(len(query))
+    reach = np.where(np.isfinite(radius), radius, 2 * buffer)
+    todo = np.arange(len(query))
+    while len(todo):
+        found, kth = bounded_distances(reader, query[todo], reach[todo], neighbors, threads, budget, header)
+        exact = kth <= reach[todo]
+        mean[todo[exact]] = found[exact]
+        todo = todo[~exact]
+        reach[todo] *= 2
+    return mean
+
+
 def bounded_distances(reader, query, radius, neighbors, threads, budget, header):
-    """Exact mean distances of the query points (local frame) whose k nearest
-    neighbours lie within `radius`: the box is streamed node batch by node
-    batch, keeping each point's k smallest distances."""
+    """Mean and k-th distances of the query points (local frame) over the points
+    within `radius`, exact where the k-th distance is within it. The COPC nodes in the box are read nearest
+    first, in batches, keeping each point's k smallest distances; a node farther
+    from every point than its k-th distance so far cannot hold a neighbour and is
+    skipped, so an isolated point does not read the cloud around it."""
     # A millimetre more than the radius absorbs rounding between the frames.
-    reach = radius[:, None] + 1e-3
-    lower = np.append((query[:, :2] - reach).min(axis=0) + header.mins[:2], header.mins[2] - 1)
-    upper = np.append((query[:, :2] + reach).max(axis=0) + header.mins[:2], header.maxs[2] + 1)
+    reach = radius + 1e-3
+    lower = np.append((query[:, :2] - reach[:, None]).min(axis=0) + header.mins[:2], header.mins[2] - 1)
+    upper = np.append((query[:, :2] + reach[:, None]).max(axis=0) + header.mins[:2], header.maxs[2] + 1)
     nodes = load_octree_for_query(reader.source, reader.copc_info, reader.root_page,
                                   query_bounds=Bounds(lower, upper))
+    points = query + header.mins
+
+    def gaps(node):
+        """Distance from each query point to the node's cube."""
+        outside = np.maximum(node.bounds.mins - points, 0) + np.maximum(points - node.bounds.maxs, 0)
+        return np.sqrt((outside ** 2).sum(axis=1))
+
+    nearest = sorted(((gaps(node), node) for node in nodes if node.point_count > 0),
+                     key=lambda pair: pair[0].min())
     best = np.full((len(query), neighbors), np.inf)
-    for batch in node_batches(nodes, header, budget):
+    limit = reach.copy()
+    per_point = header.point_format.size + DECODED_BYTES_PER_POINT + WINDOW_BYTES_PER_POINT
+    batch, cost, size = [], 0, 0
+
+    def read(batch):
         xyz, _ = read_box(reader, batch, lower, upper, None)
         if not len(xyz):
-            continue
+            return best
         tree = cKDTree(xyz - header.mins, leafsize=32, balanced_tree=False, compact_nodes=False)
         d, _ = tree.query(query, k=min(neighbors, len(xyz)), workers=threads)
-        best = np.sort(np.concatenate([best, d.reshape(len(query), -1)], axis=1), axis=1)[:, :neighbors]
-        del tree, xyz
-    return best[:, 1:].sum(axis=1) / (neighbors - 1)
+        return np.sort(np.concatenate([best, d.reshape(len(query), -1)], axis=1), axis=1)[:, :neighbors]
 
-
-def node_batches(nodes, header, budget):
-    """Consecutive groups of nodes whose read and tree fit the budget (one node at least)."""
-    batch, cost = [], 0
-    for node in nodes:
-        node_cost = decoded_bytes([node], header) + node.point_count * WINDOW_BYTES_PER_POINT
-        if batch and cost + node_cost > budget:
-            yield batch
-            batch, cost = [], 0
+    for gap, node in nearest:
+        if gap.min() > limit.max():
+            break
+        if not np.any(gap <= limit):
+            continue
+        node_cost = node.byte_size + node.point_count * per_point
+        if batch and (cost + node_cost > budget or size + node.point_count > BOUNDED_BATCH_POINTS):
+            best = read(batch)
+            limit = np.minimum(reach, best[:, -1] + 1e-3)
+            batch, cost, size = [], 0, 0
+            if not np.any(gap <= limit):
+                continue
         batch.append(node)
         cost += node_cost
+        size += node.point_count
     if batch:
-        yield batch
+        best = read(batch)
+    return best[:, 1:].sum(axis=1) / (neighbors - 1), best[:, -1]
 
 
 def quarters(reader, window, size, neighbors, threads, budget, header, dimension, part, depth, bounds):

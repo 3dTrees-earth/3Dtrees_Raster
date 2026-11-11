@@ -143,9 +143,15 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
         }
         if (!is.null(value)) results[[next_task]] <- value
       } else {
+        # Tasks that run alone or few at a time may use the idle threads.
+        fit <- min(workers, length(indices) - next_task + 1L,
+          max(1, floor((policy$budget_bytes - policy$reserve_bytes - base) / max(costs[[next_task]], 1))))
+        threads <- max(1L, workers %/% as.integer(fit))
         # Wrapped, so a worker that dies (NULL) differs from a NULL result.
-        job <- parallel::mcparallel(list(value = calculate(indices[[next_task]])),
-                                    mc.set.seed = FALSE)
+        job <- parallel::mcparallel({
+          Sys.setenv(RASTER_TASK_THREADS = threads)
+          list(value = calculate(indices[[next_task]]))
+        }, mc.set.seed = FALSE)
         jobs[[as.character(job$pid)]] <- job
         running[as.character(job$pid)] <- next_task
       }

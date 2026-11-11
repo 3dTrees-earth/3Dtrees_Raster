@@ -776,10 +776,31 @@ release_point_order_dimension <- function(las, point_order_dimension = NULL) {
 
 # Process one DTM catalog chunk.  The optional order field is selected by the
 # catalog caller and restored immediately after reading.
+# lidR decodes a COPC window on one core. A task given more threads (dense
+# windows run one at a time) copies its window to an uncompressed LAS with that
+# many processes; lidR then reads the same points, with the same selection and
+# filter, from the copy.
+read_catalog_chunk <- function(chunk) {
+  threads <- suppressWarnings(as.integer(Sys.getenv("RASTER_TASK_THREADS", "1")))
+  if (is.na(threads) || threads < 2L || length(chunk@files) != 1L || !nzchar(chunk@save) ||
+      !is_copc_point_cloud(chunk@files)) {
+    return(readLAS(chunk))
+  }
+  copy <- paste0(chunk@save, "_points.las")
+  on.exit(unlink(copy), add = TRUE)
+  status <- system2("python3", c(shQuote(file.path(script_directory, "read_window.py")),
+    "--input", shQuote(chunk@files), "--output", shQuote(copy),
+    "--bounds", format(catalog_task_window(chunk), digits = 17, scientific = FALSE),
+    "--threads", threads))
+  if (!identical(status, 0L)) stop("parallel COPC window read failed")
+  chunk@files <- copy
+  readLAS(chunk)
+}
+
 dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
                       point_order_dimension = NULL, denoising = NULL) {
   configure_catalog_worker()
-  las <- readLAS(chunk)
+  las <- read_catalog_chunk(chunk)
   if (is.empty(las)) return(empty_chunk_raster(chunk, dtm_resolution))
   # Treat a missing order key as a hard error before classification or TIN work.
   assert_loaded_dimensions(

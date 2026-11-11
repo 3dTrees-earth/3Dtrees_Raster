@@ -108,7 +108,7 @@ test -z "$(find "${failure_work}" -mindepth 1 -print -quit)"
 default_output="${test_root}/default_dimensions_output"
 default_work="${test_root}/default_dimensions_work"
 mkdir -p "${default_output}" "${default_work}"
-docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${default_output}:/out" --volume "${default_work}:/work" "${image_name}" --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 153 --output-dir /out --temp-dir /work --memory-budget-gib 3 --sensor NA --country NA 2>&1 | tee "${test_root}/default_dimensions.log"
+docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${default_output}:/out" --volume "${default_work}:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 153 --output-dir /out --temp-dir /work --memory-budget-gib 3 --sensor NA --country NA 2>&1 | tee "${test_root}/default_dimensions.log"
 jq -e '.instance_dimension_selection == "all present" and .processed_instance_dimensions == ["PredInstance", "PredInstance_SAT", "PredInstance_FM"]' "${default_output}/153_run.json" >/dev/null
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
   cmp "${default_output}/tile_metrics/${dimension}_tile_metrics.csv" "${test_root}/output/tile_metrics/${dimension}_tile_metrics.csv"

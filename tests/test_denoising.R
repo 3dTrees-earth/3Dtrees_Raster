@@ -3,7 +3,7 @@ local({
   directory <- tempfile("denoising-test-")
   dir.create(directory)
   on.exit(unlink(directory, recursive = TRUE), add = TRUE)
-  settings <- list(denoise = "none", denoise_neighbors = 8L, denoise_sigma = 2,
+  settings <- list(denoise = "knn", denoise_neighbors = 8L, denoise_sigma = 2,
                    denoise_window_size = 60)
   parser <- argparse::ArgumentParser(add_help = FALSE)
   add_denoising_arguments(parser)

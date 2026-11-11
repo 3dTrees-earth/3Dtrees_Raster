@@ -46,8 +46,8 @@ docker run --rm --network none \
   `--instance-dimension` every one of them present is processed; with it
   (repeat the option or separate names with commas) exactly the named ones are,
   and a missing one fails the run before any analysis.
-- Point-noise filtering is off by default. `--denoise knn` turns it on, on a
-  canonical COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex`
+- Point-noise filtering is on by default (`--denoise knn`); `--denoise none`
+  switches it off. It works on a canonical COPC and on plain LAS/LAZ. A plain file without `OriginalPointIndex`
   is numbered in its own record order, which costs one extra read and a scratch
   copy of XYZ and the instance dimensions.
 - A COPC is recognised from its content (the `copc` info VLR), whatever its file name.
@@ -90,7 +90,7 @@ window edge. The runner rejects other values before reading any points.
 
 | Option | Default | Meaning |
 | --- | --- | --- |
-| `--denoise` | `none` | `knn` runs the kNN distance filter before the terrain model; `none` (the default) skips it |
+| `--denoise` | `knn` | `knn` (the default) runs the kNN distance filter before the terrain model; `none` skips it |
 | `--denoise-neighbors` | `8` | Nearest neighbours for each point's mean distance, counting the point itself as `lidR::sor()` does |
 | `--denoise-sigma` | `2` | Points farther than the whole cloud's mean distance plus this many standard deviations are flagged |
 | `--denoise-window-size` | `60` | Width in metres of the windows the noise list is stored in; does not change results |
@@ -142,8 +142,8 @@ Shared by all dimensions, each starting with the prefix `raster`:
 | `raster_voxel_counts_validity.tif` | 0 excluded (outside the AOI or on its boundary), 1 valid, 2 invalid DTM |
 | `raster_voxel_counts.copc.laz` | [Voxel points](#voxel-points-copc): one COPC point per occupied voxel at DTM height plus the band centre, with `point_count` and `height_above_dtm` |
 | `raster_voxel_counts.json` | Grid, CRS, source and DTM hashes, policies and point accounting |
-| `raster_noise_points.csv` | With `--denoise knn` only: one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
-| `raster_denoising.json` | With `--denoise knn` only: parameters and per-window point accounting |
+| `raster_noise_points.csv` | With the filter on (default): one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
+| `raster_denoising.json` | With the filter on (default): parameters and per-window point accounting |
 | `raster_run.json` | Run provenance: inputs, parameters, versions, resources |
 | `raster_performance.csv` | Stage timings and memory observations |
 | `raster_aoi_conversion.json` | The analysed footprint and its AOI conversion checks |
@@ -304,12 +304,15 @@ per window. Dataset 707 (786 M points on 99 × 84 m, 10 cores) takes 12:59 min a
 
 ### Point-noise filter
 
-With `--denoise knn` the production runner removes noise points before terrain
+By default (`--denoise knn`) the production runner removes noise points before terrain
 estimation with the filter Julian Frey proposed: each point's mean distance to
 its k = 8 nearest neighbours, and rejection when that distance exceeds the mean
 plus two standard deviations of all points' distances. As in `lidR::sor()`, k
 counts the point itself, so k = 8 averages the distances to 7 other points; the
-decisions equal lidR's `sor(k = 8, m = 2)` on the whole point cloud. The filter is off by default (`--denoise none`). Rejected points are
+decisions equal lidR's `sor(k = 8, m = 2)` on the whole point cloud. `--denoise none` switches the filter off.
+The DTM, CHM, DSM, segments and tile metrics use the remaining points; voxel
+counts always include every point. A DTM window keeps the raster grid of its
+unfiltered points, so rejected edge points do not shrink the DTM. Rejected points are
 named by `OriginalPointIndex`. A canonical COPC carries it; a plain LAS/LAZ that
 lacks it is first streamed into a compact, hash-verified scratch LAZ that
 numbers the records in file order (0-based), so the noise list names each

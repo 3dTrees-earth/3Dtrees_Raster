@@ -19,10 +19,12 @@ standard deviation are known. A plain LAS/LAZ uses one tree over all points.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
 import json
 from pathlib import Path
 
 import math
+import multiprocessing
 import os
 import tempfile
 
@@ -43,6 +45,7 @@ QUERY_BATCH = 2_000_000
 BOUNDED_BATCH_POINTS = 1_000_000
 # A 60 m window splits down to 60 / 2^6 < 1 m before the budget is declared too small.
 MAX_SPLITS = 6
+WORKER_BYTES = 256 * 1024**2
 
 
 def read_points(path: Path, dimension: str):
@@ -92,8 +95,7 @@ def window_distances(reader, window, size, neighbors, threads, budget, header, d
     the budget is split into quarters, down to MAX_SPLITS levels, so dense
     TLS windows stay within memory with the same distances.
     """
-    x0, x1 = max(window[0] * size, part[0]), min((window[0] + 1) * size, part[1])
-    y0, y1 = max(window[1] * size, part[2]), min((window[1] + 1) * size, part[3])
+    x0, x1, y0, y1 = part_bounds(window, size, part)
     buffer = max(x1 - x0, y1 - y0) / 4
     lower = np.array([x0 - buffer, y0 - buffer, header.mins[2] - 1])
     upper = np.array([x1 + buffer, y1 + buffer, header.maxs[2] + 1])
@@ -251,54 +253,153 @@ def quarters(reader, window, size, neighbors, threads, budget, header, dimension
     if depth == MAX_SPLITS:
         raise SystemExit(f"RASTER_FLAG memory_budget_exceeded: the kNN window at {bounds[0]:.0f} "
                          f"{bounds[2]:.0f} reads too many points for {budget / 1024**3:.1f} GiB")
-    xm, ym = (bounds[0] + bounds[1]) / 2, (bounds[2] + bounds[3]) / 2
     parts = [window_distances(reader, window, size, neighbors, threads, budget, header,
                               dimension, quarter, depth + 1)
-             for quarter in [(part[0], xm, part[2], ym), (xm, part[1], part[2], ym),
-                             (part[0], xm, ym, part[3]), (xm, part[1], ym, part[3])]]
+             for quarter in part_quarters(part, bounds)]
     return np.concatenate([d for d, _ in parts]), np.concatenate([ids for _, ids in parts])
 
 
+WORKER = {}
+FULL = (-math.inf, math.inf, -math.inf, math.inf)
+
+
+def part_bounds(window, size, part):
+    """The XY rectangle [x0, x1) x [y0, y1) of a window part."""
+    return (max(window[0] * size, part[0]), min((window[0] + 1) * size, part[1]),
+            max(window[1] * size, part[2]), min((window[1] + 1) * size, part[3]))
+
+
+def part_quarters(part, bounds):
+    xm, ym = (bounds[0] + bounds[1]) / 2, (bounds[2] + bounds[3]) / 2
+    return [(part[0], xm, part[2], ym), (xm, part[1], part[2], ym),
+            (part[0], xm, ym, part[3]), (xm, part[1], ym, part[3])]
+
+
+def part_cost(reader, header, window, size, part):
+    """Estimated bytes of reading one part: its nodes decoded, plus the points
+    inside the read in proportion to each node's overlap with it."""
+    x0, x1, y0, y1 = part_bounds(window, size, part)
+    buffer = max(x1 - x0, y1 - y0) / 4
+    lower, upper = np.array([x0 - buffer, y0 - buffer]), np.array([x1 + buffer, y1 + buffer])
+    nodes = load_octree_for_query(reader.source, reader.copc_info, reader.root_page, query_bounds=Bounds(
+        np.append(lower, header.mins[2] - 1), np.append(upper, header.maxs[2] + 1)))
+    inside = 0.0
+    for node in nodes:
+        low, high = node.bounds.mins[:2], node.bounds.maxs[:2]
+        overlap = np.clip(np.minimum(high, upper) - np.maximum(low, lower), 0, None)
+        inside += node.point_count * overlap.prod() / max((high - low).prod(), 1e-12)
+    return decoded_bytes(nodes, header) + inside * WINDOW_BYTES_PER_POINT
+
+
+def plan_parts(reader, header, size, workers, budget):
+    """Windows, split into quarters while a part is estimated above its share of
+    the budget or while there are too few parts to keep every worker busy."""
+    xs = range(math.floor(header.mins[0] / size), math.floor(header.maxs[0] / size) + 1)
+    ys = range(math.floor(header.mins[1] / size), math.floor(header.maxs[1] / size) + 1)
+    parts = [(part_cost(reader, header, (ix, iy), size, FULL), (ix, iy), FULL, 0) for ix in xs for iy in ys]
+    while True:
+        parts.sort(key=lambda item: -item[0])
+        cost, window, part, depth = parts[0]
+        if depth == MAX_SPLITS - 1 or (cost <= budget / workers and len(parts) >= 3 * workers):
+            return parts
+        quarters_ = part_quarters(part, part_bounds(window, size, part))
+        parts[0:1] = [(part_cost(reader, header, window, size, q), window, q, depth + 1) for q in quarters_]
+
+
+def start_worker(path):
+    WORKER["reader"] = laspy.CopcReader.open(path, decompression_selection=XYZ_AND_EXTRA_BYTES)
+
+
+def part_distances(task):
+    """Worker: one part's distances and ordinals, saved to the scratch directory."""
+    window, part, depth, size, neighbors, budget, dimension, path = task
+    reader = WORKER["reader"]
+    try:
+        d, ids = window_distances(reader, window, size, neighbors, 1, budget, reader.header, dimension,
+                                  part, depth)
+    except SystemExit as error:
+        # A pool worker that exits loses its task; report the flag instead.
+        raise RuntimeError(str(error)) from None
+    if not len(d):
+        return window, None, 0
+    if np.any((ids < 0) | (ids != np.floor(ids)) | (ids > 2**53)):
+        raise ValueError("denoising requires exact finite nonnegative source ordinals")
+    np.save(path, np.column_stack([d, ids]))
+    return window, path, len(d)
+
+
+def window_values(paths):
+    return np.concatenate([np.load(path) for path in paths])
+
+
 def windowed(args, n, budget) -> dict:
-    """Window-by-window distances, then the global threshold over all of them."""
+    """Window-by-window distances in parallel worker processes, then the global
+    threshold over all of them. Windows are split into parts so that every
+    worker has work and a part fits its share of the budget; per-window
+    sums are exact (fsum) and added in window order, so the result does not
+    depend on the number of workers."""
+    workers = max(1, args.threads)
+    # Each worker process holds Python, laspy and the COPC hierarchy besides its part.
+    budget -= workers * WORKER_BYTES
     with laspy.CopcReader.open(args.input, decompression_selection=XYZ_AND_EXTRA_BYTES) as reader:
         header = reader.header
-        size = args.window_size
-        xs = range(math.floor(header.mins[0] / size), math.floor(header.maxs[0] / size) + 1)
-        ys = range(math.floor(header.mins[1] / size), math.floor(header.maxs[1] / size) + 1)
-        with tempfile.TemporaryDirectory(dir=args.output_dir, prefix=".distances_") as scratch:
-            windows, count, total = [], 0, 0.0
-            for ix in xs:
-                for iy in ys:
-                    d, ids = window_distances(reader, (ix, iy), size, args.neighbors,
-                                              args.threads, budget, header, args.order_dimension)
-                    if not len(d):
-                        continue
-                    if np.any((ids < 0) | (ids != np.floor(ids)) | (ids > 2**53)):
-                        raise ValueError("denoising requires exact finite nonnegative source ordinals")
-                    path = Path(scratch) / f"{ix}_{iy}.npy"
-                    np.save(path, np.column_stack([d, ids]))
-                    windows.append(((ix, iy), path, len(d)))
-                    count += len(d)
-                    total += math.fsum(d)
-            if count != n:
-                raise ValueError(f"windows hold {count} of {n} points")
-            mean = total / count
-            squares = math.fsum(math.fsum((np.load(path)[:, 0] - mean) ** 2) for _, path, _ in windows)
-            sd = math.sqrt(squares / (count - 1))
-            threshold = mean + args.sigma * sd
-            partitions, rejected_total = [], 0
-            for (ix, iy), path, core in sorted(windows):
-                values = np.load(path)
-                rejected = np.sort(values[values[:, 0] > threshold, 1])
-                filename = f"core_{ix}_{iy}.bin"
-                if len(rejected):
-                    rejected.astype("<f8").tofile(args.output_dir / filename)
-                rejected_total += len(rejected)
-                partitions.append(dict(ix=ix, iy=iy, filename=filename, core_points=int(core),
-                                       rejected_points=int(len(rejected)),
-                                       accepted_points=int(core - len(rejected)),
-                                       insufficient_context_points=0))
+        parts = plan_parts(reader, header, args.window_size, workers, budget)
+    with tempfile.TemporaryDirectory(dir=args.output_dir, prefix=".distances_") as scratch:
+        # Each part reserves its estimate (a quarter more for the error, at most
+        # the budget) and is read within that reservation; parts start in order
+        # of size while the reservations of the running parts fit the budget.
+        pending = [(min(budget, cost * 1.25), (window, part, depth, args.window_size, args.neighbors,
+                    min(budget, cost * 1.25), args.order_dimension, str(Path(scratch) / f"{i}.npy")))
+                   for i, (cost, window, part, depth) in enumerate(parts)]
+        files, count, running = {}, 0, {}
+        rayon = os.environ.get("RAYON_NUM_THREADS")
+        os.environ["RAYON_NUM_THREADS"] = "1"
+        try:
+            with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"),
+                                     initializer=start_worker, initargs=(str(args.input),),
+                                     max_tasks_per_child=1) as pool:
+                while pending or running:
+                    while pending and len(running) < workers and \
+                            sum(running.values()) + pending[0][0] <= budget:
+                        reserved, task = pending.pop(0)
+                        running[pool.submit(part_distances, task)] = reserved
+                    done, _ = wait(running, return_when=FIRST_COMPLETED)
+                    for future in done:
+                        del running[future]
+                        try:
+                            window, path, points = future.result()
+                        except RuntimeError as error:
+                            raise SystemExit(str(error)) from None
+                        if path is not None:
+                            files.setdefault(window, []).append(path)
+                            count += points
+        finally:
+            if rayon is None:
+                os.environ.pop("RAYON_NUM_THREADS")
+            else:
+                os.environ["RAYON_NUM_THREADS"] = rayon
+        if count != n:
+            raise ValueError(f"windows hold {count} of {n} points")
+        windows = sorted(files)
+        total = 0.0
+        for window in windows:
+            total += math.fsum(window_values(files[window])[:, 0])
+        mean = total / count
+        squares = math.fsum(math.fsum((window_values(files[window])[:, 0] - mean) ** 2) for window in windows)
+        sd = math.sqrt(squares / (count - 1))
+        threshold = mean + args.sigma * sd
+        partitions, rejected_total = [], 0
+        for ix, iy in windows:
+            values = window_values(files[(ix, iy)])
+            rejected = np.sort(values[values[:, 0] > threshold, 1])
+            filename = f"core_{ix}_{iy}.bin"
+            if len(rejected):
+                rejected.astype("<f8").tofile(args.output_dir / filename)
+            rejected_total += len(rejected)
+            partitions.append(dict(ix=ix, iy=iy, filename=filename, core_points=int(len(values)),
+                                   rejected_points=int(len(rejected)),
+                                   accepted_points=int(len(values) - len(rejected)),
+                                   insufficient_context_points=0))
     return dict(point_count=int(n), rejected_points=int(rejected_total), distance_mean_m=mean,
                 distance_sd_m=sd, threshold_m=threshold, insufficient_context_points=0,
                 partitions=partitions)
@@ -319,11 +420,14 @@ def main() -> None:
         raise ValueError("--denoise-neighbors must be at least 2 (it counts the point itself)")
     with laspy.open(args.input) as reader:
         n = reader.header.point_count
-    # One tree over the whole cloud when it fits; window by window otherwise.
+    # A COPC runs window by window in parallel workers; one tree over the whole
+    # cloud is single-threaded apart from the queries. A plain LAS/LAZ, or one
+    # thread, uses the whole-cloud tree when it fits. RASTER_KNN_WINDOWED=1 or 0
+    # forces either path, so tests can compare them.
     whole_cloud_bytes = n * BYTES_PER_POINT + 512 * 1024**2
-    # RASTER_KNN_WINDOWED=1 forces windows, so tests can compare both paths.
-    windowed_wanted = (whole_cloud_bytes > args.memory_budget_bytes
-                       or os.environ.get("RASTER_KNN_WINDOWED") == "1")
+    forced = os.environ.get("RASTER_KNN_WINDOWED")
+    windowed_wanted = (whole_cloud_bytes > args.memory_budget_bytes or forced == "1"
+                       or (forced != "0" and args.threads > 1))
     if n > args.neighbors and windowed_wanted and is_copc(args.input):
         manifest = windowed(args, n, args.memory_budget_bytes - 512 * 1024**2)
         (args.output_dir / "manifest.json").write_text(json.dumps(manifest, allow_nan=False))

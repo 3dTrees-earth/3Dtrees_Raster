@@ -59,9 +59,6 @@ RUN install2.r --error --skipinstalled \
     && R CMD INSTALL /tmp/lidR.tar.gz \
     && rm /tmp/lidR.tar.gz
 
-ARG VCS_REF=unknown
-ARG IMAGE_VERSION=local
-
 # Python helpers stream the point cloud; GDAL supplies block raster I/O.
 RUN apt-get update \
     && apt-get install --yes --no-install-recommends python3-pip python3-gdal \
@@ -69,6 +66,10 @@ RUN apt-get update \
     && python3 -m pip install --no-cache-dir --break-system-packages \
       laspy==2.6.1 lazrs==0.7.0 polars==1.44.2 pyproj==3.7.2 scipy==1.14.1 \
     && python3 -c 'import laspy, lazrs, polars, pyproj, scipy; from osgeo import gdal, ogr, osr'
+
+# Declared after the package layers: a new commit must not reinstall them.
+ARG VCS_REF=unknown
+ARG IMAGE_VERSION=local
 
 LABEL org.opencontainers.image.source="https://github.com/3dTrees-earth/3Dtrees_Raster" \
       org.opencontainers.image.title="3Dtrees: Raster" \

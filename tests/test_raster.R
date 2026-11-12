@@ -140,3 +140,17 @@ for (index in seq_along(block_windows)) {
   stopifnot(identical(as.integer(block_rows[[index]]), as.integer(expected)))
 }
 stopifnot(identical(unname(lengths(block_rows)), c(4L, 1L, 1L, 2L)))
+
+# Overfull CHM reads are replaced by their quarters, which tile the read
+# exactly with shared edges.
+split_parent <- lidR:::LAScluster(list(x = 30, y = 30), 60, 60, 0, lidR:::LIDRRECTANGLE,
+  "cloud.laz", "parent", sf::st_crs(NA), list())
+split_plan <- list()
+split_plan[[cluster_key(split_parent)]] <- list(c(0, 0, 30, 30), c(30, 0, 30, 30),
+                                                c(0, 30, 30, 30), c(30, 30, 30, 30))
+split_children <- adaptive_chm_read_clusters(split_parent, 60, NULL, split_plan)
+stopifnot(length(split_children) == 4L)
+stopifnot(identical(vapply(split_children, cluster_key, character(1)), c(
+  "0.000000 0.000000 30.000000 30.000000", "30.000000 0.000000 60.000000 30.000000",
+  "0.000000 30.000000 30.000000 60.000000", "30.000000 30.000000 60.000000 60.000000")))
+stopifnot(length(adaptive_chm_read_clusters(split_parent, 60, NULL, list())) == 1L)

@@ -13,23 +13,18 @@ local({
   estimates <- task_memory_estimates(windows, policy, "tiles")
   stopifnot(identical(estimates$mode, "header_fallback"), all(estimates$counts == 100))
   cost <- estimates$bytes[[1]]
-  # First wave fits two, subsequent waves only one. The wrapper must recheck
-  # aggregate memory rather than independently giving each worker the budget.
-  dispatched <- list()
-  headroom <- function() policy$budget_bytes - if (!length(dispatched)) 2.1 * cost else 1.1 * cost
-  runner <- function(indices, calculate, workers) {
-    stopifnot(sum(estimates$bytes[indices]) <= policy$budget_bytes - headroom(),
-              workers == length(indices))
-    dispatched[[length(dispatched) + 1L]] <<- indices
-    run_bounded_tasks(indices, calculate, workers)
-  }
+  # Two tasks fit at first, later only one. The pool must count the running
+  # tasks' estimates rather than giving each worker the budget.
+  headroom <- function() policy$budget_bytes - 2.1 * cost
   calculate <- function(i) if (i == 3L) NULL else i * 10L
   result <- run_memory_admitted_tasks(seq_len(5), calculate, 4L, windows, policy,
-    memory_current = headroom, runner = runner)
-  stopifnot(identical(result, list(10L, 20L, NULL, 40L, 50L)),
-    identical(lengths(dispatched), c(2L, 1L, 1L, 1L)))
+    memory_current = headroom)
+  stopifnot(identical(result, list(10L, 20L, NULL, 40L, 50L)))
   report <- resource_plan_reports(policy)
-  stopifnot(length(report) == 1L, length(report[[1]]$waves) == 4L,
+  admissions <- report[[1]]$admissions
+  stopifnot(length(report) == 1L, length(admissions) == 5L,
+            max(vapply(admissions, `[[`, integer(1), "workers")) == 2L,
+            all(vapply(admissions, function(a) a$reserved_bytes <= 2.1 * cost, logical(1))),
             report[[1]]$bytes_per_point == 128,
             report[[1]]$task_fixed_bytes == 128 * 1024^2)
   fails <- function(expression, pattern) {
@@ -39,11 +34,16 @@ local({
   fails(run_memory_admitted_tasks(1L, function(i) stop("must not run"), 4L,
     windows[1L], policy, memory_current = function() policy$budget_bytes),
     "memory_budget_exceeded")
-  dispatched <- list()
   fails(run_memory_admitted_tasks(seq_len(5), function(i) {
     if (i == 1L) stop("worker fixture failure") else i
-  }, 4L, windows, policy, memory_current = headroom, runner = runner), "worker failed")
-  stopifnot(length(dispatched) == 1L)
+  }, 4L, windows, policy, memory_current = headroom), "worker failed")
+  # A worker that dies returns nothing, which is not a NULL result.
+  fails(run_memory_admitted_tasks(seq_len(2), function(i) {
+    if (i == 2L) tools::pskill(Sys.getpid(), tools::SIGKILL) else i
+  }, 2L, windows[1:2], policy, memory_current = headroom), "worker failed")
+  # One task at a time runs in the parent process.
+  stopifnot(identical(run_memory_admitted_tasks(seq_len(3), function(i) i, 1L,
+    windows[1:3], policy, memory_current = headroom), list(1L, 2L, 3L)))
   # Catalog task bounds must include the unchanged scientific DTM buffer.
   catalog <- lidR::readLAScatalog(path)
   lidR::opt_progress(catalog) <- FALSE
@@ -74,12 +74,10 @@ local({
   available <- function(budget_gib) budget_gib * 1024^3 -
     dense_policy$reserve_bytes - retained_parent
   stopifnot(dense_cost / 1024^3 > 27.38,
-            identical(admitted_task_wave(rep(dense_cost, 3), 1:3, 3L,
-              available(59.5)), 1:2),
+            2 * dense_cost <= available(59.5), 3 * dense_cost > available(59.5),
+            dense_cost > available(25.5),
             identical(unname(dense_policy$bytes_per_point[c("CHM", "segment", "tiles")]),
                       c(192, 256, 128)))
-  fails(admitted_task_wave(dense_cost, 1L, 1L, available(25.5)),
-        "memory_budget_exceeded")
   dtm_estimates <- task_memory_estimates(windows, dense_policy, "DTM")
   stopifnot(all(dtm_estimates$bytes == dense_policy$task_fixed_bytes + 100 * 160))
 })

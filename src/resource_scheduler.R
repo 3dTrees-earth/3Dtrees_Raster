@@ -100,61 +100,94 @@ task_memory_estimates <- function(windows, policy, phase) {
        mode = estimate$mode, prefix = prefix)
 }
 
-admitted_task_wave <- function(costs, remaining, workers, available_bytes) {
-  if (!length(remaining)) return(integer())
-  if (any(!is.finite(costs) | costs < 0) || !is.finite(available_bytes)) {
-    stop("invalid aggregate task memory estimate")
-  }
-  candidates <- head(remaining, max(1L, as.integer(workers)))
-  fits <- cumsum(costs[candidates]) <= available_bytes
-  if (!any(fits)) {
-    stop(sprintf(paste0("RASTER_FLAG memory_budget_exceeded: one spatial task ",
-      "requires an estimated %.3f GiB with %.3f GiB available; geometry was not changed"),
-      costs[[candidates[[1]]]] / 1024^3, max(0, available_bytes) / 1024^3))
-  }
-  candidates[fits]
-}
-
+# A pool of forked workers: the next task (in order) starts as soon as a worker
+# is free and its estimate fits beside the running tasks' estimates, so one
+# slow task no longer holds the others back.
 run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
                                       policy = NULL, phase = "tiles",
-                                      memory_current = resource_memory_current,
-                                      runner = run_bounded_tasks) {
-  if (is.null(policy)) return(runner(indices, calculate, workers))
+                                      memory_current = resource_memory_current) {
+  if (is.null(policy)) return(run_bounded_tasks(indices, calculate, workers))
   if (length(indices) != length(windows)) stop("task windows do not match scheduled tasks")
   if (!length(indices)) return(list())
   estimates <- task_memory_estimates(windows, policy, phase)
+  costs <- estimates$bytes
+  if (any(!is.finite(costs) | costs < 0)) stop("invalid aggregate task memory estimate")
   message(sprintf("RESOURCE_PLAN phase=%s requested_workers=%d tasks=%d max_task_gib=%.3f mode=%s",
-    phase, workers, length(indices), max(estimates$bytes) / 1024^3, estimates$mode))
-  remaining <- seq_along(indices)
+    phase, workers, length(indices), max(costs) / 1024^3, estimates$mode))
   results <- vector("list", length(indices))
-  waves <- list()
-  while (length(remaining)) {
-    gc(verbose = FALSE)
-    current <- memory_current()
-    snapshot <- resource_memory_snapshot()
-    available <- policy$budget_bytes - policy$reserve_bytes - current
-    wave <- admitted_task_wave(estimates$bytes, remaining, workers, available)
-    reserved <- sum(estimates$bytes[wave])
-    message(sprintf("RESOURCE_WAVE phase=%s workers=%d reserved_gib=%.3f current_gib=%.3f budget_gib=%.3f",
-      phase, length(wave), reserved / 1024^3, current / 1024^3, policy$budget_bytes / 1024^3))
-    started <- proc.time()[["elapsed"]]
-    batch <- runner(indices[wave], calculate, length(wave))
-    if (length(batch) != length(wave) || any(vapply(batch, inherits, logical(1), "try-error"))) {
-      stop(sprintf("%s memory-admitted worker failed or returned incomplete results", phase))
+  admissions <- list()
+  running <- integer()  # task positions, named by worker pid
+  jobs <- list()
+  next_task <- 1L
+  base <- NA_real_
+  started <- proc.time()[["elapsed"]]
+  fail <- function(message) {
+    if (length(jobs)) {
+      tools::pskill(as.integer(names(running)), tools::SIGKILL)
+      parallel::mccollect(jobs, wait = TRUE)
     }
-    results[wave] <- batch
-    waves[[length(waves) + 1L]] <- list(tasks = unname(indices[wave]), workers = length(wave),
-      reserved_bytes = reserved, memory_before_bytes = current,
-      memory_before = snapshot, memory_after = resource_memory_snapshot(),
-      memory_after_bytes = memory_current(), elapsed_seconds = elapsed_seconds(started))
-    remaining <- remaining[-seq_along(wave)]
+    stop(message, call. = FALSE)
   }
+  while (next_task <= length(indices) || length(running)) {
+    # Memory held outside the tasks, measured whenever no task runs.
+    if (!length(running)) {
+      gc(verbose = FALSE)
+      base <- memory_current()
+    }
+    available <- policy$budget_bytes - policy$reserve_bytes - base - sum(costs[running])
+    if (next_task <= length(indices) && length(running) < workers && costs[[next_task]] <= available) {
+      if (workers == 1L) {
+        value <- try(calculate(indices[[next_task]]), silent = TRUE)
+        if (inherits(value, "try-error")) {
+          fail(sprintf("%s memory-admitted worker failed or returned incomplete results", phase))
+        }
+        if (!is.null(value)) results[[next_task]] <- value
+      } else {
+        # Tasks that run alone or few at a time may use the idle threads.
+        fit <- min(workers, length(indices) - next_task + 1L,
+          max(1, floor((policy$budget_bytes - policy$reserve_bytes - base) / max(costs[[next_task]], 1))))
+        threads <- max(1L, workers %/% as.integer(fit))
+        # Wrapped, so a worker that dies (NULL) differs from a NULL result.
+        job <- parallel::mcparallel({
+          Sys.setenv(RASTER_TASK_THREADS = threads)
+          list(value = calculate(indices[[next_task]]))
+        }, mc.set.seed = FALSE)
+        jobs[[as.character(job$pid)]] <- job
+        running[as.character(job$pid)] <- next_task
+      }
+      admissions[[length(admissions) + 1L]] <- list(task = unname(indices[[next_task]]),
+        workers = max(1L, length(running)), reserved_bytes = sum(costs[c(running, if (workers == 1L) next_task)]),
+        memory_before_bytes = base, started_seconds = elapsed_seconds(started))
+      next_task <- next_task + 1L
+      next
+    }
+    if (!length(running)) {
+      stop(sprintf(paste0("RASTER_FLAG memory_budget_exceeded: one spatial task ",
+        "requires an estimated %.3f GiB with %.3f GiB available; geometry was not changed"),
+        costs[[next_task]] / 1024^3, max(0, available) / 1024^3))
+    }
+    finished <- parallel::mccollect(jobs, wait = FALSE, timeout = 1)
+    for (pid in names(finished)) {
+      value <- finished[[pid]]
+      if (!is.list(value) || inherits(value, "try-error") || !identical(names(value), "value")) {
+        jobs[[pid]] <- NULL
+        running <- running[names(running) != pid]
+        fail(sprintf("%s memory-admitted worker failed or returned incomplete results", phase))
+      }
+      if (!is.null(value$value)) results[[running[[pid]]]] <- value$value
+      jobs[[pid]] <- NULL
+      running <- running[names(running) != pid]
+    }
+  }
+  message(sprintf("RESOURCE_POOL phase=%s tasks=%d max_workers=%d seconds=%.1f",
+    phase, length(indices), max(vapply(admissions, `[[`, integer(1), "workers")),
+    elapsed_seconds(started)))
   jsonlite::write_json(list(phase = phase, requested_workers = workers,
     budget_bytes = policy$budget_bytes, reserve_bytes = policy$reserve_bytes,
     bytes_per_point = unname(policy$bytes_per_point[[phase]]),
     task_fixed_bytes = policy$task_fixed_bytes,
     estimate_mode = estimates$mode, point_count_upper_bounds = estimates$counts,
-    task_reservations_bytes = estimates$bytes, waves = waves),
+    task_reservations_bytes = costs, admissions = admissions),
     paste0(estimates$prefix, "_admission.json"), auto_unbox = TRUE, pretty = TRUE, digits = NA)
   results
 }

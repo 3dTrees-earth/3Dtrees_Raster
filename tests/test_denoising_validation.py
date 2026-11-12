@@ -20,7 +20,8 @@ class DenoisingValidationTest(unittest.TestCase):
         root = Path(self.directory.name)
         self.metadata = root / "denoising.json"
         self.csv = root / "noise_points.csv"
-        self.count = 2_000_000_000
+        # 816 holds 3,612,171,632 points, above the 32-bit range.
+        self.count = 3_612_171_632
         self.summary = dict(enabled=True, method="global_knn_distance",
             point_order_dimension="OriginalPointIndex", coordinate_changes=False,
             raw_voxel_counts_filtered=False, point_count=self.count,
@@ -31,7 +32,7 @@ class DenoisingValidationTest(unittest.TestCase):
                 insufficient_context_points=0),
                 dict(ix=1, iy=0, core_points=1, rejected_points=1,
                      accepted_points=0, insufficient_context_points=0)])
-        self.csv.write_text("OriginalPointIndex\n1999999999\n0\n")
+        self.csv.write_text("OriginalPointIndex\n3612171631\n0\n")
 
     def validate(self):
         self.metadata.write_text(json.dumps(self.summary))
@@ -46,7 +47,7 @@ class DenoisingValidationTest(unittest.TestCase):
             self.validate()
 
     def test_bad_or_missing_csv_identity_fails(self):
-        for content in ("OriginalPointIndex\n2000000000\n0\n",
+        for content in ("OriginalPointIndex\n3612171632\n0\n",
                         "OriginalPointIndex\n1\n",
                         "wrong_column\n1\n2\n"):
             with self.subTest(content=content):

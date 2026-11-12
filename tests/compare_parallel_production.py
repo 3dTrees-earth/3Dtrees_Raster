@@ -97,11 +97,11 @@ def compare_case(root: Path, scope: str, workers: int, point_count: int) -> dict
     assert {plan['phase'] for plan in admission} == {'DTM', 'CHM', 'segment', 'tiles'}, case
     admitted_workers = []
     for plan in admission:
-        for wave in plan['waves']:
-            admitted_workers.append(wave['workers'])
-            assert 1 <= wave['workers'] <= workers, (case, wave)
-            assert (wave['reserved_bytes'] + wave['memory_before_bytes'] +
-                    plan['reserve_bytes'] <= plan['budget_bytes'] + 1), (case, wave)
+        for admission in plan['admissions']:
+            admitted_workers.append(admission['workers'])
+            assert 1 <= admission['workers'] <= workers, (case, admission)
+            assert (admission['reserved_bytes'] + admission['memory_before_bytes'] +
+                    plan['reserve_bytes'] <= plan['budget_bytes'] + 1), (case, admission)
     assert max(admitted_workers) == workers, (case, admitted_workers)
     assert provenance['footprint_source'] == (
         'point_cloud_extent' if scope == 'full' else baseline['footprint_source']

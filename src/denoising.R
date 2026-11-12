@@ -5,14 +5,14 @@
 # per fixed XY window so later reads load only the windows they overlap.
 # Coordinates and classes stay untouched.
 denoising_defaults <- function() {
-  list(denoise = "none", denoise_neighbors = 8L, denoise_sigma = 2,
+  list(denoise = "knn", denoise_neighbors = 8L, denoise_sigma = 2,
        denoise_window_size = 60)
 }
 
 add_denoising_arguments <- function(parser) {
   defaults <- denoising_defaults()
   parser$add_argument("--denoise", choices = c("none", "knn"), default = defaults$denoise,
-    help = "kNN distance outlier filter before terrain/metrics (default: none); raw voxel counts remain unfiltered")
+    help = "kNN distance outlier filter before terrain/metrics (default: knn; none switches it off); raw voxel counts remain unfiltered")
   parser$add_argument("--denoise-neighbors", type = "integer", default = defaults$denoise_neighbors,
     help = sprintf("Nearest neighbours per point, counting the point itself as lidR::sor() does (default: %s)", defaults$denoise_neighbors))
   parser$add_argument("--denoise-sigma", type = "double", default = defaults$denoise_sigma,
@@ -95,7 +95,7 @@ prepare_denoising_mask <- function(point_cloud, point_order_dimension, options,
     window_size_m = settings$denoise_window_size,
     origin = c(0, 0), boundary_ownership = "half-open: lower inclusive, upper exclusive",
     statistics_population = "all source points (whole point cloud)",
-    neighbour_population = "all source points (whole point cloud)",
+    neighbour_population = "all source points (whole point cloud; COPC read per window with a buffer that holds every k-th neighbour)",
     existing_classification_policy = "preserved; not used as a rejection criterion",
     insufficient_context_policy = "retain all points when the cloud holds no more than k points",
     point_count = input_points, rejected_points = rejected_points,

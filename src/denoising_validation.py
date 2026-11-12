@@ -14,7 +14,8 @@ from pathlib import Path
 def count(value, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"invalid denoising {name}")
-    if not 0 <= value <= 2**31 - 1 or int(value) != value:
+    # Counts and ordinals stay exact in float64 up to 2^53, as in the R side.
+    if not 0 <= value <= 2**53 or int(value) != value:
         raise ValueError(f"invalid denoising {name}")
     return int(value)
 

@@ -14,7 +14,7 @@ fewer points. One streaming pass per mode keeps them, unchanged:
   close to a grid edge to classify safely, or on an empty DTM cell, are all kept.
 
 Output records keep their stored coordinates. A cloud with a source-order key
-leaves `voxels` as a COPC, so windows read it through the spatial index and
+leaves either mode as a COPC, so windows read it through the spatial index and
 memory is estimated per window; without a key it stays a LAZ in source order.
 """
 from __future__ import annotations
@@ -106,7 +106,14 @@ def thin(args) -> dict:
     header = source_header(args.input)
     keep = [args.order_dimension] if args.order_dimension else []
     rejected = rejected_ids(args.rejected_directory)
-    kept, seen = None, 0
+    def lowest(frames):
+        return pl.concat(frames).sort(["Z", ORDER]).unique(["cell_x", "cell_y"], keep="first",
+                                                           maintain_order=True)
+
+    # The lowest point per cell (first by order on ties) does not depend on
+    # processing order: reduce each batch, and merge into the kept table only
+    # once the pending rows outgrow it, instead of re-sorting it every batch.
+    kept, pending, pending_rows, seen = None, [], 0, 0
     for points in batches(args.input, bool(keep)):
         frame = table(points, seen, keep, args.order_dimension)
         seen += len(points)
@@ -114,9 +121,22 @@ def thin(args) -> dict:
         cells = frame.filter(pl.Series(valid)).with_columns(
             cell_x=pl.Series(np.floor(np.asarray(points.x)[valid] / LOWEST_CELL_M)),
             cell_y=pl.Series(np.floor(np.asarray(points.y)[valid] / LOWEST_CELL_M)))
-        kept = cells if kept is None else pl.concat([kept, cells])
-        kept = kept.sort(["Z", ORDER]).unique(["cell_x", "cell_y"], keep="first", maintain_order=True)
-    write(args.output, header, kept, keep)
+        pending.append(lowest([cells]))
+        pending_rows += pending[-1].height
+        if pending_rows > max(0 if kept is None else kept.height, BATCH_POINTS):
+            kept = lowest(([] if kept is None else [kept]) + pending)
+            pending, pending_rows = [], 0
+    if pending:
+        kept = lowest(([] if kept is None else [kept]) + pending)
+    if args.order_dimension:
+        # As a COPC the DTM's memory admission counts each window; a plain LAZ
+        # makes every window reserve the whole thinned cloud.
+        with tempfile.TemporaryDirectory(dir=args.output.parent) as scratch:
+            points = Path(scratch) / "points.laz"
+            write(points, header, kept, keep)
+            write_copc(points, args.output, Path(scratch))
+    else:
+        write(args.output, header, kept, keep)
     return {"source_points": seen, "kept_points": kept.height}
 
 

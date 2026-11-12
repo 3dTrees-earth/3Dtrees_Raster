@@ -21,6 +21,8 @@ from __future__ import annotations
 
 import argparse
 import json
+import multiprocessing
+import os
 from pathlib import Path
 import tempfile
 
@@ -30,19 +32,29 @@ import polars as pl
 from osgeo import gdal
 
 from project_instance_dimension import extra_dimension, extra_params
-from voxel_counts import write_copc
+from voxel_counts import copc_chunks, write_copc
 
 BATCH_POINTS = 5_000_000
 LOWEST_CELL_M = 0.05
 EDGE_TOLERANCE = 1e-7  # in grid cells, far below any stored coordinate step
 ORDER = "__order"
+POSITION = "__position"
+# Points per decoded run in a worker process; ten workers hold about 3 GB.
+WORKER_BATCH_POINTS = 2_000_000
 FILTERS = laspy.DecompressionSelection
 
 
+SELECTION = FILTERS.XY_RETURNS_CHANNEL | FILTERS.Z
+SELECTION_EXTRA = SELECTION | FILTERS.ALL_EXTRA_BYTES
+
+
+def is_copc(path: Path) -> bool:
+    with laspy.open(path) as reader:
+        return any(v.user_id == "copc" and v.record_id == 1 for v in reader.header.vlrs)
+
+
 def batches(path: Path, extra_bytes: bool):
-    selection = FILTERS.XY_RETURNS_CHANNEL | FILTERS.Z
-    if extra_bytes:
-        selection |= FILTERS.ALL_EXTRA_BYTES
+    selection = SELECTION_EXTRA if extra_bytes else SELECTION
     with laspy.open(path, laz_backend=laspy.LazBackend.LazrsParallel,
                     decompression_selection=selection) as reader:
         yield from reader.chunk_iterator(BATCH_POINTS)
@@ -165,43 +177,49 @@ def decisive(frame: pl.DataFrame, dimensions: list[str], step: float) -> pl.Data
 
 
 def extremes(frame: pl.DataFrame) -> pl.DataFrame:
-    """Rows on the cloud's bounding box, so the reduced header keeps its extent."""
-    rows = [frame.sort(name, descending=descending).head(1)
+    """Rows on the cloud's bounding box, so the reduced header keeps its extent;
+    on ties the earliest record in the file."""
+    rows = [frame.sort([name, POSITION], descending=[descending, False]).head(1)
             for name in ("X", "Y", "Z") for descending in (False, True)]
     return pl.concat(rows)
 
 
-def voxels(args) -> dict:
-    header = source_header(args.input)
-    scale_x, scale_y, scale_z = header.scales
-    dtm = gdal.Open(str(args.dtm))
-    left, cell_x, _, top, _, cell_y = dtm.GetGeoTransform()
-    band = dtm.GetRasterBand(1)
-    terrain = band.ReadAsArray().astype(float)
-    if band.GetNoDataValue() is not None:
-        terrain[terrain == band.GetNoDataValue()] = np.nan
-    rows, columns = terrain.shape
-    edges = json.loads(args.tile_edges.read_text())
-    x_edges, y_edges = np.array(edges["x"]), np.array(edges["y"])
-    resolution = args.voxel_resolution
-    names = args.dimension + ([args.order_dimension] if args.order_dimension else [])
-    rejected = rejected_ids(args.rejected_directory)
-    kept, unsure, bounds, seen = None, [], None, 0
-    for points in batches(args.input, True):
+class VoxelReduction:
+    """Per-batch voxel selection and its running reduction. Batches can be
+    folded in any order and partial reductions merged: the kept rows are first
+    by source order per key, ties of the bounding-box rows go to the earliest
+    record in the file (`__position`)."""
+
+    def __init__(self, args, header):
+        self.args, self.scale_z = args, header.scales[2]
+        dtm = gdal.Open(str(args.dtm))
+        self.left, self.cell_x, _, self.top, _, self.cell_y = dtm.GetGeoTransform()
+        band = dtm.GetRasterBand(1)
+        self.terrain = band.ReadAsArray().astype(float)
+        if band.GetNoDataValue() is not None:
+            self.terrain[self.terrain == band.GetNoDataValue()] = np.nan
+        edges = json.loads(args.tile_edges.read_text())
+        self.x_edges, self.y_edges = np.array(edges["x"]), np.array(edges["y"])
+        self.names = args.dimension + ([args.order_dimension] if args.order_dimension else [])
+        self.kept, self.unsure, self.bounds, self.seen = None, [], None, 0
+
+    def add(self, points, rejected, position):
+        args, resolution, scale_z = self.args, self.args.voxel_resolution, self.scale_z
+        rows, columns = self.terrain.shape
         x, y, z = np.asarray(points.x), np.asarray(points.y), np.asarray(points.z)
-        frame = table(points, seen, names, args.order_dimension)
-        seen += len(points)
-        box = extremes(frame)
-        bounds = box if bounds is None else extremes(pl.concat([bounds, box]))
+        frame = table(points, self.seen, self.names, args.order_dimension).with_columns(
+            pl.Series(POSITION, np.arange(position, position + len(points), dtype=np.int64)))
+        self.seen += len(points)
+        self.bounds = self.merge_bounds([extremes(frame)])
         valid = accepted(frame[ORDER].to_numpy(), rejected)
         # terra::cellFromXY: the last column and row include the far raster edge.
-        column_position = (x - left) / cell_x
-        row_position = (y - top) / cell_y
+        column_position = (x - self.left) / self.cell_x
+        row_position = (y - self.top) / self.cell_y
         column = np.minimum(np.floor(column_position), columns - 1).astype(np.int64)
         row = np.minimum(np.floor(row_position), rows - 1).astype(np.int64)
         inside = (column >= 0) & (row >= 0) & (column_position <= columns) & (row_position <= rows)
         ground = np.full(len(x), np.nan)
-        ground[inside] = terrain[row[inside], column[inside]]
+        ground[inside] = self.terrain[row[inside], column[inside]]
         # lidR stores heights on the Z lattice with a zero offset.
         steps = (z - ground) / scale_z
         height = np.trunc(steps + np.copysign(0.5, steps)) * scale_z
@@ -209,17 +227,105 @@ def voxels(args) -> dict:
         edge = (near_edge(x / resolution) | near_edge(y / resolution)
                 | near_edge(height / (resolution / 2)) | near_edge(column_position)
                 | near_edge(row_position))
-        for values, grid in ((x, x_edges), (y, y_edges)):
+        for values, grid in ((x, self.x_edges), (y, self.y_edges)):
             nearest = np.minimum(np.searchsorted(grid, values), len(grid) - 1)
             edge |= np.abs(values - grid[nearest]) < EDGE_TOLERANCE * resolution
             edge |= np.abs(values - grid[np.maximum(nearest - 1, 0)]) < EDGE_TOLERANCE * resolution
         usable = known & (height >= -2 * scale_z) & (height <= args.maximum_height + 2 * scale_z)
-        unsure.append(frame.filter(pl.Series(valid & (~known | (usable & edge)))))
+        self.unsure.append(frame.filter(pl.Series(valid & (~known | (usable & edge)))))
         chosen = valid & usable & ~edge
         batch = voxel_columns(frame.filter(pl.Series(chosen)), x[chosen], y[chosen], height[chosen],
-                              resolution, x_edges, y_edges)
-        batch = decisive(batch, args.dimension, scale_z)
-        kept = batch if kept is None else decisive(pl.concat([kept, batch]), args.dimension, scale_z)
+                              resolution, self.x_edges, self.y_edges)
+        self.merge_kept([decisive(batch, args.dimension, scale_z)])
+
+    def merge_bounds(self, parts):
+        return extremes(pl.concat(([] if self.bounds is None else [self.bounds]) + parts))
+
+    def merge_kept(self, parts):
+        frames = ([] if self.kept is None else [self.kept]) + parts
+        self.kept = decisive(pl.concat(frames), self.args.dimension, self.scale_z)
+
+    def partial(self):
+        return self.kept, self.unsure, self.bounds, self.seen
+
+
+WORKER = {}
+
+
+def start_worker(args, rejected_path):
+    WORKER["reader"] = laspy.CopcReader.open(args.input, decompression_selection=SELECTION_EXTRA)
+    WORKER["reduction"] = VoxelReduction(args, WORKER["reader"].header)
+    WORKER["rejected"] = None if rejected_path is None else np.load(rejected_path, mmap_mode="r")
+
+
+def reduce_chunks(task):
+    """Worker: fold a run of COPC chunks (in file order) into a partial reduction."""
+    chunks, position = task
+    reduction = WORKER["reduction"]
+    reduction.kept, reduction.unsure, reduction.bounds, reduction.seen = None, [], None, 0
+    batch, size = [], 0
+    for chunk in [*chunks, None]:
+        if batch and (chunk is None or size + chunk.point_count > WORKER_BATCH_POINTS):
+            points = WORKER["reader"]._fetch_and_decompress_points_of_nodes(batch)
+            reduction.add(points, WORKER["rejected"], position)
+            position += len(points)
+            batch, size = [], 0
+        if chunk is not None:
+            batch.append(chunk)
+            size += chunk.point_count
+    return reduction.partial()
+
+
+def voxels(args) -> dict:
+    header = source_header(args.input)
+    rejected = rejected_ids(args.rejected_directory)
+    reduction = VoxelReduction(args, header)
+    workers = max(1, int(os.environ.get("POLARS_MAX_THREADS", "1")))
+    chunks = copc_chunks(str(args.input)) if args.order_dimension and is_copc(args.input) else []
+    if workers > 1 and chunks:
+        # Chunk runs in worker processes; their partial reductions merge into
+        # the same rows as one pass over the file.
+        target = max(1, sum(c.point_count for c in chunks) // (workers * 4))
+        tasks, task, size, position = [], [], 0, 0
+        for chunk in chunks:
+            task.append(chunk)
+            size += chunk.point_count
+            if size >= target:
+                tasks.append((task, position))
+                position += size
+                task, size = [], 0
+        tasks += [(task, position)] if task else []
+        with tempfile.TemporaryDirectory(dir=args.output.parent) as scratch:
+            rejected_path = None
+            if rejected is not None:
+                rejected_path = Path(scratch) / "rejected.npy"
+                np.save(rejected_path, rejected)
+            # One thread per worker process; the parent keeps its pools for merging.
+            threads = {name: os.environ.get(name) for name in ("POLARS_MAX_THREADS", "RAYON_NUM_THREADS")}
+            os.environ.update(POLARS_MAX_THREADS="1", RAYON_NUM_THREADS="1")
+            try:
+                with multiprocessing.get_context("spawn").Pool(
+                        workers, start_worker, (args, rejected_path)) as pool:
+                    for kept, unsure, bounds, seen in pool.imap_unordered(reduce_chunks, tasks):
+                        if kept is not None:
+                            reduction.merge_kept([kept])
+                        if bounds is not None:
+                            reduction.bounds = reduction.merge_bounds([bounds])
+                        reduction.unsure += unsure
+                        reduction.seen += seen
+            finally:
+                for name, value in threads.items():
+                    if value is None:
+                        os.environ.pop(name, None)
+                    else:
+                        os.environ[name] = value
+    else:
+        position = 0
+        for points in batches(args.input, True):
+            reduction.add(points, rejected, position)
+            position += len(points)
+    kept, unsure, bounds, seen = reduction.partial()
+    names = reduction.names
     columns_out = ["X", "Y", "Z", ORDER] + names
     selected = pl.concat([kept.select(columns_out), bounds.select(columns_out)]
                          + [part.select(columns_out) for part in unsure])

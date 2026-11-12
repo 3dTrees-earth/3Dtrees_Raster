@@ -400,6 +400,10 @@ def windowed(args, n, budget) -> dict:
                                    rejected_points=int(len(rejected)),
                                    accepted_points=int(len(values) - len(rejected)),
                                    insufficient_context_points=0))
+    # The parts read overlapping COPC nodes repeatedly, which leaves the input
+    # in the active page cache; task admission counts that as used memory.
+    with open(args.input, "rb") as source:
+        os.posix_fadvise(source.fileno(), 0, 0, os.POSIX_FADV_DONTNEED)
     return dict(point_count=int(n), rejected_points=int(rejected_total), distance_mean_m=mean,
                 distance_sd_m=sd, threshold_m=threshold, insufficient_context_points=0,
                 partitions=partitions)

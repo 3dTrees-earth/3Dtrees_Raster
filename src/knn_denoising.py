@@ -181,11 +181,15 @@ def read_box(reader, nodes, lower, upper, dimension):
     return xyz, ids
 
 
+FAR_POINTS = [0]
+
+
 def far_distances(reader, query, radius, buffer, neighbors, threads, budget, header):
     """Exact mean distances of points whose k-th neighbour may lie beyond the
     read. A point with fewer than k neighbours in the read has no bound yet: its
     search radius starts at twice the buffer and doubles until k neighbours lie
     within it, instead of searching the whole cloud at once."""
+    FAR_POINTS[0] += len(query)
     mean = np.empty(len(query))
     reach = np.where(np.isfinite(radius), radius, 2 * buffer)
     todo = np.arange(len(query))
@@ -329,18 +333,20 @@ def part_distances(task):
     """Worker: one part's distances and ordinals, saved to the scratch directory."""
     window, part, depth, size, neighbors, budget, dimension, path, threads = task
     reader = WORKER["reader"]
+    far = FAR_POINTS[0]
     try:
         d, ids = window_distances(reader, window, size, neighbors, threads, budget, reader.header,
                                   dimension, part, depth)
     except SystemExit as error:
         # A pool worker that exits loses its task; report the flag instead.
         raise RuntimeError(str(error)) from None
+    far = FAR_POINTS[0] - far
     if not len(d):
-        return window, None, 0
+        return window, None, 0, far
     if np.any((ids < 0) | (ids != np.floor(ids)) | (ids > 2**53)):
         raise ValueError("denoising requires exact finite nonnegative source ordinals")
     np.save(path, np.column_stack([d, ids]))
-    return window, path, len(d)
+    return window, path, len(d), far
 
 
 def window_values(paths):
@@ -373,7 +379,7 @@ def windowed(args, n, budget) -> dict:
         pending = [(min(budget, cost * 1.25), (window, part, depth, args.window_size, args.neighbors,
                     min(budget, cost * 1.25), args.order_dimension, str(Path(scratch) / f"{i}.npy")))
                    for i, (cost, window, part, depth) in enumerate(parts)]
-        files, count, running = {}, 0, {}
+        files, count, running, far_points = {}, 0, {}, 0
         rayon = os.environ.get("RAYON_NUM_THREADS")
         os.environ["RAYON_NUM_THREADS"] = "1"
         try:
@@ -392,9 +398,10 @@ def windowed(args, n, budget) -> dict:
                     for future in done:
                         del running[future]
                         try:
-                            window, path, points = future.result()
+                            window, path, points, far = future.result()
                         except RuntimeError as error:
                             raise SystemExit(str(error)) from None
+                        far_points += far
                         if path is not None:
                             files.setdefault(window, []).append(path)
                             count += points
@@ -405,6 +412,8 @@ def windowed(args, n, budget) -> dict:
                 os.environ["RAYON_NUM_THREADS"] = rayon
         if count != n:
             raise ValueError(f"windows hold {count} of {n} points")
+        print(f"KNN_WINDOWS parts={len(parts)} deepest={max(part[3] for part in parts)} "
+              f"workers={workers} far_points={far_points}", flush=True)
         windows = sorted(files)
         total = 0.0
         for window in windows:

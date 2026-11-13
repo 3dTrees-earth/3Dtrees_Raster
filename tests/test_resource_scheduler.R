@@ -64,21 +64,22 @@ local({
   grouped <- task_memory_estimates(list(windows[1:3], list(), windows[[1]]), policy, "CHM")
   stopifnot(identical(grouped$counts, c(100, 0, 100)),
             grouped$bytes[[1]] == policy$task_fixed_bytes + 100 * 192)
-  # The previously validated 1805 COPC's largest buffered DTM window has this
-  # hierarchy upper bound and a 27.38 GiB whole-run peak, which its estimate covers.
-  dense_policy <- resource_policy(path, 59.5, root)
-  dense_count <- 185339618
+  # The largest DTM window measured (662, dense TLS: 171.5 M points) peaked at
+  # 14.09 GiB of RSS in its worker; its estimate covers that, and a 33.6 GB
+  # grant (TPV rule for 4.4 GB) runs one such window at a time.
+  dense_policy <- resource_policy(path, 33.6 * 0.85, root)
+  dense_count <- 171.5e6
   dense_cost <- dense_policy$task_fixed_bytes +
     dense_count * unname(dense_policy$bytes_per_point[["DTM"]])
   retained_parent <- 512 * 1024^2
   available <- function(budget_gib) budget_gib * 1024^3 -
     dense_policy$reserve_bytes - retained_parent
-  stopifnot(dense_cost / 1024^3 > 27.38,
-            2 * dense_cost <= available(59.5), 3 * dense_cost > available(59.5),
-            dense_cost > available(25.5),
+  stopifnot(dense_cost / 1024^3 > 14.09,
+            dense_cost <= available(33.6 * 0.85), 2 * dense_cost > available(33.6 * 0.85),
+            dense_cost > available(14),
             identical(unname(dense_policy$bytes_per_point[c("CHM", "segment", "tiles")]),
                       c(192, 256, 128)))
   dtm_estimates <- task_memory_estimates(windows, dense_policy, "DTM")
-  stopifnot(all(dtm_estimates$bytes == dense_policy$task_fixed_bytes + 100 * 160))
+  stopifnot(all(dtm_estimates$bytes == dense_policy$task_fixed_bytes + 100 * 100))
 })
 cat("aggregate resource admission checks passed\n")

@@ -2664,6 +2664,13 @@ finalize_segment_store_in_memory <- function(store, parameters) {
   segments
 }
 
+# The most workers whose largest bucket estimates fit the budget together.
+segment_bucket_workers <- function(estimates, threads, available) {
+  largest <- sort(estimates, decreasing = TRUE)
+  fits <- cumsum(largest) <= available
+  max(1L, min(as.integer(threads), length(largest), sum(fits)))
+}
+
 finalize_segment_store <- function(store, parameters,
                                    adapter = c("disk", "memory")) {
   adapter <- match.arg(adapter)
@@ -2673,16 +2680,30 @@ finalize_segment_store <- function(store, parameters,
   previous_threads <- data.table::getDTthreads()
   on.exit(data.table::setDTthreads(previous_threads), add = TRUE)
   data.table::setDTthreads(DATA_TABLE_THREADS)
-  finalized <- vector("list", store$bucket_count)
-  for (bucket_index in seq_len(store$bucket_count)) {
+  buckets <- lapply(seq_len(store$bucket_count), function(bucket_index) {
     key <- as.character(bucket_index)
-    paths <- unlist(lapply(store$chunks, function(chunk_paths) {
+    unlist(lapply(store$chunks, function(chunk_paths) {
       unname(chunk_paths[names(chunk_paths) == key])
     }), use.names = FALSE)
-    if (length(paths) == 0) next
-
-    finalized[[bucket_index]] <- finalize_segment_partition(paths, parameters)
+  })
+  buckets <- Filter(length, buckets)
+  # Buckets hold disjoint segments: finalize them in forked workers, as many
+  # as their largest estimates allow within the budget; results keep bucket
+  # order, so the table is the same as from one process.
+  estimates <- vapply(buckets, segment_partition_estimate, numeric(1))
+  available <- parameter_or(parameters, "memory_budget_gib", Inf) * 1024^3 - current_rss_bytes()
+  workers <- segment_bucket_workers(estimates, parameter_or(parameters, "threads", 1L), available)
+  worker_parameters <- parameters
+  if (is.finite(available)) {
+    worker_parameters$memory_budget_gib <- (current_rss_bytes() + available / workers) / 1024^3
+  }
+  finalized <- run_bounded_tasks(seq_along(buckets), function(index) {
+    result <- finalize_segment_partition(buckets[[index]], worker_parameters)
     gc(verbose = FALSE)
+    result
+  }, workers)
+  if (any(vapply(finalized, inherits, logical(1), "try-error"))) {
+    stop("segment finalization worker failed")
   }
   finalized <- Filter(Negate(is.null), finalized)
   if (length(finalized) == 0) return(NULL)

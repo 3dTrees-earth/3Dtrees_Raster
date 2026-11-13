@@ -60,9 +60,11 @@ resource_policy <- function(source, budget_gib, work_directory,
   dir.create(directory, recursive = TRUE, showWarnings = FALSE)
   list(source = source, budget_bytes = budget_gib * 1024^3,
        reserve_bytes = 512 * 1024^2, directory = directory, helper = helper,
-       # Measured real memory per counted point with one worker (1016, 2145;
-       # DTM from the 1805 window), plus a margin. Estimates are not allocator bounds.
-       bytes_per_point = c(DTM = 160, CHM = 192, segment = 256, tiles = 128,
+       # Measured real memory per counted point with one worker (1016, 2145),
+       # plus a margin. DTM: peak RSS of every DTM task on 1140, 662, 1034 and
+       # 1806 (12 Nov 2026) is at most 92 bytes per point including the forked
+       # parent's pages. Estimates are not allocator bounds.
+       bytes_per_point = c(DTM = 100, CHM = 192, segment = 256, tiles = 128,
                            denoise = 768),
        task_fixed_bytes = 128 * 1024^2)
 }

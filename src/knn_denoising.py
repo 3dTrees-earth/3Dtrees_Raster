@@ -46,6 +46,10 @@ BOUNDED_BATCH_POINTS = 1_000_000
 # A 60 m window splits down to 60 / 2^6 < 1 m before the budget is declared too small.
 MAX_SPLITS = 6
 WORKER_BYTES = 256 * 1024**2
+# Planning stops at this many parts per worker, and splits a part only when its
+# most expensive quarter costs at most this fraction of it.
+MAX_PARTS_PER_WORKER = 16
+SPLIT_GAIN = 0.7
 
 
 def read_points(path: Path, dimension: str):
@@ -293,17 +297,28 @@ def part_cost(reader, header, window, size, part):
 
 def plan_parts(reader, header, size, workers, budget):
     """Windows, split into quarters while a part is estimated above its share of
-    the budget or while there are too few parts to keep every worker busy."""
+    the budget or while there are too few parts to keep every worker busy. A
+    split that does not make the quarters clearly cheaper (the read is
+    dominated by large shallow COPC nodes, as on very dense TLS) is not taken."""
     xs = range(math.floor(header.mins[0] / size), math.floor(header.maxs[0] / size) + 1)
     ys = range(math.floor(header.mins[1] / size), math.floor(header.maxs[1] / size) + 1)
     parts = [(part_cost(reader, header, (ix, iy), size, FULL), (ix, iy), FULL, 0) for ix in xs for iy in ys]
-    while True:
+    final = []
+    while parts and len(parts) + len(final) < MAX_PARTS_PER_WORKER * workers:
         parts.sort(key=lambda item: -item[0])
         cost, window, part, depth = parts[0]
-        if depth == MAX_SPLITS - 1 or (cost <= budget / workers and len(parts) >= 3 * workers):
-            return parts
-        quarters_ = part_quarters(part, part_bounds(window, size, part))
-        parts[0:1] = [(part_cost(reader, header, window, size, q), window, q, depth + 1) for q in quarters_]
+        if cost <= budget / workers and len(parts) + len(final) >= 3 * workers:
+            break
+        if depth == MAX_SPLITS - 1:
+            final.append(parts.pop(0))
+            continue
+        quarters_ = [(part_cost(reader, header, window, size, q), window, q, depth + 1)
+                     for q in part_quarters(part, part_bounds(window, size, part))]
+        if max(q[0] for q in quarters_) > SPLIT_GAIN * cost:
+            final.append(parts.pop(0))
+        else:
+            parts[0:1] = quarters_
+    return sorted(parts + final, key=lambda item: -item[0])
 
 
 def start_worker(path):
@@ -312,11 +327,11 @@ def start_worker(path):
 
 def part_distances(task):
     """Worker: one part's distances and ordinals, saved to the scratch directory."""
-    window, part, depth, size, neighbors, budget, dimension, path = task
+    window, part, depth, size, neighbors, budget, dimension, path, threads = task
     reader = WORKER["reader"]
     try:
-        d, ids = window_distances(reader, window, size, neighbors, 1, budget, reader.header, dimension,
-                                  part, depth)
+        d, ids = window_distances(reader, window, size, neighbors, threads, budget, reader.header,
+                                  dimension, part, depth)
     except SystemExit as error:
         # A pool worker that exits loses its task; report the flag instead.
         raise RuntimeError(str(error)) from None
@@ -344,6 +359,13 @@ def windowed(args, n, budget) -> dict:
     with laspy.CopcReader.open(args.input, decompression_selection=XYZ_AND_EXTRA_BYTES) as reader:
         header = reader.header
         parts = plan_parts(reader, header, args.window_size, workers, budget)
+    reservations = sorted(min(budget, cost * 1.25) for cost, *_ in parts)
+    if reservations[len(reservations) // 2] > budget / 2:
+        # Parts this large run one at a time anyway (very dense TLS, whose reads
+        # are dominated by large shallow COPC nodes): read whole windows, so each
+        # decodes those nodes once, in one worker that queries with every thread.
+        parts = [(budget / 1.25, window, FULL, 0) for window in sorted({part[1] for part in parts})]
+        workers = 1
     with tempfile.TemporaryDirectory(dir=args.output_dir, prefix=".distances_") as scratch:
         # Each part reserves its estimate (a quarter more for the error, at most
         # the budget) and is read within that reservation; parts start in order
@@ -362,6 +384,9 @@ def windowed(args, n, budget) -> dict:
                     while pending and len(running) < workers and \
                             sum(running.values()) + pending[0][0] <= budget:
                         reserved, task = pending.pop(0)
+                        # A part that leaves room for few others queries with the idle threads.
+                        fit = max(1, min(workers, int(budget // max(reserved, 1))))
+                        task = task + (max(1, args.threads // fit),)
                         running[pool.submit(part_distances, task)] = reserved
                     done, _ = wait(running, return_when=FIRST_COMPLETED)
                     for future in done:

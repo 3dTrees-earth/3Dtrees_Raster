@@ -293,7 +293,6 @@ script_directory <- if (length(script_argument)) {
 source(file.path(script_directory, "tile_scheduler.R"))
 source(file.path(script_directory, "resource_scheduler.R"))
 source(file.path(script_directory, "catalog_scheduler.R"))
-source(file.path(script_directory, "instance_read_groups.R"))
 source(file.path(script_directory, "voxel_counts.R"))
 source(file.path(script_directory, "artifact_publication.R"))
 source(file.path(script_directory, "denoising.R"))
@@ -2729,11 +2728,22 @@ finalize_segment_store <- function(store, parameters,
   segments
 }
 
-# The instance dimensions of one read group have disjoint stores: finalize them
-# in forked workers, each with its share of the threads and of the memory left,
-# and return them by name in group order, so the tables equal sequential ones.
+# A chunk writes each dimension to separate RDS files already. Carry their path
+# ownership through catalog collection so reducing SAT never loads FM summaries.
+# This metadata is bounded by chunk/bucket counts, not by point or voxel counts.
+segment_store_for_dimension <- function(store, instance_dimension) {
+  chunks <- store$dimension_chunks[[instance_dimension]]
+  if (is.null(chunks)) {
+    stop(sprintf("segment store has no path ownership for %s", instance_dimension))
+  }
+  list(chunks = chunks, bucket_count = store$bucket_count)
+}
+
+# The instance dimensions of one read have disjoint stores: finalize them in
+# forked workers, each with its share of the threads and of the memory left,
+# and return them by name in read order, so the tables equal sequential ones.
 # Each worker removes its dimension's summaries once its table is built.
-finalize_group_dimensions <- function(accumulated, dimensions, parameters, tiles) {
+finalize_dimensions <- function(accumulated, dimensions, parameters, tiles) {
   finalize_one <- function(dimension, dimension_parameters) {
     store <- segment_store_for_dimension(accumulated, dimension)
     segments <- assign_segments_to_tiles(
@@ -3486,9 +3496,6 @@ run_analysis <- function(parameters) {
   parameters$memory_budget_gib <- parameter_or(
     parameters, "memory_budget_gib", Inf
   )
-  parameters$sequential_instance_dimensions <- parameter_or(
-    parameters, "sequential_instance_dimensions", FALSE
-  )
   parameters$segment_catalog_base_selection <- parameter_or(
     parameters,
     "segment_catalog_base_selection",
@@ -3498,9 +3505,6 @@ run_analysis <- function(parameters) {
     parameters,
     "segment_bucket_count",
     SEGMENT_BUCKET_COUNT
-  )
-  parameters$dimension_point_clouds <- parameter_or(
-    parameters, "dimension_point_clouds", list()
   )
   # NULL retains original LAZ behavior; COPC runners provide OriginalPointIndex.
   parameters$point_order_dimension <- parameter_or(
@@ -3670,7 +3674,6 @@ run_analysis <- function(parameters) {
     analysis_cloud <- reduced_analysis_cloud(parameters, tiles, dtm_path,
                                              instance_dimensions, run_work_directory)
     if (!is.null(analysis_policy)) analysis_policy$source <- analysis_cloud
-    parameters$dimension_point_clouds <- list()
     message("RASTER_STAGE stage=point_reduction status=completed")
   }
 
@@ -3729,69 +3732,57 @@ run_analysis <- function(parameters) {
       "Using Instance Dimensions: %s",
       paste(instance_dimensions, collapse = ", ")
     ))
-    read_groups <- instance_read_groups(
-      instance_dimensions,
+    read_directory <- file.path(segment_work_directory, "read")
+    message(sprintf(
+      "Reading segments for %s from %s",
+      paste(instance_dimensions, collapse = ", "), basename(analysis_cloud)
+    ))
+    # One read of the cloud supplies every instance dimension: the order is
+    # restored and heights are normalized once.
+    accumulated <- accumulate_segments(
       analysis_cloud,
-      parameters$dimension_point_clouds,
-      parameters$sequential_instance_dimensions
+      dtm_path,
+      parameters$effective_chunk_size,
+      parameters$voxel_resolution,
+      parameters$maximum_height,
+      instance_dimensions,
+      catalog_workers,
+      read_directory,
+      bucket_count = parameters$segment_bucket_count,
+      base_selection = parameters$segment_catalog_base_selection,
+      point_order_dimension = parameters$point_order_dimension,
+      target_chunk_points = if (parameters$adaptive_chunking$enabled) {
+        parameters$adaptive_chunking$target_points
+      } else {
+        0
+      },
+      memory_policy = analysis_policy,
+      denoising = parameters$denoising
     )
-    for (group_index in seq_along(read_groups)) {
-      group <- read_groups[[group_index]]
-      group_directory <- file.path(segment_work_directory, paste0("read_", group_index))
-      message(sprintf(
-        "Starting segment read group %d/%d for %s from %s",
-        group_index, length(read_groups),
-        paste(group$dimensions, collapse = ", "), basename(group$source)
-      ))
-      accumulated <- accumulate_segments(
-        group$source,
-        dtm_path,
-        parameters$effective_chunk_size,
-        parameters$voxel_resolution,
-        parameters$maximum_height,
-        group$dimensions,
-        catalog_workers,
-        group_directory,
-        bucket_count = parameters$segment_bucket_count,
-        base_selection = parameters$segment_catalog_base_selection,
-        # Read, restore order, and normalize once for dimensions in this source.
-        point_order_dimension = parameters$point_order_dimension,
-        target_chunk_points = if (parameters$adaptive_chunking$enabled) {
-          parameters$adaptive_chunking$target_points
-        } else {
-          0
-        },
-        memory_policy = analysis_policy,
-        denoising = parameters$denoising
-      )
-      # Count each physical read once, even when it supplies several dimensions.
-      segment_observation_summaries[[group_index]] <- accumulated$observations
-      temporary_disk_peak_bytes <- max(
-        temporary_disk_peak_bytes,
-        temporary_directory_bytes(run_work_directory)
-      )
-      finalize_started <- proc.time()[["elapsed"]]
-      group_segments <- finalize_group_dimensions(
-        accumulated, group$dimensions, parameters, tiles
-      )
-      for (instance_dimension in group$dimensions) {
-        dimension_segments <- group_segments[[instance_dimension]]
-        segments_by_dimension[instance_dimension] <- list(dimension_segments)
-        if (!is.null(dimension_segments)) {
-          message(sprintf(
-            "Segment pass %s found %d segments (%d accepted trees)",
-            instance_dimension, nrow(dimension_segments),
-            sum(dimension_segments$is_tree, na.rm = TRUE)
-          ))
-        }
+    segment_observation_summaries[[1]] <- accumulated$observations
+    temporary_disk_peak_bytes <- max(
+      temporary_disk_peak_bytes,
+      temporary_directory_bytes(run_work_directory)
+    )
+    finalize_started <- proc.time()[["elapsed"]]
+    segments_by_dimension <- finalize_dimensions(
+      accumulated, instance_dimensions, parameters, tiles
+    )
+    for (instance_dimension in instance_dimensions) {
+      dimension_segments <- segments_by_dimension[[instance_dimension]]
+      if (!is.null(dimension_segments)) {
+        message(sprintf(
+          "Segment pass %s found %d segments (%d accepted trees)",
+          instance_dimension, nrow(dimension_segments),
+          sum(dimension_segments$is_tree, na.rm = TRUE)
+        ))
       }
-      message(sprintf("Finalized %d segment pass(es) in %.1f s",
-        length(group$dimensions), elapsed_seconds(finalize_started)))
-      rm(group_segments)
-      rm(accumulated)
-      unlink(group_directory, recursive = TRUE, force = TRUE)
-      gc(verbose = FALSE)
     }
+    message(sprintf("Finalized %d segment pass(es) in %.1f s",
+      length(instance_dimensions), elapsed_seconds(finalize_started)))
+    rm(accumulated)
+    unlink(read_directory, recursive = TRUE, force = TRUE)
+    gc(verbose = FALSE)
     unlink(segment_work_directory, recursive = TRUE, force = TRUE)
   }
 

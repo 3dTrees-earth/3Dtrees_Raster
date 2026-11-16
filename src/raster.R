@@ -679,19 +679,13 @@ main <- function() {
 
   message("RASTER_STAGE stage=dimension_projection status=started")
 
-  # Track the actual source and selector used for each instance dimension; these
-  # maps feed both execution and the durable provenance report.
-  dimension_sources <- list()
+  # The selector of each instance dimension, for the provenance report. Every
+  # dimension is read from the staged cloud itself: ExtraByte ordinals 1-9 by
+  # their digit, later ones with the selector "0" (all ExtraBytes, patched rlas).
   selectors <- list()
-  # No per-field copies any more; kept empty for the run report's schema.
-  projections <- list()
-  # Resolve each requested segmentation field independently. Every one reads the
-  # staged cloud itself: ExtraByte ordinals 1-9 by their digit, later ones with
-  # the selector "0" (all ExtraBytes, patched rlas).
   for (dimension in dimensions) {
     ordinal <- match(dimension, available)
     definition <- definitions[[ordinal]]
-    dimension_sources[[dimension]] <- staged_point_cloud
     selector <- catalog_selection_for_dimensions(staged_point_cloud,
       c(point_order_dimension, dimension), "xyz")
     selectors[[dimension]] <- list(
@@ -779,11 +773,8 @@ main <- function() {
     # Original COPC hierarchy also bounds projected reads: projection preserves
     # coordinates and records. Never estimate those from the flat LAZ header.
     memory_policy = resource_policy(point_cloud, arguments$memory_budget_gib, job_directory),
-    sequential_instance_dimensions = FALSE,
     segment_catalog_base_selection = SEGMENT_SELECTION,
     segment_bucket_count = segment_bucket_count,
-    # Per-dimension sources support legacy LAZ projection without changing COPC.
-    dimension_point_clouds = dimension_sources,
     # Result metadata should identify the original ordered filename when known.
     point_cloud_display_name = point_cloud_display_name,
     # NULL disables sorting for LAZ; the key enables deterministic COPC sorting.
@@ -890,15 +881,16 @@ main <- function() {
     requested_instance_dimensions = arguments$instance_dimension,
     instance_dimension_selection = dimension_selection,
     processed_instance_dimensions = dimensions,
-    instance_read_groups = instance_read_groups(
-      dimensions, staged_point_cloud, dimension_sources,
-      parameters$sequential_instance_dimensions
-    ),
+    # One read of the staged cloud serves every instance dimension.
+    instance_read_groups = if (length(dimensions)) {
+      list(list(source = staged_point_cloud, dimensions = dimensions))
+    } else list(),
     missing_instance_dimensions = missing,
     extra_byte_definitions = definitions,
     source_extra_byte_definitions = source_definitions,
     selectors = selectors,
-    projections = projections,
+    # No per-field copies (kept empty for the report's schema).
+    projections = list(),
     catalog_workers = catalog_worker_count,
     catalog_worker_policy = if (nzchar(worker_request)) "explicit_cap" else "auto_up_to_ten",
     resource_admission = resource_plan_reports(parameters$memory_policy),

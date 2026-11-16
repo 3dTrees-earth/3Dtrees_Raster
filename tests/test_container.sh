@@ -58,7 +58,7 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("raster.R"); source("../tests/test_raster.R"); source("../tests/test_instance_read_groups.R"); source("../tests/test_resource_validation.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("raster.R"); source("../tests/test_raster.R"); source("../tests/test_segment_dimensions.R"); source("../tests/test_resource_validation.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \

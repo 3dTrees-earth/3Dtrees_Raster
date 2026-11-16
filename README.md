@@ -272,7 +272,7 @@ passes run as Python or GDAL child processes.
 | Voxel counts | every point, streamed | `voxel_counts.py`, `voxel_counts.R` |
 | Point reduction (dense clouds) | every point, streamed | `reduce_points.py` |
 | CHM and DSM | windows | `analysis.R` |
-| Segments | windows, then one summary per instance | `analysis.R`, `instance_read_groups.R` |
+| Segments | windows, then one summary per instance | `analysis.R` |
 | Tile metrics | one tile per task | `analysis.R`, `tile_scheduler.R` |
 | Outputs | tables and rasters | `raster.R`, `artifact_publication.R` |
 

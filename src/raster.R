@@ -772,7 +772,11 @@ main <- function() {
     memory_budget_gib = arguments$memory_budget_gib,
     # Original COPC hierarchy also bounds projected reads: projection preserves
     # coordinates and records. Never estimate those from the flat LAZ header.
-    memory_policy = resource_policy(point_cloud, arguments$memory_budget_gib, job_directory),
+    # DTM, CHM and tile reads select the order key; the planner adds the
+    # columns that selection brings.
+    memory_policy = resource_policy(point_cloud, arguments$memory_budget_gib, job_directory,
+      selections = list(DTM = point_order_selector, CHM = point_order_selector,
+                        tiles = point_order_selector)),
     segment_catalog_base_selection = SEGMENT_SELECTION,
     segment_bucket_count = segment_bucket_count,
     # Result metadata should identify the original ordered filename when known.
@@ -782,15 +786,6 @@ main <- function() {
     # Header-only fallback preserves output CRS without reading companion points.
     source_crs = resolved_crs$wkt
   )
-  # An order key after the ninth ExtraByte is read with "0": every ExtraByte
-  # enters the DTM, CHM and tile reads until the unused ones are dropped, so
-  # plan a numeric column for each of them.
-  if (identical(point_order_selector, "xyz0")) {
-    for (phase in c("DTM", "CHM", "tiles")) {
-      parameters$memory_policy$bytes_per_point[[phase]] <-
-        parameters$memory_policy$bytes_per_point[[phase]] + 8 * length(definitions)
-    }
-  }
   denoise_started <- proc.time()[["elapsed"]]
   parameters$denoising <- prepare_denoising_mask(
     staged_point_cloud, point_order_dimension, arguments,

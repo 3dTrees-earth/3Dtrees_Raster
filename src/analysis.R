@@ -2394,12 +2394,8 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
   )
   opt_select(catalog) <- selection
   opt_progress(catalog) <- FALSE
-  # Selector "0" reads every ExtraByte; plan a numeric column for each of them.
-  if (!is.null(memory_policy) && endsWith(selection, "0")) {
-    extra_bytes <- readLASheader(point_cloud)@VLR$Extra_Bytes[["Extra Bytes Description"]]
-    memory_policy$bytes_per_point[["segment"]] <-
-      memory_policy$bytes_per_point[["segment"]] + 8 * length(extra_bytes)
-  }
+  # The planner adds the columns this selection brings (phase_bytes_per_point).
+  if (!is.null(memory_policy)) memory_policy$selections$segment <- selection
   boundary_read_adjustment <- if (is.null(point_order_dimension)) NULL else
     catalog_boundary_read_adjustment(point_cloud)
   segment_options <- list(automerge = FALSE, drop_null = FALSE)

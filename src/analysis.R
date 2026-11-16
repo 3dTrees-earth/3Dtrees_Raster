@@ -124,6 +124,21 @@ assert_memory_budget <- function(required_bytes, parameters, operation,
   ))
 }
 
+# A read with selector "0" (every ExtraByte: how fields after the ninth are
+# reached, patches/rlas-1.8.6-all-extra-bytes.patch) also brings ExtraBytes the
+# phase does not use. Drop them right after the read, so the phase's memory and
+# its selective-read check see only the requested fields. Standard LAS fields
+# are never dropped here.
+keep_requested_extra_bytes <- function(las, keep) {
+  descriptions <- las@header@VLR$Extra_Bytes[["Extra Bytes Description"]]
+  if (is.null(descriptions) || !length(descriptions)) return(las)
+  extra <- vapply(descriptions, function(description) as.character(description$name), character(1))
+  for (name in intersect(setdiff(names(las@data), keep), extra)) {
+    las <- lidR::remove_lasattribute(las, name)
+  }
+  las
+}
+
 assert_loaded_dimensions <- function(las, allowed, phase) {
   present <- names(las@data)
   unexpected <- setdiff(present, allowed)
@@ -800,7 +815,7 @@ read_catalog_chunk <- function(chunk) {
 dtm_chunk <- function(chunk, dtm_resolution, ptd_resolution,
                       point_order_dimension = NULL, denoising = NULL) {
   configure_catalog_worker()
-  las <- read_catalog_chunk(chunk)
+  las <- keep_requested_extra_bytes(read_catalog_chunk(chunk), point_order_dimension)
   if (is.empty(las)) return(empty_chunk_raster(chunk, dtm_resolution))
   # Treat a missing order key as a hard error before classification or TIN work.
   assert_loaded_dimensions(
@@ -1747,7 +1762,8 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
     if (isTRUE(dsm)) write_dsm_chunk(chunk, chm_raster, maxima, header)
     chm_raster
   }
-  las <- readLAS(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
+  las <- keep_requested_extra_bytes(
+    readLAS(adjust_catalog_boundary_read(chunk, boundary_read_adjustment)), point_order_dimension)
   observation_path <- record_chunk_observation(
     observation_directory,
     "chm",
@@ -1938,7 +1954,8 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
   dsm_maxima <- data.table(X = numeric(), Y = numeric(), Z = numeric())
   header <- NULL
   for (child in children) {
-    las <- readLAS(adjust_catalog_boundary_read(child, boundary_read_adjustment))
+    las <- keep_requested_extra_bytes(
+      readLAS(adjust_catalog_boundary_read(child, boundary_read_adjustment)), point_order_dimension)
     observation_path <- record_chunk_observation(observation_directory, "chm", nrow(las@data),
                              target_chunk_points)
     if (is.empty(las)) next
@@ -2173,18 +2190,10 @@ segment_selection_from_names <- function(available, instance_dimensions,
   if (length(positions) == 0) return(base_selection)
 
   # lidR exposes individual ExtraBytes selectors only for positions 1-9.
-  # Position 0 requests all ExtraBytes while still excluding unrelated
-  # standard LAS attributes. This fallback preserves dimensions beyond the
-  # ninth ExtraBytes field without returning to the all-attribute wildcard.
-  if (any(positions > 9L)) {
-    if (identical(base_selection, SEGMENT_SELECTION)) {
-      stop(
-        "the streaming segment selection requires a verified streaming ",
-        "projection for ExtraByte positions beyond nine"
-      )
-    }
-    return(paste0(base_selection, "0"))
-  }
+  # Position 0 requests all ExtraBytes (every one with the patched rlas) while
+  # still excluding unrelated standard LAS attributes, so dimensions beyond the
+  # ninth field are read from the source itself, COPC included.
+  if (any(positions > 9L)) return(paste0(base_selection, "0"))
   paste0(base_selection, paste(positions, collapse = ""))
 }
 
@@ -2238,7 +2247,9 @@ segment_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
                           target_chunk_points = 0, denoising = NULL,
                           boundary_read_adjustment = NULL) {
   configure_catalog_worker()
-  las <- readLAS(adjust_catalog_boundary_read(chunk, boundary_read_adjustment))
+  las <- keep_requested_extra_bytes(
+    readLAS(adjust_catalog_boundary_read(chunk, boundary_read_adjustment)),
+    c(instance_dimensions, point_order_dimension))
   record_chunk_observation(
     observation_directory,
     "segment",
@@ -2384,6 +2395,12 @@ accumulate_segments <- function(point_cloud, dtm_path, chunk_size,
   )
   opt_select(catalog) <- selection
   opt_progress(catalog) <- FALSE
+  # Selector "0" reads every ExtraByte; plan a numeric column for each of them.
+  if (!is.null(memory_policy) && endsWith(selection, "0")) {
+    extra_bytes <- readLASheader(point_cloud)@VLR$Extra_Bytes[["Extra Bytes Description"]]
+    memory_policy$bytes_per_point[["segment"]] <-
+      memory_policy$bytes_per_point[["segment"]] + 8 * length(extra_bytes)
+  }
   boundary_read_adjustment <- if (is.null(point_order_dimension)) NULL else
     catalog_boundary_read_adjustment(point_cloud)
   segment_options <- list(automerge = FALSE, drop_null = FALSE)
@@ -2956,6 +2973,7 @@ read_tile_points <- function(point_cloud, bounds, parameters) {
     )
   )
   if (is.empty(las)) return(las)
+  las <- keep_requested_extra_bytes(las, parameters$point_order_dimension)
   # Fail closed if selective COPC reading omitted the required order key.
   assert_loaded_dimensions(
     las,

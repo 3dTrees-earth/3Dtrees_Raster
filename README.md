@@ -387,11 +387,25 @@ block (`RASTER_TILE_BLOCK_POINTS`), and give each tile exactly the points a
 single-tile read would return. Each worker gets at least two blocks, and a
 block in a much denser patch goes back to one read per tile.
 
-The image builds rlas 1.8.6 from source with
-`patches/rlas-1.8.6-64bit-point-count.patch`: a file with more than
-2,147,483,647 points reports its count as a 64-bit number instead of being
-refused. lidR only reads spatial windows of it, so such clouds run like any
-other.
+The image builds rlas 1.8.6 from source with two patches:
+
+- `patches/rlas-1.8.6-64bit-point-count.patch`: a file with more than
+  2,147,483,647 points reports its count as a 64-bit number instead of being
+  refused. lidR only reads spatial windows of it, so such clouds run like any
+  other.
+- `patches/rlas-1.8.6-all-extra-bytes.patch`: the selector `0` reads every
+  ExtraByte. Unpatched, it read only the first nine (the digit selectors fill a
+  nine-slot table, so rlas's own "all fields" branch was never reached), and a
+  segmentation stored after the ninth field (3462's `PredInstance_RCT` is the
+  eleventh) needed a plain-LAZ copy of the whole cloud.
+
+A COPC is never copied or converted. Every stage reads it through spatial
+window queries over its hierarchy: lidR catalog chunks, `read_window.py` for
+dense windows, the noise filter's parallel windows and the task memory plans
+from the hierarchy's point counts. Python reads go through the hierarchy
+(`load_octree_for_query`), never through laspy's record `seek()`, which returns
+wrong records on LAZ with variable-size chunks such as every COPC
+(laspy 2.7 / lazrs 0.8).
 
 ### Galaxy
 

@@ -609,7 +609,6 @@ main <- function() {
     stop("cannot stage original point cloud by local-SSD symbolic link")
   }
   copc_projection <- NULL
-  required_dimensions <- unique(c(point_order_dimension, dimensions))
   if (!requested_is_copc && !is.null(point_order_dimension) &&
       !POINT_ORDER_DIMENSION %in% available) {
     # Plain LAS/LAZ records are already in source order; number them once in a
@@ -621,21 +620,11 @@ main <- function() {
     staged_point_cloud <- projected
     definitions <- extra_byte_definitions(staged_point_cloud)
     available <- vapply(definitions, function(definition) definition$name, character(1))
-  } else if (!is.null(point_order_dimension) &&
-             any(match(required_dimensions, available) > 9L)) {
-    # Pinned rlas truncates COPC ExtraBytes after field nine even with selector 0.
-    # Reuse the verified bounded projection once, retaining the source-order key
-    # and all selected IDs, then spatially index that compact scratch LAZ.
-    projected <- file.path(job_directory, "analysis_projection.laz")
-    copc_projection <- run_projection(staged_point_cloud, projected, required_dimensions)
-    staged_point_cloud <- projected
-    rlas::writelax(staged_point_cloud)
-    if (!file.exists(sub("\\.laz$", ".lax", staged_point_cloud))) {
-      stop("failed to spatially index high-ordinal COPC projection")
-    }
-    definitions <- extra_byte_definitions(staged_point_cloud)
-    available <- vapply(definitions, function(definition) definition$name, character(1))
   }
+  # A COPC is never copied (Kilian, 16 Nov 2026): every stage reads it through
+  # spatial window queries. ExtraBytes after the ninth are read with the selector
+  # "0", which the patched rlas honours for every field
+  # (patches/rlas-1.8.6-all-extra-bytes.patch).
   # Plain LAS/LAZ benefits from a sidecar LAX; COPC already contains its spatial
   # hierarchy and must not be rewritten or supplemented with a LAX index.
   if (!requested_is_copc) {
@@ -689,37 +678,22 @@ main <- function() {
   message("RASTER_STAGE stage=aoi_conversion status=completed")
 
   message("RASTER_STAGE stage=dimension_projection status=started")
-  # High-ordinal COPC fields are now in the verified indexed scratch projection.
 
   # Track the actual source and selector used for each instance dimension; these
   # maps feed both execution and the durable provenance report.
   dimension_sources <- list()
   selectors <- list()
+  # No per-field copies any more; kept empty for the run report's schema.
   projections <- list()
-  # Resolve each requested segmentation field independently.
+  # Resolve each requested segmentation field independently. Every one reads the
+  # staged cloud itself: ExtraByte ordinals 1-9 by their digit, later ones with
+  # the selector "0" (all ExtraBytes, patched rlas).
   for (dimension in dimensions) {
-    # ExtraByte ordinal maps directly to lidR selector digits 1-9.
     ordinal <- match(dimension, available)
     definition <- definitions[[ordinal]]
-    # Unordered plain LAZ retains its verified streaming projection fallback;
-    # an order-keyed input keeps the key beside every segmentation field.
-    if (ordinal <= 9L || !is.null(point_order_dimension)) {
-      dimension_sources[[dimension]] <- staged_point_cloud
-      selector <- catalog_selection_for_dimensions(staged_point_cloud,
-        c(point_order_dimension, dimension), "xyz")
-    } else {
-      projection_path <- file.path(
-        job_directory,
-        sprintf("%s_%s_projected.laz", arguments$dataset_id, dimension)
-      )
-      projections[[dimension]] <- run_projection(
-        staged_point_cloud,
-        projection_path,
-        dimension
-      )
-      dimension_sources[[dimension]] <- projection_path
-      selector <- "xyz1"
-    }
+    dimension_sources[[dimension]] <- staged_point_cloud
+    selector <- catalog_selection_for_dimensions(staged_point_cloud,
+      c(point_order_dimension, dimension), "xyz")
     selectors[[dimension]] <- list(
       requested_dimension = dimension,
       source_ordinal = ordinal,
@@ -817,6 +791,15 @@ main <- function() {
     # Header-only fallback preserves output CRS without reading companion points.
     source_crs = resolved_crs$wkt
   )
+  # An order key after the ninth ExtraByte is read with "0": every ExtraByte
+  # enters the DTM, CHM and tile reads until the unused ones are dropped, so
+  # plan a numeric column for each of them.
+  if (identical(point_order_selector, "xyz0")) {
+    for (phase in c("DTM", "CHM", "tiles")) {
+      parameters$memory_policy$bytes_per_point[[phase]] <-
+        parameters$memory_policy$bytes_per_point[[phase]] + 8 * length(definitions)
+    }
+  }
   denoise_started <- proc.time()[["elapsed"]]
   parameters$denoising <- prepare_denoising_mask(
     staged_point_cloud, point_order_dimension, arguments,

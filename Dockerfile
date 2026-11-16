@@ -19,12 +19,14 @@ ENV OPENBLAS_NUM_THREADS=1 MKL_NUM_THREADS=1 BLIS_NUM_THREADS=1
 
 ARG LIDR_VERSION=4.3.2
 ARG LIDR_SHA256=3df920ff4146b0c29680c68e1fd654091906addbbdf9e3ae7e2fa8e964fec4e0
-# rlas is built from source with a patch that reports point counts above
-# 2,147,483,647 as 64-bit numbers instead of refusing the file; lidR only ever
-# reads spatial windows of such a cloud.
+# rlas is built from source with two patches: point counts above 2,147,483,647
+# come back as 64-bit numbers instead of refusing the file (lidR only ever reads
+# spatial windows of such a cloud), and the selector "0" reads every ExtraByte,
+# not only the first nine, so a COPC's fields after the ninth (3462's
+# PredInstance_RCT is the eleventh) are read from the COPC itself.
 ARG RLAS_VERSION=1.8.6
 ARG RLAS_SHA256=5dfac7e0943580987036c737383ed2ad4cb915557d4b3e9bc26156946307eff5
-COPY patches/rlas-1.8.6-64bit-point-count.patch /tmp/rlas.patch
+COPY patches/rlas-1.8.6-64bit-point-count.patch patches/rlas-1.8.6-all-extra-bytes.patch /tmp/rlas-patches/
 
 RUN install2.r --error --skipinstalled \
     argparse \
@@ -48,9 +50,10 @@ RUN install2.r --error --skipinstalled \
     && printf '%s  %s\n' "${RLAS_SHA256}" /tmp/rlas.tar.gz \
       | sha256sum --check --strict \
     && tar -xzf /tmp/rlas.tar.gz -C /tmp \
-    && patch -d /tmp/rlas -p1 < /tmp/rlas.patch \
+    && patch -d /tmp/rlas -p1 < /tmp/rlas-patches/rlas-1.8.6-64bit-point-count.patch \
+    && patch -d /tmp/rlas -p1 < /tmp/rlas-patches/rlas-1.8.6-all-extra-bytes.patch \
     && R CMD INSTALL /tmp/rlas \
-    && rm -rf /tmp/rlas /tmp/rlas.tar.gz /tmp/rlas.patch \
+    && rm -rf /tmp/rlas /tmp/rlas.tar.gz /tmp/rlas-patches \
     && wget --quiet \
       "https://cran.r-project.org/src/contrib/Archive/lidR/lidR_${LIDR_VERSION}.tar.gz" \
       -O /tmp/lidR.tar.gz \

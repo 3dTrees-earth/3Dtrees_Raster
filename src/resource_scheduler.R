@@ -141,7 +141,8 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
       if (workers == 1L) {
         value <- try(calculate(indices[[next_task]]), silent = TRUE)
         if (inherits(value, "try-error")) {
-          fail(sprintf("%s memory-admitted worker failed or returned incomplete results", phase))
+          fail(sprintf("%s memory-admitted worker failed or returned incomplete results: %s",
+            phase, trimws(as.character(value))))
         }
         if (!is.null(value)) results[[next_task]] <- value
       } else {
@@ -174,7 +175,11 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
       if (!is.list(value) || inherits(value, "try-error") || !identical(names(value), "value")) {
         jobs[[pid]] <- NULL
         running <- running[names(running) != pid]
-        fail(sprintf("%s memory-admitted worker failed or returned incomplete results", phase))
+        # The worker's own error, when it returned one, says why.
+        reason <- if (inherits(value, "try-error")) trimws(as.character(value)) else
+          if (is.null(value)) "the worker died" else "no result"
+        fail(sprintf("%s memory-admitted worker failed or returned incomplete results: %s",
+          phase, reason))
       }
       if (!is.null(value$value)) results[[running[[pid]]]] <- value$value
       jobs[[pid]] <- NULL

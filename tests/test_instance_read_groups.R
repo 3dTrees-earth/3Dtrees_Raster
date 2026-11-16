@@ -103,6 +103,30 @@ local({
             fm$apex_x[fm$instance_id == 2] == 1010,
             identical(sat$instance_id, c(1, 2)),
             identical(fm$instance_id, c(1, 2)))
+  # The dimensions of one read group finalized in forked workers equal the
+  # sequential tables, in group order, and their summaries are removed.
+  parallel_group <- function(groups, label) {
+    group <- groups[[1]]
+    store <- accumulate_segments(group$source, dtm_path, 10, 0.2, 70,
+      group$dimensions, 1L, file.path(root, label), bucket_count = 2L,
+      base_selection = SEGMENT_SELECTION,
+      point_order_dimension = "OriginalPointIndex")
+    paths <- unlist(lapply(group$dimensions, function(dimension)
+      segment_store_for_dimension(store, dimension)$chunks), use.names = FALSE)
+    result <- finalize_group_dimensions(store, group$dimensions,
+      modifyList(parameters, list(threads = 2L, memory_budget_gib = 64)), data.frame())
+    stopifnot(length(paths) > 0L, !any(file.exists(paths)))
+    result
+  }
+  with_tiles <- function(segments) lapply(segments, function(table)
+    assign_segments_to_tiles(data.table::copy(table), data.frame()))
+  # Tables from a worker arrive serialized: equal in values, columns, types and
+  # key, but with a new data.table self-reference pointer.
+  plain <- function(segments) lapply(segments, function(table) if (!is.null(table))
+    list(rows = as.data.frame(table), key = data.table::key(table)))
+  same_segments <- function(left, right)
+    identical(names(left), names(right)) && identical(plain(left), plain(right))
+  stopifnot(same_segments(parallel_group(grouped, "parallel"), with_tiles(fused$segments)))
   alternate <- run_groups(different, "different")
   stopifnot(identical(alternate$segments[[dimensions[[1]]]], sat),
             all(alternate$segments[[dimensions[[2]]]]$instance_id >= 100))
@@ -115,6 +139,9 @@ local({
   stopifnot(identical(names(empty_fm$segments), dimensions),
     identical(empty_fm$segments[[dimensions[[1]]]], sat),
     is.null(empty_fm$segments[[dimensions[[2]]]]))
+  stopifnot(same_segments(
+    parallel_group(instance_read_groups(dimensions, empty_fm_path), "parallel_empty_fm"),
+    with_tiles(empty_fm$segments)))
   cloud@data[, PredInstance_SAT := 0]
   empty_all_path <- file.path(root, "empty_all.las")
   writeLAS(cloud, empty_all_path)

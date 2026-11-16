@@ -2729,6 +2729,53 @@ finalize_segment_store <- function(store, parameters,
   segments
 }
 
+# The instance dimensions of one read group have disjoint stores: finalize them
+# in forked workers, each with its share of the threads and of the memory left,
+# and return them by name in group order, so the tables equal sequential ones.
+# Each worker removes its dimension's summaries once its table is built.
+finalize_group_dimensions <- function(accumulated, dimensions, parameters, tiles) {
+  finalize_one <- function(dimension, dimension_parameters) {
+    store <- segment_store_for_dimension(accumulated, dimension)
+    segments <- assign_segments_to_tiles(
+      finalize_segment_store(store, dimension_parameters), tiles
+    )
+    unlink(unlist(store$chunks, use.names = FALSE), force = TRUE)
+    gc(verbose = FALSE)
+    list(segments = segments)
+  }
+  workers <- max(1L, min(length(dimensions),
+    as.integer(parameter_or(parameters, "threads", 1L))))
+  dimension_parameters <- parameters
+  if (workers > 1L) {
+    dimension_parameters$threads <- max(1L,
+      as.integer(parameter_or(parameters, "threads", 1L)) %/% workers)
+    budget_gib <- parameter_or(parameters, "memory_budget_gib", Inf)
+    if (is.finite(budget_gib)) {
+      rss <- current_rss_bytes()
+      dimension_parameters$memory_budget_gib <-
+        (rss + (budget_gib * 1024^3 - rss) / workers) / 1024^3
+    }
+  }
+  # Forked workers inherit no multi-threaded OpenMP pool (see tile_worker_plan).
+  previous_threads <- data.table::getDTthreads()
+  on.exit(data.table::setDTthreads(previous_threads), add = TRUE)
+  data.table::setDTthreads(DATA_TABLE_THREADS)
+  results <- run_bounded_tasks(seq_along(dimensions), function(index) {
+    finalize_one(dimensions[[index]], dimension_parameters)
+  }, workers)
+  for (index in seq_along(dimensions)) {
+    result <- results[[index]]
+    if (inherits(result, "try-error")) {
+      stop(conditionMessage(attr(result, "condition")), call. = FALSE)
+    }
+    if (!is.list(result) || !"segments" %in% names(result)) {
+      stop(sprintf("segment finalization of %s did not return (worker killed?)",
+                   dimensions[[index]]))
+    }
+  }
+  setNames(lapply(results, `[[`, "segments"), dimensions)
+}
+
 # Scientific tile metrics and output adapters ------------------------------
 
 assign_segments_to_tiles <- function(segments, tiles) {
@@ -3723,11 +3770,12 @@ run_analysis <- function(parameters) {
         temporary_disk_peak_bytes,
         temporary_directory_bytes(run_work_directory)
       )
+      finalize_started <- proc.time()[["elapsed"]]
+      group_segments <- finalize_group_dimensions(
+        accumulated, group$dimensions, parameters, tiles
+      )
       for (instance_dimension in group$dimensions) {
-        dimension_store <- segment_store_for_dimension(accumulated, instance_dimension)
-        dimension_segments <- assign_segments_to_tiles(
-          finalize_segment_store(dimension_store, parameters), tiles
-        )
+        dimension_segments <- group_segments[[instance_dimension]]
         segments_by_dimension[instance_dimension] <- list(dimension_segments)
         if (!is.null(dimension_segments)) {
           message(sprintf(
@@ -3736,12 +3784,10 @@ run_analysis <- function(parameters) {
             sum(dimension_segments$is_tree, na.rm = TRUE)
           ))
         }
-        # Reduction stays independent: SAT and FM never share an in-memory
-        # summary partition, and completed summaries release scratch promptly.
-        unlink(unlist(dimension_store$chunks, use.names = FALSE), force = TRUE)
-        rm(dimension_store)
-        gc(verbose = FALSE)
       }
+      message(sprintf("Finalized %d segment pass(es) in %.1f s",
+        length(group$dimensions), elapsed_seconds(finalize_started)))
+      rm(group_segments)
       rm(accumulated)
       unlink(group_directory, recursive = TRUE, force = TRUE)
       gc(verbose = FALSE)

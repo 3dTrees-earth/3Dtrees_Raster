@@ -1,4 +1,4 @@
-.PHONY: build test test-raster test-all-extra-bytes test-copc-window-reads test-production-contract test-projected-3d-crs \
+.PHONY: build test test-raster test-all-extra-bytes test-copc-window-reads test-knn-crash-safety test-production-contract test-projected-3d-crs \
 	test-parallel-production test-denoising test-original-companion-crs-fallback \
 	test-artifact-promotion test-voxel-counts test-copc-all-instance-dimensions \
 	build-original-order-copc
@@ -97,6 +97,13 @@ test-all-extra-bytes:
 	docker run --rm --network none --cpus 1 --memory 1g --memory-swap 1g \
 		--entrypoint Rscript --volume "$(CURDIR)/tests:/tests:ro" "$(IMAGE)" \
 		/tests/test_all_extra_bytes.R
+
+# kNN filter crash safety on a real COPC against its reference noise list: a 4 GB
+# container, admission estimates 5x and 20x too low, a killed worker.
+# COPC=/path/to/cloud.copc.laz REFERENCE=/path/to/raster_noise_points.csv
+.PHONY: test-knn-crash-safety
+test-knn-crash-safety:
+	COPC="$(COPC)" REFERENCE="$(REFERENCE)" RASTER_IMAGE="$(IMAGE)" 		bash tests/test_knn_crash_safety.sh
 
 # COPC window reads through the hierarchy equal one full read (no laspy seek).
 # COPC=/path/to/cloud.copc.laz [WINDOW_M=20] [AREA_M=60]

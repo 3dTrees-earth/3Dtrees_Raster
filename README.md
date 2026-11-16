@@ -346,7 +346,10 @@ the parts that had not finished run again one at a time and the run goes on, so
 a wrong estimate costs time, not the run. A part killed while running alone, or
 one that cannot fit the budget even in quarters, stops the run with
 `memory_budget_exceeded`. A part's result does not depend on when or beside what
-it runs, so every path writes the same noise list. The
+it runs, so every path writes the same noise list. The part scheduling is
+`knn_parts.py`; it reads the container's memory with `container_memory.py`,
+which follows the R scheduler's rules (checked against it by
+`tests/test_container_memory.py`). The
 rejected ordinals are stored per fixed window anchored at `(0,0)`, so later reads
 load only the windows they overlap. The mask is computed once and reused for DTM, CHM,
 segment and tile metrics. The run publishes `<dataset>_noise_points.csv`, one
@@ -462,6 +465,9 @@ metadata JSON records the grid, the CRS and the point accounting.
 | `make test-copc-all-instance-dimensions` | All instance dimensions from one COPC read |
 | `make test-projected-3d-crs` | Projected 3D and compound CRSs |
 | `make test-parallel-production` | One worker against 2 and 4 workers give identical results |
+| `make test-all-extra-bytes` | The patched rlas reads every ExtraByte with selector `0` |
+| `make test-copc-window-reads COPC=…` | Window reads through a COPC's hierarchy equal one full read |
+| `make test-knn-crash-safety COPC=… REFERENCE=…` | The kNN filter flags the reference points in a 4 GB container, with admission estimates 5× and 20× too low, and with a killed worker |
 
 Set `IMAGE` to test a built image, for example `make test-raster IMAGE=3dtrees-raster:local`.
 

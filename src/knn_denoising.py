@@ -15,20 +15,17 @@ batch by node batch, so the distances equal those of one tree over the whole
 cloud. A window too dense for the memory budget is read in quarters
 (recursively). The distances are kept on disk until the cloud's mean and
 standard deviation are known. A plain LAS/LAZ uses one tree over all points.
+The parts run in worker processes under memory admission (knn_parts.py).
 """
 from __future__ import annotations
 
 import argparse
-from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
-from concurrent.futures.process import BrokenProcessPool
 import json
 from pathlib import Path
 
 import math
-import multiprocessing
 import os
 import resource
-import signal
 import tempfile
 import time
 
@@ -36,6 +33,9 @@ import laspy
 from laspy.copc import Bounds, load_octree_for_query
 import numpy as np
 from scipy.spatial import cKDTree
+
+from container_memory import working_set_and_limit
+from knn_parts import run_parts
 
 # Coordinates, ordinals, KD-tree, distances, k-th radii, window grouping and query batches.
 BYTES_PER_POINT = 112
@@ -55,13 +55,6 @@ WORKER_BYTES = 256 * 1024**2
 # most expensive quarter costs at most this fraction of it.
 MAX_PARTS_PER_WORKER = 16
 SPLIT_GAIN = 0.7
-# Admission learns from finished parts: their measured peak over their estimate,
-# times this margin, scales the later and running parts' reservations (never
-# above the estimate). Only parts estimated at LEARN_FROM_BYTES or more teach it.
-LEARNED_MARGIN = 1.5
-LEARN_FROM_BYTES = 1024**3
-# Share of the container's memory limit kept free when a part starts.
-MEMORY_FREE_SHARE = 0.10
 
 
 def read_points(path: Path, dimension: str):
@@ -350,41 +343,6 @@ def peak_rss_bytes():
     return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
 
 
-def container_memory(root="/sys/fs/cgroup"):
-    """The container's working set and memory limit (bytes), read from cgroup
-    as the R scheduler reads them: usage minus reclaimable page cache. (None,
-    None) outside a cgroup; the limit is None when there is none."""
-    for current, limit, v2 in (("memory.current", "memory.max", True),
-                               ("memory/memory.usage_in_bytes", "memory/memory.limit_in_bytes", False)):
-        try:
-            with open(os.path.join(root, current)) as handle:
-                raw = int(handle.read())
-        except (OSError, ValueError):
-            continue
-        try:
-            with open(os.path.join(root, limit)) as handle:
-                text = handle.read().strip()
-            cap = None if text == "max" or int(text) >= 2**60 else int(text)
-        except (OSError, ValueError):
-            cap = None
-        stats = {}
-        try:
-            with open(os.path.join(root, os.path.dirname(current), "memory.stat")) as handle:
-                for line in handle:
-                    key, value = line.split()
-                    stats[key] = int(value)
-        except (OSError, ValueError):
-            stats = {}
-        fields = (("inactive_file", "file", "file_dirty", "file_writeback", "shmem") if v2 else
-                  ("total_inactive_file", "total_cache", "total_dirty", "total_writeback", "total_shmem"))
-        reclaimable = 0
-        if all(field in stats for field in fields):
-            reclaimable = min(raw, max(0, min(stats[fields[0]], stats[fields[1]])
-                                       - sum(stats[field] for field in fields[2:])))
-        return raw - reclaimable, cap
-    return None, None
-
-
 def start_worker(path):
     # If the container still runs out of memory, the kernel kills a worker
     # (its part is retried alone), never the filter's main process or R.
@@ -401,15 +359,6 @@ def start_worker(path):
 def part_distances(task):
     """Worker: one part's distances and ordinals, saved to the scratch directory."""
     window, part, depth, size, neighbors, budget, dimension, path, threads = task
-    marker = os.environ.get("RASTER_KNN_TEST_KILL_ONCE")
-    if marker:
-        # Test hook: the first part to get here dies as if the kernel killed it
-        # for memory, so the retry of its part can be checked.
-        try:
-            os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
-            os.kill(os.getpid(), signal.SIGKILL)
-        except FileExistsError:
-            pass
     reader = WORKER["reader"]
     far = FAR_POINTS[0]
     started = time.time()
@@ -452,112 +401,18 @@ def cloud_threshold(windows, distances_of, count, sigma):
     return mean, sd, mean + sigma * sd
 
 
-def run_parts(args, pending, workers, budget):
-    """Run the window parts in worker processes without risking the container.
-
-    A part starts when three things hold: a worker is free; the reservations of
-    the running parts and its own fit the budget; and the container's measured
-    working set plus those reservations stays below its limit with
-    MEMORY_FREE_SHARE kept free. A reservation is the part's estimate until
-    parts of real size (estimated at LEARN_FROM_BYTES or more) have finished;
-    from then on it is the estimate times their largest measured peak share,
-    times LEARNED_MARGIN, never above the estimate. So the parts run as close
-    to their real use as measurements allow, and the live check still holds if
-    an estimate is wrong. A part that fits nothing beside it runs alone.
-
-    If the kernel kills a worker all the same (workers have the highest OOM
-    score), the parts that had not finished run again one at a time with all
-    threads, then the rest continues in parallel on the plain estimates; a part
-    killed while running alone stops the run with memory_budget_exceeded.
-    Finished parts are kept. A part's result does not depend on when or beside
-    what it runs, so every path gives the same output.
-    """
-    pending = list(pending)
-    files, count, far_points = {}, 0, 0
-    learned = 1.0
-    retry = []  # parts lost with a killed worker: rerun one at a time
-
-    def reservation(estimate):
-        return estimate * learned
-
-    def fits(estimate, running):
-        reserved = sum(reservation(e) for e, _ in running.values()) + reservation(estimate)
-        if reserved > budget:
-            return False
-        working, cap = container_memory()
-        return cap is None or working + reserved <= cap * (1 - MEMORY_FREE_SHARE)
-
-    def new_pool(size):
-        return ProcessPoolExecutor(size, mp_context=multiprocessing.get_context("spawn"),
-                                   initializer=start_worker, initargs=(str(args.input),),
-                                   max_tasks_per_child=1)
-
-    def record(estimate, result):
-        nonlocal learned, far_points, count
-        window, path, points, far, peak = result
-        if estimate >= LEARN_FROM_BYTES:
-            share = min(1.0, LEARNED_MARGIN * peak / estimate)
-            learned = share if learned == 1.0 else max(learned, share)
-        far_points += far
-        if path is not None:
-            files.setdefault(window, []).append(path)
-            count += points
-
-    while pending or retry:
-        if retry:
-            estimate, task = retry.pop(0)
-            single = new_pool(1)
-            try:
-                result = single.submit(part_distances, task + (max(1, args.threads),)).result()
-            except BrokenProcessPool:
-                raise SystemExit("RASTER_FLAG memory_budget_exceeded: a kNN window part was killed "
-                                 "for memory while running alone") from None
-            except RuntimeError as error:
-                raise SystemExit(str(error)) from None
-            finally:
-                single.shutdown(wait=True, cancel_futures=True)
-            record(estimate, result)
-            continue
-        pool = new_pool(workers)
-        running = {}
-        try:
-            while pending or running:
-                while pending and len(running) < workers and (not running or fits(pending[0][0], running)):
-                    estimate, task = pending.pop(0)
-                    # A part that leaves room for few others queries with the idle threads.
-                    fit = max(1, min(workers, int(budget // max(reservation(estimate), 1))))
-                    future = pool.submit(part_distances, task + (max(1, args.threads // fit),))
-                    running[future] = (estimate, task)
-                # Re-check every few seconds: memory frees up while parts run.
-                done, _ = wait(running, timeout=5, return_when=FIRST_COMPLETED)
-                for future in done:
-                    estimate, task = running[future]
-                    try:
-                        result = future.result()
-                    except BrokenProcessPool:
-                        # A killed worker (BrokenProcessPool is a RuntimeError): retried below.
-                        raise
-                    except RuntimeError as error:
-                        raise SystemExit(str(error)) from None
-                    # Removed only once its result is in: a killed worker's part is retried.
-                    del running[future]
-                    record(estimate, result)
-        except BrokenProcessPool:
-            retry = list(running.values())
-            print(f"KNN_RETRY parts={len(retry)} reason=worker_killed mode=one_at_a_time", flush=True)
-            # The rest goes on in parallel, on the plain estimates until parts finish again.
-            learned = 1.0
-        finally:
-            pool.shutdown(wait=True, cancel_futures=True)
-    return files, count, far_points, learned
-
-
-def windowed(args, n, budget) -> dict:
+def windowed(args, n, budget, work=None, admission_scale=1.0,
+             memory_probe=working_set_and_limit) -> dict:
     """Window-by-window distances in parallel worker processes, then the global
     threshold over all of them. Windows are split into parts so that every
     worker has work and a part fits its share of the budget; per-window
     sums are exact (fsum) and added in window order, so the result does not
-    depend on the number of workers."""
+    depend on the number of workers.
+
+    Tests inject the rest: `work` replaces part_distances in the workers (a
+    worker that dies), `admission_scale` scales only the admission estimates
+    (estimates far too low; each part's own read budget, and so how it
+    splits, stays as planned), `memory_probe` replaces the container probe."""
     workers = max(1, args.threads)
     # Each worker process holds Python, laspy and the COPC hierarchy besides its part.
     budget -= workers * WORKER_BYTES
@@ -575,22 +430,26 @@ def windowed(args, n, budget) -> dict:
         # Each part reserves its estimate (a quarter more for the error, at most
         # the budget) and is read within that reservation; parts start in order
         # of size while the reservations of the running parts fit the budget.
-        # RASTER_KNN_ESTIMATE_SCALE scales only the admission estimates (tests:
-        # estimates far too low must not crash the run); each part's own read
-        # budget, and so how it splits, stays as planned.
-        scale = float(os.environ.get("RASTER_KNN_ESTIMATE_SCALE", "1"))
-        pending = [(min(budget, cost * 1.25) * scale, (window, part, depth, args.window_size, args.neighbors,
+        pending = [(min(budget, cost * 1.25) * admission_scale, (window, part, depth, args.window_size, args.neighbors,
                     min(budget, cost * 1.25), args.order_dimension, str(Path(scratch) / f"{i}.npy")))
                    for i, (cost, window, part, depth) in enumerate(parts)]
         rayon = os.environ.get("RAYON_NUM_THREADS")
         os.environ["RAYON_NUM_THREADS"] = "1"
         try:
-            files, count, far_points, learned = run_parts(args, pending, workers, budget)
+            results, learned = run_parts(pending, workers, budget, args.threads, work or part_distances,
+                                         initializer=start_worker, initargs=(str(args.input),),
+                                         memory_probe=memory_probe)
         finally:
             if rayon is None:
                 os.environ.pop("RAYON_NUM_THREADS")
             else:
                 os.environ["RAYON_NUM_THREADS"] = rayon
+        files, count, far_points = {}, 0, 0
+        for window, path, points, far, _peak in results:
+            far_points += far
+            if path is not None:
+                files.setdefault(window, []).append(path)
+                count += points
         if count != n:
             raise ValueError(f"windows hold {count} of {n} points")
         print(f"KNN_WINDOWS parts={len(parts)} deepest={max(part[3] for part in parts)} "
@@ -619,7 +478,7 @@ def windowed(args, n, budget) -> dict:
                 partitions=partitions)
 
 
-def main() -> None:
+def parse_args(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--input", type=Path, required=True)
     parser.add_argument("--order-dimension", required=True)
@@ -629,7 +488,12 @@ def main() -> None:
     parser.add_argument("--threads", type=int, required=True)
     parser.add_argument("--memory-budget-bytes", type=float, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
-    args = parser.parse_args()
+    return parser.parse_args(argv)
+
+
+def run(args, **windowed_options) -> None:
+    """Filter args.input into args.output_dir (noise lists and manifest.json);
+    `windowed_options` reach windowed() (test injection only)."""
     if args.neighbors < 2:
         raise ValueError("--denoise-neighbors must be at least 2 (it counts the point itself)")
     with laspy.open(args.input) as reader:
@@ -643,7 +507,7 @@ def main() -> None:
     windowed_wanted = (whole_cloud_bytes > args.memory_budget_bytes or forced == "1"
                        or (forced != "0" and args.threads > 1))
     if n > args.neighbors and windowed_wanted and is_copc(args.input):
-        manifest = windowed(args, n, args.memory_budget_bytes - 512 * 1024**2)
+        manifest = windowed(args, n, args.memory_budget_bytes - 512 * 1024**2, **windowed_options)
         (args.output_dir / "manifest.json").write_text(json.dumps(manifest, allow_nan=False))
         return
     required = n * BYTES_PER_POINT + 512 * 1024**2
@@ -687,6 +551,10 @@ def main() -> None:
                     distance_mean_m=mean, distance_sd_m=sd, threshold_m=threshold,
                     insufficient_context_points=insufficient, partitions=partitions)
     (args.output_dir / "manifest.json").write_text(json.dumps(manifest, allow_nan=False))
+
+
+def main() -> None:
+    run(parse_args())
 
 
 if __name__ == "__main__":

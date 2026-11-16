@@ -258,7 +258,7 @@ COPC only after that check passes.
 ## How it works
 
 `src/raster.R` is the entry point. It validates the inputs and resources, runs
-the stages in `src/analysis.R`, checks the complete set of outputs and only
+the stages (`src/analysis.R` and the `src/analysis_*.R` files it sources), checks the complete set of outputs and only
 then moves them into the output folder. One R process runs the stages in order.
 Spatial windows go to forked R workers with one lidR thread each; streaming
 passes run as Python or GDAL child processes.
@@ -266,15 +266,15 @@ passes run as Python or GDAL child processes.
 | Stage | What it reads | Code |
 | --- | --- | --- |
 | Preflight | headers, input hash | `raster.R`, `production_contract.R` |
-| AOI and tile grid | header bounds or the AOI | `aoi_conversion.R`, `analysis.R` |
-| Noise filter (optional) | every point at once | `knn_denoising.py`, `denoising.R` |
-| DTM | 60 m windows with a 20 m buffer | `analysis.R` |
+| AOI and tile grid | header bounds or the AOI | `aoi_conversion.R`, `analysis_grid.R` |
+| Noise filter (optional) | COPC windows in parallel parts, or every point at once | `knn_denoising.py`, `knn_parts.py`, `denoising.R` |
+| DTM | 60 m windows with a 20 m buffer | `analysis_rasters.R` |
 | Voxel counts | every point, streamed | `voxel_counts.py`, `voxel_counts.R` |
-| Point reduction (dense clouds) | every point, streamed | `reduce_points.py` |
-| CHM and DSM | windows | `analysis.R` |
-| Segments | windows, then one summary per instance | `analysis.R` |
-| Tile metrics | one tile per task | `analysis.R`, `tile_scheduler.R` |
-| Outputs | tables and rasters | `raster.R`, `artifact_publication.R` |
+| Point reduction (dense clouds) | every point, streamed | `reduce_points.py`, `analysis_reduction.R` |
+| CHM and DSM | windows | `analysis_reduction.R` |
+| Segments | windows, then one summary per instance | `analysis_segments.R` |
+| Tile metrics | one tile per task | `analysis_tiles.R`, `tile_scheduler.R` |
+| Outputs | tables and rasters | `analysis_tiles.R`, `artifact_validation.R`, `artifact_publication.R` |
 
 Every window restores the source record order from `OriginalPointIndex` before
 any order-sensitive step. The DTM is a progressive TIN densification (PTD)
@@ -476,7 +476,8 @@ Set `IMAGE` to test a built image, for example `make test-raster IMAGE=3dtrees-r
 | Path | Contents |
 | --- | --- |
 | `src/raster.R` | Entry point: arguments, validation, provenance, publication |
-| `src/analysis.R` | The stages: grid, DTM, CHM, DSM, segments, tile metrics |
+| `src/analysis.R` | Shared constants and helpers; sources the stages |
+| `src/analysis_*.R` | The stages: grid, DTM, reduction with CHM and DSM, segments, tile metrics, the run |
 | `src/*.R`, `src/*.py` | Helpers named after their task |
 | `tests/` | Tests, fixtures and the canonical COPC builder |
 | `Dockerfile` | The published image |

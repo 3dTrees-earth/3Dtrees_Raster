@@ -20,20 +20,25 @@ from __future__ import annotations
 
 import argparse
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from concurrent.futures.process import BrokenProcessPool
 import json
 from pathlib import Path
 
 import math
 import multiprocessing
 import os
+import resource
+import signal
 import tempfile
+import time
 
 import laspy
 from laspy.copc import Bounds, load_octree_for_query
 import numpy as np
 from scipy.spatial import cKDTree
 
-BYTES_PER_POINT = 96  # coordinates, ordinals, KD-tree, distances and query batches
+# Coordinates, ordinals, KD-tree, distances, k-th radii, window grouping and query batches.
+BYTES_PER_POINT = 112
 # A window read holds the compressed bytes and the decoded records of every node
 # it touches plus float X, Y, Z, their copies inside the box and masks; then the
 # tree, distances and copies of the points inside. Measured: 1887 (2.0 B TLS
@@ -50,6 +55,13 @@ WORKER_BYTES = 256 * 1024**2
 # most expensive quarter costs at most this fraction of it.
 MAX_PARTS_PER_WORKER = 16
 SPLIT_GAIN = 0.7
+# Admission learns from finished parts: their measured peak over their estimate,
+# times this margin, scales the later and running parts' reservations (never
+# above the estimate). Only parts estimated at LEARN_FROM_BYTES or more teach it.
+LEARNED_MARGIN = 1.5
+LEARN_FROM_BYTES = 1024**3
+# Share of the container's memory limit kept free when a part starts.
+MEMORY_FREE_SHARE = 0.10
 
 
 def read_points(path: Path, dimension: str):
@@ -72,13 +84,27 @@ def read_points(path: Path, dimension: str):
     return xyz, ids
 
 
-def knn_distances(xyz: np.ndarray, neighbors: int, threads: int) -> np.ndarray:
-    local = xyz - xyz.min(axis=0)
+def knn_statistic(tree, points, neighbors: int, threads: int):
+    """The kNN filter's per-point statistic: each point's mean distance to its
+    k - 1 nearest other points (k counts the point itself, as lidR::sor()), and
+    the radius it depends on, the k-th neighbour's distance. The whole-cloud and
+    the windowed path both call it; another neighbourhood filter (3DT-2964) plugs
+    in as a function of the same shape, its radius deciding which window points
+    need a wider read. Batched: the k-wide query results are dropped per batch."""
+    statistic, reach = np.empty(len(points)), np.empty(len(points))
+    for start in range(0, len(points), QUERY_BATCH):
+        d, _ = tree.query(points[start:start + QUERY_BATCH], k=neighbors, workers=threads)
+        statistic[start:start + QUERY_BATCH] = d[:, 1:].sum(axis=1) / (neighbors - 1)
+        reach[start:start + QUERY_BATCH] = d[:, -1]
+    return statistic, reach
+
+
+def knn_distances(xyz: np.ndarray, origin: np.ndarray, neighbors: int, threads: int) -> np.ndarray:
+    # The header's minimum as the frame, as every windowed read uses, so both
+    # paths compute their distances from the same local coordinates.
+    local = xyz - origin
     tree = cKDTree(local, leafsize=32, balanced_tree=False, compact_nodes=False)
-    distances = np.empty(len(local))
-    for start in range(0, len(local), QUERY_BATCH):
-        d, _ = tree.query(local[start:start + QUERY_BATCH], k=neighbors, workers=threads)
-        distances[start:start + QUERY_BATCH] = d[:, 1:].sum(axis=1) / (neighbors - 1)
+    distances, _ = knn_statistic(tree, local, neighbors, threads)
     return distances
 
 
@@ -125,13 +151,8 @@ def window_distances(reader, window, size, neighbors, threads, budget, header, d
     tree = cKDTree(local, leafsize=32, balanced_tree=False, compact_nodes=False)
     query = local[core]
     del local
-    # Batched like the whole-cloud tree: distances and indices are k wide,
-    # so keep only each point's mean distance and its k-th neighbour.
-    mean_distance, kth = np.empty(len(query)), np.empty(len(query))
-    for start in range(0, len(query), QUERY_BATCH):
-        d, _ = tree.query(query[start:start + QUERY_BATCH], k=neighbors, workers=threads)
-        mean_distance[start:start + QUERY_BATCH] = d[:, 1:].sum(axis=1) / (neighbors - 1)
-        kth[start:start + QUERY_BATCH] = d[:, -1]
+    # Each point's statistic and the radius it depends on (its k-th neighbour).
+    mean_distance, kth = knn_statistic(tree, query, neighbors, threads)
     del tree
     ids = all_ids[core].astype(np.float64)
     del xyz, all_ids, core
@@ -325,15 +346,73 @@ def plan_parts(reader, header, size, workers, budget):
     return sorted(parts + final, key=lambda item: -item[0])
 
 
+def peak_rss_bytes():
+    return resource.getrusage(resource.RUSAGE_SELF).ru_maxrss * 1024
+
+
+def container_memory(root="/sys/fs/cgroup"):
+    """The container's working set and memory limit (bytes), read from cgroup
+    as the R scheduler reads them: usage minus reclaimable page cache. (None,
+    None) outside a cgroup; the limit is None when there is none."""
+    for current, limit, v2 in (("memory.current", "memory.max", True),
+                               ("memory/memory.usage_in_bytes", "memory/memory.limit_in_bytes", False)):
+        try:
+            with open(os.path.join(root, current)) as handle:
+                raw = int(handle.read())
+        except (OSError, ValueError):
+            continue
+        try:
+            with open(os.path.join(root, limit)) as handle:
+                text = handle.read().strip()
+            cap = None if text == "max" or int(text) >= 2**60 else int(text)
+        except (OSError, ValueError):
+            cap = None
+        stats = {}
+        try:
+            with open(os.path.join(root, os.path.dirname(current), "memory.stat")) as handle:
+                for line in handle:
+                    key, value = line.split()
+                    stats[key] = int(value)
+        except (OSError, ValueError):
+            stats = {}
+        fields = (("inactive_file", "file", "file_dirty", "file_writeback", "shmem") if v2 else
+                  ("total_inactive_file", "total_cache", "total_dirty", "total_writeback", "total_shmem"))
+        reclaimable = 0
+        if all(field in stats for field in fields):
+            reclaimable = min(raw, max(0, min(stats[fields[0]], stats[fields[1]])
+                                       - sum(stats[field] for field in fields[2:])))
+        return raw - reclaimable, cap
+    return None, None
+
+
 def start_worker(path):
+    # If the container still runs out of memory, the kernel kills a worker
+    # (its part is retried alone), never the filter's main process or R.
+    try:
+        with open("/proc/self/oom_score_adj", "w") as handle:
+            handle.write("1000")
+    except OSError:
+        pass
     WORKER["reader"] = laspy.CopcReader.open(path, decompression_selection=XYZ_AND_EXTRA_BYTES)
+    # The worker's own memory (Python, laspy, the hierarchy), not its part's.
+    WORKER["base_rss"] = peak_rss_bytes()
 
 
 def part_distances(task):
     """Worker: one part's distances and ordinals, saved to the scratch directory."""
     window, part, depth, size, neighbors, budget, dimension, path, threads = task
+    marker = os.environ.get("RASTER_KNN_TEST_KILL_ONCE")
+    if marker:
+        # Test hook: the first part to get here dies as if the kernel killed it
+        # for memory, so the retry of its part can be checked.
+        try:
+            os.close(os.open(marker, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+            os.kill(os.getpid(), signal.SIGKILL)
+        except FileExistsError:
+            pass
     reader = WORKER["reader"]
     far = FAR_POINTS[0]
+    started = time.time()
     try:
         d, ids = window_distances(reader, window, size, neighbors, threads, budget, reader.header,
                                   dimension, part, depth)
@@ -341,16 +420,136 @@ def part_distances(task):
         # A pool worker that exits loses its task; report the flag instead.
         raise RuntimeError(str(error)) from None
     far = FAR_POINTS[0] - far
+    # One process per part (max_tasks_per_child=1): its peak beyond the worker's own memory.
+    peak = max(0, peak_rss_bytes() - WORKER.get("base_rss", 0))
+    if os.environ.get("RASTER_KNN_TRACE") == "1":
+        # One line per part (start, seconds, points, memory), to see how the parts fill the workers.
+        print(f"KNN_PART window={window[0]},{window[1]} depth={depth} start={started:.1f} "
+              f"seconds={time.time() - started:.1f} points={len(d)} reserved_gib={budget / 1024**3:.2f} "
+              f"peak_gib={peak / 1024**3:.2f} threads={threads}", flush=True)
     if not len(d):
-        return window, None, 0, far
+        return window, None, 0, far, peak
     if np.any((ids < 0) | (ids != np.floor(ids)) | (ids > 2**53)):
         raise ValueError("denoising requires exact finite nonnegative source ordinals")
     np.save(path, np.column_stack([d, ids]))
-    return window, path, len(d), far
+    return window, path, len(d), far, peak
 
 
 def window_values(paths):
     return np.concatenate([np.load(path) for path in paths])
+
+
+def cloud_threshold(windows, distances_of, count, sigma):
+    """The cloud's mean and standard deviation of the per-point statistic and the
+    rejection threshold, summed the same way on every path: each window's values
+    exactly (fsum, so their order inside the window does not matter), then those
+    window sums exactly, windows in (ix, iy) order. The whole-cloud and the
+    windowed filter, and any number of workers or parts, so get the same
+    threshold bit for bit."""
+    mean = math.fsum(math.fsum(distances_of(window)) for window in windows) / count
+    squares = math.fsum(math.fsum((distances_of(window) - mean) ** 2) for window in windows)
+    sd = math.sqrt(squares / (count - 1))
+    return mean, sd, mean + sigma * sd
+
+
+def run_parts(args, pending, workers, budget):
+    """Run the window parts in worker processes without risking the container.
+
+    A part starts when three things hold: a worker is free; the reservations of
+    the running parts and its own fit the budget; and the container's measured
+    working set plus those reservations stays below its limit with
+    MEMORY_FREE_SHARE kept free. A reservation is the part's estimate until
+    parts of real size (estimated at LEARN_FROM_BYTES or more) have finished;
+    from then on it is the estimate times their largest measured peak share,
+    times LEARNED_MARGIN, never above the estimate. So the parts run as close
+    to their real use as measurements allow, and the live check still holds if
+    an estimate is wrong. A part that fits nothing beside it runs alone.
+
+    If the kernel kills a worker all the same (workers have the highest OOM
+    score), the parts that had not finished run again one at a time with all
+    threads, then the rest continues in parallel on the plain estimates; a part
+    killed while running alone stops the run with memory_budget_exceeded.
+    Finished parts are kept. A part's result does not depend on when or beside
+    what it runs, so every path gives the same output.
+    """
+    pending = list(pending)
+    files, count, far_points = {}, 0, 0
+    learned = 1.0
+    retry = []  # parts lost with a killed worker: rerun one at a time
+
+    def reservation(estimate):
+        return estimate * learned
+
+    def fits(estimate, running):
+        reserved = sum(reservation(e) for e, _ in running.values()) + reservation(estimate)
+        if reserved > budget:
+            return False
+        working, cap = container_memory()
+        return cap is None or working + reserved <= cap * (1 - MEMORY_FREE_SHARE)
+
+    def new_pool(size):
+        return ProcessPoolExecutor(size, mp_context=multiprocessing.get_context("spawn"),
+                                   initializer=start_worker, initargs=(str(args.input),),
+                                   max_tasks_per_child=1)
+
+    def record(estimate, result):
+        nonlocal learned, far_points, count
+        window, path, points, far, peak = result
+        if estimate >= LEARN_FROM_BYTES:
+            share = min(1.0, LEARNED_MARGIN * peak / estimate)
+            learned = share if learned == 1.0 else max(learned, share)
+        far_points += far
+        if path is not None:
+            files.setdefault(window, []).append(path)
+            count += points
+
+    while pending or retry:
+        if retry:
+            estimate, task = retry.pop(0)
+            single = new_pool(1)
+            try:
+                result = single.submit(part_distances, task + (max(1, args.threads),)).result()
+            except BrokenProcessPool:
+                raise SystemExit("RASTER_FLAG memory_budget_exceeded: a kNN window part was killed "
+                                 "for memory while running alone") from None
+            except RuntimeError as error:
+                raise SystemExit(str(error)) from None
+            finally:
+                single.shutdown(wait=True, cancel_futures=True)
+            record(estimate, result)
+            continue
+        pool = new_pool(workers)
+        running = {}
+        try:
+            while pending or running:
+                while pending and len(running) < workers and (not running or fits(pending[0][0], running)):
+                    estimate, task = pending.pop(0)
+                    # A part that leaves room for few others queries with the idle threads.
+                    fit = max(1, min(workers, int(budget // max(reservation(estimate), 1))))
+                    future = pool.submit(part_distances, task + (max(1, args.threads // fit),))
+                    running[future] = (estimate, task)
+                # Re-check every few seconds: memory frees up while parts run.
+                done, _ = wait(running, timeout=5, return_when=FIRST_COMPLETED)
+                for future in done:
+                    estimate, task = running[future]
+                    try:
+                        result = future.result()
+                    except BrokenProcessPool:
+                        # A killed worker (BrokenProcessPool is a RuntimeError): retried below.
+                        raise
+                    except RuntimeError as error:
+                        raise SystemExit(str(error)) from None
+                    # Removed only once its result is in: a killed worker's part is retried.
+                    del running[future]
+                    record(estimate, result)
+        except BrokenProcessPool:
+            retry = list(running.values())
+            print(f"KNN_RETRY parts={len(retry)} reason=worker_killed mode=one_at_a_time", flush=True)
+            # The rest goes on in parallel, on the plain estimates until parts finish again.
+            learned = 1.0
+        finally:
+            pool.shutdown(wait=True, cancel_futures=True)
+    return files, count, far_points, learned
 
 
 def windowed(args, n, budget) -> dict:
@@ -376,35 +575,17 @@ def windowed(args, n, budget) -> dict:
         # Each part reserves its estimate (a quarter more for the error, at most
         # the budget) and is read within that reservation; parts start in order
         # of size while the reservations of the running parts fit the budget.
-        pending = [(min(budget, cost * 1.25), (window, part, depth, args.window_size, args.neighbors,
+        # RASTER_KNN_ESTIMATE_SCALE scales only the admission estimates (tests:
+        # estimates far too low must not crash the run); each part's own read
+        # budget, and so how it splits, stays as planned.
+        scale = float(os.environ.get("RASTER_KNN_ESTIMATE_SCALE", "1"))
+        pending = [(min(budget, cost * 1.25) * scale, (window, part, depth, args.window_size, args.neighbors,
                     min(budget, cost * 1.25), args.order_dimension, str(Path(scratch) / f"{i}.npy")))
                    for i, (cost, window, part, depth) in enumerate(parts)]
-        files, count, running, far_points = {}, 0, {}, 0
         rayon = os.environ.get("RAYON_NUM_THREADS")
         os.environ["RAYON_NUM_THREADS"] = "1"
         try:
-            with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn"),
-                                     initializer=start_worker, initargs=(str(args.input),),
-                                     max_tasks_per_child=1) as pool:
-                while pending or running:
-                    while pending and len(running) < workers and \
-                            sum(running.values()) + pending[0][0] <= budget:
-                        reserved, task = pending.pop(0)
-                        # A part that leaves room for few others queries with the idle threads.
-                        fit = max(1, min(workers, int(budget // max(reserved, 1))))
-                        task = task + (max(1, args.threads // fit),)
-                        running[pool.submit(part_distances, task)] = reserved
-                    done, _ = wait(running, return_when=FIRST_COMPLETED)
-                    for future in done:
-                        del running[future]
-                        try:
-                            window, path, points, far = future.result()
-                        except RuntimeError as error:
-                            raise SystemExit(str(error)) from None
-                        far_points += far
-                        if path is not None:
-                            files.setdefault(window, []).append(path)
-                            count += points
+            files, count, far_points, learned = run_parts(args, pending, workers, budget)
         finally:
             if rayon is None:
                 os.environ.pop("RAYON_NUM_THREADS")
@@ -413,15 +594,10 @@ def windowed(args, n, budget) -> dict:
         if count != n:
             raise ValueError(f"windows hold {count} of {n} points")
         print(f"KNN_WINDOWS parts={len(parts)} deepest={max(part[3] for part in parts)} "
-              f"workers={workers} far_points={far_points}", flush=True)
+              f"workers={workers} far_points={far_points} reservation_share={learned:.3f}", flush=True)
         windows = sorted(files)
-        total = 0.0
-        for window in windows:
-            total += math.fsum(window_values(files[window])[:, 0])
-        mean = total / count
-        squares = math.fsum(math.fsum((window_values(files[window])[:, 0] - mean) ** 2) for window in windows)
-        sd = math.sqrt(squares / (count - 1))
-        threshold = mean + args.sigma * sd
+        mean, sd, threshold = cloud_threshold(
+            windows, lambda window: window_values(files[window])[:, 0], count, args.sigma)
         partitions, rejected_total = [], 0
         for ix, iy in windows:
             values = window_values(files[(ix, iy)])
@@ -476,19 +652,25 @@ def main() -> None:
                          f"{required / 1024**3:.1f} GiB for {n} points, "
                          f"{args.memory_budget_bytes / 1024**3:.1f} GiB available")
     xyz, ids = read_points(args.input, args.order_dimension)
+    with laspy.open(args.input) as reader:
+        origin = np.asarray(reader.header.mins, dtype=float)
+    # The same (ix, iy) windows as the windowed path, for its threshold and the noise list.
+    cells = np.floor(xyz[:, :2] / args.window_size).astype(np.int64)
+    keys, inverse, core = np.unique(cells, axis=0, return_inverse=True, return_counts=True)
+    del cells
+    inverse = inverse.reshape(-1)
     if n > args.neighbors:
-        distances = knn_distances(xyz, args.neighbors, args.threads)
-        mean, sd = float(distances.mean()), float(distances.std(ddof=1))
-        threshold = mean + args.sigma * sd
+        distances = knn_distances(xyz, origin, args.neighbors, args.threads)
+        by_window = np.argsort(inverse, kind="stable")
+        starts = np.concatenate([[0], np.cumsum(core)])
+        mean, sd, threshold = cloud_threshold(
+            range(len(keys)), lambda i: distances[by_window[starts[i]:starts[i + 1]]], n, args.sigma)
         rejected = distances > threshold
         insufficient = 0
     else:
         mean = sd = threshold = None
         rejected = np.zeros(n, bool)
         insufficient = n
-    cells = np.floor(xyz[:, :2] / args.window_size).astype(np.int64)
-    keys, inverse, core = np.unique(cells, axis=0, return_inverse=True, return_counts=True)
-    inverse = inverse.reshape(-1)
     counts = np.bincount(inverse[rejected], minlength=len(keys))
     order = np.argsort(inverse[rejected], kind="stable")
     rejected_ids, rejected_cells = ids[rejected][order], inverse[rejected][order]

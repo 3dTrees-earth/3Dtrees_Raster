@@ -55,9 +55,16 @@ def main():
     results, _ = knn_parts.run_parts(parts(4), 4, 10 * GIB, 4, part, memory_probe=full)
     assert len(results) == 4 and overlap(results) == 1, overlap(results)
 
-    # Reservations that exceed the budget together run one by one as well.
-    results, _ = knn_parts.run_parts(parts(3, estimate=6 * GIB), 3, 10 * GIB, 3, part, memory_probe=free)
+    # Reservations that exceed the budget together run one by one as well: parts that really peak at their
+    # estimate keep their reservation.
+    results, _ = knn_parts.run_parts(parts(3, estimate=6 * GIB, peak=6 * GIB), 3, 10 * GIB, 3, part,
+                                     memory_probe=free)
     assert len(results) == 3 and overlap(results) == 1, overlap(results)
+
+    # Parts that peak far below their estimate teach a small reservation: after the first one the other two
+    # run together.
+    results, learned = knn_parts.run_parts(parts(3, estimate=6 * GIB), 3, 10 * GIB, 3, part, memory_probe=free)
+    assert len(results) == 3 and overlap(results) == 2 and learned < 0.1, (overlap(results), learned)
 
     # Finished parts of real size teach the reservation share: peak 0.1 of the estimate * 1.5.
     _, learned = knn_parts.run_parts(parts(2), 1, 10 * GIB, 1, part, memory_probe=free)

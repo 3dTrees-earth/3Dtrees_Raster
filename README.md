@@ -227,7 +227,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
-| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`) and 2 Nov 2026 (`sha-f3d76a1`) |
+| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`), 2 Nov (`sha-f3d76a1`) and 13 Nov 2026 (`sha-3f02e86`). The image of 16 Nov 2026 writes byte-identical products, faster: rlas patched so selector `0` reads every ExtraByte, the COPC read through spatial windows in every stage (no plain-LAZ copy), noise-filter parts admitted by measured and live memory with a retry for a killed worker, and the instance dimensions of one read finalized in parallel |
 
 ## Build from source
 
@@ -325,11 +325,28 @@ instance IDs are unchanged.
 | `--denoise-sigma` | `2` | Standard deviations above the whole cloud's mean distance |
 | `--denoise-window-size` | `60` | Width in metres of the windows the noise list is stored in |
 
-`knn_denoising.py` reads all points once, builds one KD-tree (scipy `cKDTree`)
-and queries it with all job threads. On dataset 576 (ULS, 53 M points, COPC, 10
+`knn_denoising.py` filters a COPC window by window in parallel worker
+processes. Each window part reads its points and a buffer through the COPC
+hierarchy; a point whose k-th neighbour lies beyond the read gets its
+neighbours from a box of that radius, so the distances equal those of one
+KD-tree (scipy `cKDTree`) over the whole cloud. The mean and standard deviation
+are summed exactly per window, then across windows, so the threshold does not
+depend on the windows or the number of workers. A plain LAS/LAZ uses one tree
+over all points with all job threads. On dataset 576 (ULS, 53 M points, COPC, 10
 threads) the stage takes 81 s instead of 16 min with windowed lidR, with the same
-2,114,341 rejected points and byte-identical products. It needs about 96 bytes per point and fails with
-`memory_budget_exceeded` when the cloud does not fit the job's memory. The
+2,114,341 rejected points and byte-identical products.
+
+A window part starts only when a worker is free, the reservations of the running
+parts and its own fit the memory budget, and the container's measured working
+set plus those reservations leaves 10 % of its limit free. A reservation is the
+part's estimate until parts of real size have finished, then their largest
+measured peak share of the estimate with a margin, never more than the
+estimate. Workers carry the highest OOM score: if the kernel still kills one,
+the parts that had not finished run again one at a time and the run goes on, so
+a wrong estimate costs time, not the run. A part killed while running alone, or
+one that cannot fit the budget even in quarters, stops the run with
+`memory_budget_exceeded`. A part's result does not depend on when or beside what
+it runs, so every path writes the same noise list. The
 rejected ordinals are stored per fixed window anchored at `(0,0)`, so later reads
 load only the windows they overlap. The mask is computed once and reused for DTM, CHM,
 segment and tile metrics. The run publishes `<dataset>_noise_points.csv`, one
@@ -386,6 +403,11 @@ Tile metrics read neighbouring tiles together, about 20 million points per
 block (`RASTER_TILE_BLOCK_POINTS`), and give each tile exactly the points a
 single-tile read would return. Each worker gets at least two blocks, and a
 block in a much denser patch goes back to one read per tile.
+
+The instance dimensions that share one read (for example `PredInstance_SAT`,
+`PredInstance_FM` and `PredInstance_RCT` in one COPC) are finalized in parallel
+worker processes, each with its share of the threads and of the memory left.
+The tables are the same as when they are finalized one after another.
 
 The image builds rlas 1.8.6 from source with two patches:
 

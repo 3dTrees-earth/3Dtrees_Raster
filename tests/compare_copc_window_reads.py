@@ -29,18 +29,27 @@ with laspy.open(path) as reader:
     x1, y1 = np.minimum(header.maxs[:2], centre + area / 2)
     full = []
     for points in reader.chunk_iterator(5_000_000):
-        inside = (points.x >= x0) & (points.x < x1) & (points.y >= y0) & (points.y < y1)
-        full.append(np.column_stack([np.asarray(points.x)[inside], np.asarray(points.y)[inside],
-                                     np.asarray(points.z)[inside]]
+        # Compare as float arrays, as the window reads do: laspy's ScaledArrayView
+        # compares in its integer domain and moves a bound that is not on the grid.
+        x, y = np.asarray(points.x), np.asarray(points.y)
+        inside = (x >= x0) & (x < x1) & (y >= y0) & (y < y1)
+        full.append(np.column_stack([x[inside], y[inside], np.asarray(points.z)[inside]]
                                     + [np.asarray(points[n])[inside].astype(float) for n in names]))
 full = np.concatenate(full)
 
+# Shared edges: a window's upper edge is exactly the next one's lower edge, so a
+# point on a seam falls in one window (wx + size can differ from it by an ulp).
+def edges(low, high):
+    return np.append(low + size * np.arange(int(np.ceil((high - low) / size))), high)
+
+
 windows = []
 with laspy.CopcReader.open(path) as reader:
-    for wx in np.arange(x0, x1, size):
-        for wy in np.arange(y0, y1, size):
+    xs, ys = edges(x0, x1), edges(y0, y1)
+    for wx, wx1 in zip(xs[:-1], xs[1:]):
+        for wy, wy1 in zip(ys[:-1], ys[1:]):
             lower = np.array([wx, wy, header.mins[2] - 1])
-            upper = np.array([min(wx + size, x1), min(wy + size, y1), header.maxs[2] + 1])
+            upper = np.array([wx1, wy1, header.maxs[2] + 1])
             nodes = load_octree_for_query(reader.source, reader.copc_info, reader.root_page,
                                           query_bounds=Bounds(lower, upper))
             points = reader._fetch_and_decompress_points_of_nodes(nodes)

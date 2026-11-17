@@ -51,7 +51,9 @@ resource_memory_current <- function(root = "/sys/fs/cgroup") {
   resource_memory_snapshot(root)$working_set_bytes
 }
 
-resource_policy <- function(source, budget_gib, work_directory,
+# `selections` names each phase's LAS field selection (lidR select string); the
+# planner adds the columns a selection brings (see phase_bytes_per_point).
+resource_policy <- function(source, budget_gib, work_directory, selections = list(),
                             helper = file.path(script_directory, "copc_task_counts.py")) {
   if (!is.finite(budget_gib) || budget_gib <= 0) {
     stop("memory-aware scheduling requires a finite positive memory budget")
@@ -66,7 +68,23 @@ resource_policy <- function(source, budget_gib, work_directory,
        # parent's pages. Estimates are not allocator bounds.
        bytes_per_point = c(DTM = 100, CHM = 192, segment = 256, tiles = 128,
                            denoise = 768),
+       selections = selections,
        task_fixed_bytes = 128 * 1024^2)
+}
+
+# Memory per counted point of a phase's reads. A selection ending in "0" reads
+# every ExtraByte of the source (how fields after the ninth are reached with the
+# patched rlas) until the phase drops the unused ones: plan a numeric column
+# for each ExtraByte of the file the phase reads.
+phase_bytes_per_point <- function(policy, phase) {
+  coefficient <- unname(policy$bytes_per_point[[phase]])
+  if (is.null(coefficient) || !is.finite(coefficient)) stop("unknown memory planning phase")
+  selection <- policy$selections[[phase]]
+  if (!is.null(selection) && endsWith(selection, "0")) {
+    extra_bytes <- lidR::readLASheader(policy$source)@VLR$Extra_Bytes[["Extra Bytes Description"]]
+    coefficient <- coefficient + 8 * length(extra_bytes)
+  }
+  coefficient
 }
 
 task_memory_estimates <- function(windows, policy, phase) {
@@ -96,8 +114,7 @@ task_memory_estimates <- function(windows, policy, phase) {
   counts <- vapply(seq_along(grouped), function(i) {
     if (ends[[i]] == starts[[i]]) 0 else max(flat_counts[seq.int(starts[[i]] + 1L, ends[[i]])])
   }, numeric(1))
-  coefficient <- unname(policy$bytes_per_point[[phase]])
-  if (is.null(coefficient) || !is.finite(coefficient)) stop("unknown memory planning phase")
+  coefficient <- phase_bytes_per_point(policy, phase)
   list(bytes = policy$task_fixed_bytes + counts * coefficient, counts = counts,
        mode = estimate$mode, prefix = prefix)
 }
@@ -141,7 +158,8 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
       if (workers == 1L) {
         value <- try(calculate(indices[[next_task]]), silent = TRUE)
         if (inherits(value, "try-error")) {
-          fail(sprintf("%s memory-admitted worker failed or returned incomplete results", phase))
+          fail(sprintf("%s memory-admitted worker failed or returned incomplete results: %s",
+            phase, trimws(as.character(value))))
         }
         if (!is.null(value)) results[[next_task]] <- value
       } else {
@@ -174,7 +192,11 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
       if (!is.list(value) || inherits(value, "try-error") || !identical(names(value), "value")) {
         jobs[[pid]] <- NULL
         running <- running[names(running) != pid]
-        fail(sprintf("%s memory-admitted worker failed or returned incomplete results", phase))
+        # The worker's own error, when it returned one, says why.
+        reason <- if (inherits(value, "try-error")) trimws(as.character(value)) else
+          if (is.null(value)) "the worker died" else "no result"
+        fail(sprintf("%s memory-admitted worker failed or returned incomplete results: %s",
+          phase, reason))
       }
       if (!is.null(value$value)) results[[running[[pid]]]] <- value$value
       jobs[[pid]] <- NULL
@@ -186,7 +208,7 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
     elapsed_seconds(started)))
   jsonlite::write_json(list(phase = phase, requested_workers = workers,
     budget_bytes = policy$budget_bytes, reserve_bytes = policy$reserve_bytes,
-    bytes_per_point = unname(policy$bytes_per_point[[phase]]),
+    bytes_per_point = phase_bytes_per_point(policy, phase),
     task_fixed_bytes = policy$task_fixed_bytes,
     estimate_mode = estimates$mode, point_count_upper_bounds = estimates$counts,
     task_reservations_bytes = costs, admissions = admissions),

@@ -129,6 +129,7 @@ source_only <- identical(Sys.getenv("RASTER_SOURCE_ONLY"), "1")
 source(file.path(script_directory, "analysis.R"))
 source(file.path(script_directory, "aoi_conversion.R"))
 source(file.path(script_directory, "production_contract.R"))
+source(file.path(script_directory, "artifact_validation.R"))
 
 parse_raster_parameters <- function() {
   parser <- ArgumentParser(
@@ -291,151 +292,6 @@ run_projection <- function(source, output, dimension, add_index = FALSE) {
   }
   fromJSON(tail(output_lines, 1L), simplifyVector = FALSE)
 }
-
-expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FALSE) {
-  prefix <- file.path(directory, as.character(dataset_id))
-  common <- c(
-    paste0(prefix, "_dtm.tif"),
-    paste0(prefix, "_chm.tif"),
-    paste0(prefix, "_dsm.tif"),
-    paste0(prefix, "_tiles.png"),
-    paste0(prefix, "_performance.csv"),
-    paste0(prefix, "_aoi_conversion.json"),
-    paste0(prefix, "_run.json")
-  )
-  suffixes <- if (length(dimensions) == 0L) "" else paste0("_", dimensions)
-  dimension_files <- unlist(lapply(suffixes, function(suffix) c(
-    paste0(prefix, suffix, "_results.csv"),
-    paste0(prefix, suffix, "_segment_diagnostics.csv"),
-    paste0(prefix, suffix, "_tiles.geojson")
-  )))
-  c(common, dimension_files, if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
-}
-
-validate_performance_resources <- function(performance, memory_budget_gib,
-                                           source_point_count,
-                                           memory_limit_gib = memory_budget_gib) {
-  if (nrow(performance) != 1L ||
-      performance$point_count[[1]] != source_point_count ||
-      !is.finite(performance$peak_rss_mib[[1]]) ||
-      performance$peak_rss_mib[[1]] >= memory_budget_gib * 1024 ||
-      !is.finite(performance$cgroup_memory_peak_mib[[1]]) ||
-      # Kernel usage includes reclaimable disk cache. Compare that peak with the
-      # allocation; the smaller internal budget governs working-set admission.
-      performance$cgroup_memory_peak_mib[[1]] > memory_limit_gib * 1024 ||
-      !is.finite(performance$temporary_disk_peak_mib[[1]])) {
-    stop("incoming artifact validation failed: performance/resource checks failed")
-  }
-  invisible(TRUE)
-}
-
-# The DSM must share the CHM's grid, CRS and empty cells.
-validate_surface_rasters <- function(chm, dsm) {
-  if (terra::inMemory(dsm) ||
-      !isTRUE(terra::compareGeom(chm, dsm, crs = TRUE, stopOnError = FALSE)) ||
-      !identical(terra::crs(chm), terra::crs(dsm))) {
-    stop("incoming DSM grid differs from the CHM")
-  }
-  mismatched <- terra::global(xor(is.na(dsm), is.na(chm)), "sum", na.rm = TRUE)[[1]]
-  if (mismatched != 0) {
-    stop("incoming DSM empty cells differ from the CHM")
-  }
-  invisible(TRUE)
-}
-
-validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
-                                        memory_budget_gib, source_point_count,
-                                        point_cloud_name, sensor, country, voxel_counts = FALSE,
-                                        memory_limit_gib = memory_budget_gib,
-                                        denoising = FALSE, dtm_resolution = 1,
-                                        chm_resolution = 0.5,
-                                        voxel_count_resolution = 0.5) {
-  matches_label <- function(values, expected) {
-    if (identical(expected, "NA")) {
-      return(all(is.na(values) | as.character(values) == "NA"))
-    }
-    all(!is.na(values) & as.character(values) == expected)
-  }
-  paths <- c(expected_artifacts(directory, dataset_id, dimensions, denoising),
-             if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id, voxel_count_resolution))
-  absent <- paths[!file.exists(paths) | file.info(paths)$size <= 0]
-  if (length(absent) > 0L) {
-    stop(sprintf(
-      "incoming artifact validation failed; missing/empty: %s",
-      paste(basename(absent), collapse = ", ")
-    ))
-  }
-  if (denoising) {
-    status <- system2("python3", c(
-      shQuote(file.path(script_directory, "denoising_validation.py")),
-      shQuote(file.path(directory, paste0(dataset_id, "_denoising.json"))),
-      shQuote(file.path(directory, paste0(dataset_id, "_noise_points.csv"))),
-      "--point-count", format(source_point_count, scientific = FALSE, trim = TRUE)
-    ))
-    if (status != 0L) stop("incoming denoising accounting validation failed")
-  }
-  performance <- fread(
-    file.path(directory, paste0(dataset_id, "_performance.csv"))
-  )
-  validate_performance_resources(performance, memory_budget_gib,
-                                 source_point_count, memory_limit_gib)
-  dtm <- terra::rast(file.path(directory, paste0(dataset_id, "_dtm.tif")))
-  chm <- terra::rast(file.path(directory, paste0(dataset_id, "_chm.tif")))
-  if (terra::inMemory(dtm) || terra::inMemory(chm) ||
-      any(abs(terra::res(dtm) - dtm_resolution) > 1e-9) ||
-      any(abs(terra::res(chm) - chm_resolution) > 1e-9) ||
-      !identical(terra::crs(dtm), terra::crs(chm))) {
-    stop("incoming raster resolution, storage mode, or CRS validation failed")
-  }
-  validate_surface_rasters(
-    chm,
-    terra::rast(file.path(directory, paste0(dataset_id, "_dsm.tif")))
-  )
-  for (dimension in dimensions) {
-    results <- fread(file.path(
-      directory,
-      sprintf("%s_%s_results.csv", dataset_id, dimension)
-    ))
-    diagnostics <- fread(file.path(
-      directory,
-      sprintf("%s_%s_segment_diagnostics.csv", dataset_id, dimension)
-    ))
-    required_results <- names(empty_result_table())
-    required_diagnostics <- names(empty_segment_diagnostics())
-    if (!identical(names(results), required_results) ||
-        !identical(names(diagnostics), required_diagnostics)) {
-      stop(sprintf(
-        "incoming CSV schema differs from the published schema for %s",
-        dimension
-      ))
-    }
-    if (nrow(results) != performance$tile_count[[1]] ||
-        any(results$file != point_cloud_name) ||
-        !matches_label(results$sensor, sensor) ||
-        !matches_label(results$country, country) ||
-        any(diagnostics$file != point_cloud_name) ||
-        !matches_label(diagnostics$sensor, sensor) ||
-        !matches_label(diagnostics$country, country)) {
-      stop(sprintf(
-        "incoming row count or metadata validation failed for %s",
-        dimension
-      ))
-    }
-    tile_features <- st_read(
-      file.path(
-        directory,
-        sprintf("%s_%s_tiles.geojson", dataset_id, dimension)
-      ),
-      quiet = TRUE,
-      stringsAsFactors = FALSE
-    )
-    if (nrow(tile_features) != nrow(results)) {
-      stop(sprintf("incoming tile GeoJSON row count differs for %s", dimension))
-    }
-  }
-  invisible(paths)
-}
-
 
 package_versions <- function() {
   packages <- c(
@@ -609,7 +465,6 @@ main <- function() {
     stop("cannot stage original point cloud by local-SSD symbolic link")
   }
   copc_projection <- NULL
-  required_dimensions <- unique(c(point_order_dimension, dimensions))
   if (!requested_is_copc && !is.null(point_order_dimension) &&
       !POINT_ORDER_DIMENSION %in% available) {
     # Plain LAS/LAZ records are already in source order; number them once in a
@@ -621,21 +476,11 @@ main <- function() {
     staged_point_cloud <- projected
     definitions <- extra_byte_definitions(staged_point_cloud)
     available <- vapply(definitions, function(definition) definition$name, character(1))
-  } else if (!is.null(point_order_dimension) &&
-             any(match(required_dimensions, available) > 9L)) {
-    # Pinned rlas truncates COPC ExtraBytes after field nine even with selector 0.
-    # Reuse the verified bounded projection once, retaining the source-order key
-    # and all selected IDs, then spatially index that compact scratch LAZ.
-    projected <- file.path(job_directory, "analysis_projection.laz")
-    copc_projection <- run_projection(staged_point_cloud, projected, required_dimensions)
-    staged_point_cloud <- projected
-    rlas::writelax(staged_point_cloud)
-    if (!file.exists(sub("\\.laz$", ".lax", staged_point_cloud))) {
-      stop("failed to spatially index high-ordinal COPC projection")
-    }
-    definitions <- extra_byte_definitions(staged_point_cloud)
-    available <- vapply(definitions, function(definition) definition$name, character(1))
   }
+  # A COPC is never copied (Kilian, 16 Nov 2026): every stage reads it through
+  # spatial window queries. ExtraBytes after the ninth are read with the selector
+  # "0", which the patched rlas honours for every field
+  # (patches/rlas-1.8.6-all-extra-bytes.patch).
   # Plain LAS/LAZ benefits from a sidecar LAX; COPC already contains its spatial
   # hierarchy and must not be rewritten or supplemented with a LAX index.
   if (!requested_is_copc) {
@@ -689,37 +534,16 @@ main <- function() {
   message("RASTER_STAGE stage=aoi_conversion status=completed")
 
   message("RASTER_STAGE stage=dimension_projection status=started")
-  # High-ordinal COPC fields are now in the verified indexed scratch projection.
 
-  # Track the actual source and selector used for each instance dimension; these
-  # maps feed both execution and the durable provenance report.
-  dimension_sources <- list()
+  # The selector of each instance dimension, for the provenance report. Every
+  # dimension is read from the staged cloud itself: ExtraByte ordinals 1-9 by
+  # their digit, later ones with the selector "0" (all ExtraBytes, patched rlas).
   selectors <- list()
-  projections <- list()
-  # Resolve each requested segmentation field independently.
   for (dimension in dimensions) {
-    # ExtraByte ordinal maps directly to lidR selector digits 1-9.
     ordinal <- match(dimension, available)
     definition <- definitions[[ordinal]]
-    # Unordered plain LAZ retains its verified streaming projection fallback;
-    # an order-keyed input keeps the key beside every segmentation field.
-    if (ordinal <= 9L || !is.null(point_order_dimension)) {
-      dimension_sources[[dimension]] <- staged_point_cloud
-      selector <- catalog_selection_for_dimensions(staged_point_cloud,
-        c(point_order_dimension, dimension), "xyz")
-    } else {
-      projection_path <- file.path(
-        job_directory,
-        sprintf("%s_%s_projected.laz", arguments$dataset_id, dimension)
-      )
-      projections[[dimension]] <- run_projection(
-        staged_point_cloud,
-        projection_path,
-        dimension
-      )
-      dimension_sources[[dimension]] <- projection_path
-      selector <- "xyz1"
-    }
+    selector <- catalog_selection_for_dimensions(staged_point_cloud,
+      c(point_order_dimension, dimension), "xyz")
     selectors[[dimension]] <- list(
       requested_dimension = dimension,
       source_ordinal = ordinal,
@@ -804,12 +628,13 @@ main <- function() {
     memory_budget_gib = arguments$memory_budget_gib,
     # Original COPC hierarchy also bounds projected reads: projection preserves
     # coordinates and records. Never estimate those from the flat LAZ header.
-    memory_policy = resource_policy(point_cloud, arguments$memory_budget_gib, job_directory),
-    sequential_instance_dimensions = FALSE,
+    # DTM, CHM and tile reads select the order key; the planner adds the
+    # columns that selection brings.
+    memory_policy = resource_policy(point_cloud, arguments$memory_budget_gib, job_directory,
+      selections = list(DTM = point_order_selector, CHM = point_order_selector,
+                        tiles = point_order_selector)),
     segment_catalog_base_selection = SEGMENT_SELECTION,
     segment_bucket_count = segment_bucket_count,
-    # Per-dimension sources support legacy LAZ projection without changing COPC.
-    dimension_point_clouds = dimension_sources,
     # Result metadata should identify the original ordered filename when known.
     point_cloud_display_name = point_cloud_display_name,
     # NULL disables sorting for LAZ; the key enables deterministic COPC sorting.
@@ -907,15 +732,16 @@ main <- function() {
     requested_instance_dimensions = arguments$instance_dimension,
     instance_dimension_selection = dimension_selection,
     processed_instance_dimensions = dimensions,
-    instance_read_groups = instance_read_groups(
-      dimensions, staged_point_cloud, dimension_sources,
-      parameters$sequential_instance_dimensions
-    ),
+    # One read of the staged cloud serves every instance dimension.
+    instance_read_groups = if (length(dimensions)) {
+      list(list(source = staged_point_cloud, dimensions = dimensions))
+    } else list(),
     missing_instance_dimensions = missing,
     extra_byte_definitions = definitions,
     source_extra_byte_definitions = source_definitions,
     selectors = selectors,
-    projections = projections,
+    # No per-field copies (kept empty for the report's schema).
+    projections = list(),
     catalog_workers = catalog_worker_count,
     catalog_worker_policy = if (nzchar(worker_request)) "explicit_cap" else "auto_up_to_ten",
     resource_admission = resource_plan_reports(parameters$memory_policy),

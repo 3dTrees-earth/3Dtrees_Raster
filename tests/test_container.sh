@@ -30,6 +30,10 @@ docker run --rm --network none "${docker_limits[@]}" \
   --env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
   --volume "${repo_dir}:/workspace:ro" "${image_name}" \
   /workspace/tests/test_denoising_validation.py
+# The kNN part scheduler with fake parts, and the cgroup reading shared by R and Python.
+for check in test_knn_parts.py test_container_memory.py; do
+  docker run --rm --network none "${docker_limits[@]}" --user "$(id -u):$(id -g)"     --env PYTHONDONTWRITEBYTECODE=1 --env RASTER_SOURCE=/workspace/src --entrypoint python3     --volume "${repo_dir}:/workspace:ro" "${image_name}" "/workspace/tests/${check}"
+done
 python3 "${repo_dir}/tests/test_copc_task_counts.py"
 docker run --rm --network none \
   "${docker_limits[@]}" \
@@ -58,7 +62,7 @@ docker run --rm --network none \
   --volume "${repo_dir}:/workspace:ro" \
   --workdir /workspace/src \
   "${image_name}" \
-  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("raster.R"); source("../tests/test_raster.R"); source("../tests/test_instance_read_groups.R"); source("../tests/test_resource_validation.R")'
+  -e 'Sys.setenv(RASTER_SOURCE_ONLY = "1"); source("raster.R"); source("../tests/test_raster.R"); source("../tests/test_segment_dimensions.R"); source("../tests/test_resource_validation.R")'
 docker run --rm --network none \
   "${docker_limits[@]}" \
   --entrypoint Rscript \

@@ -34,12 +34,13 @@ stopifnot(
     SEGMENT_SELECTION
   ) == "xyz1"
 )
-beyond_nine <- tryCatch({
+# A field after the ninth ExtraByte is read from the source with selector "0"
+# (every ExtraByte with the patched rlas), never through a copy.
+stopifnot(identical(
   segment_selection_from_names(c(paste0("extra_", 1:14), "PredInstance"),
-    "PredInstance", SEGMENT_SELECTION)
-  FALSE
-}, error = function(e) grepl("verified streaming projection", conditionMessage(e)))
-stopifnot(beyond_nine)
+    "PredInstance", SEGMENT_SELECTION),
+  "xyz0"
+))
 
 dtm_body <- paste(deparse(body(dtm_chunk)), collapse = "\n")
 stopifnot(grepl("last_returns = FALSE", dtm_body, fixed = TRUE))

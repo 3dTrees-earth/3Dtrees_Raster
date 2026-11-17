@@ -24,7 +24,8 @@ test "$(docker run --rm --network none "${image_name}" --version)" = "1.0.0"
 
 run_candidate 2>&1 | tee "${test_root}/first.log"
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
-  grep -q "dimension=${dimension} .*selector=xyz1" "${test_root}/first.log"
+  # Field 11 is read from the cloud itself with selector 0 (patched rlas), no per-field copy.
+  grep -q "dimension=${dimension} .*selector=xyz0" "${test_root}/first.log"
   test -s "${test_root}/output/tile_metrics/${dimension}_tile_metrics.csv"
   test -s "${test_root}/output/segment_diagnostics/${dimension}_segment_diagnostics.csv"
   test -s "${test_root}/output/tiles/${dimension}_tiles.geojson"
@@ -59,7 +60,7 @@ nodata = chm.GetRasterBand(1).GetNoDataValue()
 c, d = (r.GetRasterBand(1).ReadAsArray() for r in (chm, dsm))
 assert np.array_equal(c == nodata, d == nodata)
 '
-jq -e '.projections | length == 3' "${test_root}/output/150_run.json" >/dev/null
+jq -e '.projections | length == 0' "${test_root}/output/150_run.json" >/dev/null
 jq -e '.adaptive_chunking.enabled == false and .adaptive_chunking.target_points == 50000000' "${test_root}/output/150_run.json" >/dev/null
 test -z "$(find "${test_root}/work" -mindepth 1 -print -quit)"
 

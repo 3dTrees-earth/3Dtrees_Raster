@@ -1,12 +1,13 @@
 # Run after sourcing analysis.R. Exercise real catalog reads, normalization, disk
-# summaries and reduction, including overlapping IDs and source-order apex ties.
+# summaries and reduction, including overlapping IDs and source-order apex ties:
+# one read for several instance dimensions equals one read per dimension, and
+# their parallel finalization equals the sequential one.
 local({
-  root <- tempfile("instance_read_groups_")
+  root <- tempfile("segment_dimensions_")
   dir.create(root)
   on.exit(unlink(root, recursive = TRUE, force = TRUE), add = TRUE)
   path <- file.path(root, "instances.las")
   other_path <- file.path(root, "other_instances.las")
-  alias <- file.path(root, "alias.las")
   dimensions <- c("PredInstance_SAT", "PredInstance_FM")
   cloud <- LAS(data.frame(
     X = 1000 + c(0.1, 9.9, 10, 10.1, 19.9, 2, 5, 12, 15, 9.99, 10.01, 18),
@@ -23,17 +24,15 @@ local({
   writeLAS(cloud, path)
   cloud@data[, PredInstance_FM := PredInstance_FM + 100]
   writeLAS(cloud, other_path)
-  stopifnot(file.symlink(path, alias))
 
-  grouped <- instance_read_groups(dimensions, path,
-                                  list(PredInstance_FM = alias))
-  separate <- instance_read_groups(dimensions, path, sequential = TRUE)
-  different <- instance_read_groups(dimensions, path,
-                                    list(PredInstance_FM = other_path))
-  stopifnot(length(grouped) == 1L,
-            identical(grouped[[1]]$dimensions, dimensions),
-            length(separate) == 2L, length(different) == 2L,
-            identical(different[[2]]$source, other_path))
+  # A read: one source and the instance dimensions taken from it.
+  one_read <- function(source, read_dimensions = dimensions)
+    list(list(source = source, dimensions = read_dimensions))
+  grouped <- one_read(path)
+  separate <- lapply(dimensions, function(dimension)
+    list(source = path, dimensions = dimension))
+  different <- list(list(source = path, dimensions = dimensions[[1]]),
+                    list(source = other_path, dimensions = dimensions[[2]]))
 
   dtm <- terra::rast(xmin = 999, xmax = 1021, ymin = 1999, ymax = 2021, res = 1)
   terra::crs(dtm) <- "EPSG:32632"
@@ -103,6 +102,30 @@ local({
             fm$apex_x[fm$instance_id == 2] == 1010,
             identical(sat$instance_id, c(1, 2)),
             identical(fm$instance_id, c(1, 2)))
+  # The dimensions of one read finalized in forked workers equal the
+  # sequential tables, in group order, and their summaries are removed.
+  parallel_group <- function(groups, label) {
+    group <- groups[[1]]
+    store <- accumulate_segments(group$source, dtm_path, 10, 0.2, 70,
+      group$dimensions, 1L, file.path(root, label), bucket_count = 2L,
+      base_selection = SEGMENT_SELECTION,
+      point_order_dimension = "OriginalPointIndex")
+    paths <- unlist(lapply(group$dimensions, function(dimension)
+      segment_store_for_dimension(store, dimension)$chunks), use.names = FALSE)
+    result <- finalize_dimensions(store, group$dimensions,
+      modifyList(parameters, list(threads = 2L, memory_budget_gib = 64)), data.frame())
+    stopifnot(length(paths) > 0L, !any(file.exists(paths)))
+    result
+  }
+  with_tiles <- function(segments) lapply(segments, function(table)
+    assign_segments_to_tiles(data.table::copy(table), data.frame()))
+  # Tables from a worker arrive serialized: equal in values, columns, types and
+  # key, but with a new data.table self-reference pointer.
+  plain <- function(segments) lapply(segments, function(table) if (!is.null(table))
+    list(rows = as.data.frame(table), key = data.table::key(table)))
+  same_segments <- function(left, right)
+    identical(names(left), names(right)) && identical(plain(left), plain(right))
+  stopifnot(same_segments(parallel_group(grouped, "parallel"), with_tiles(fused$segments)))
   alternate <- run_groups(different, "different")
   stopifnot(identical(alternate$segments[[dimensions[[1]]]], sat),
             all(alternate$segments[[dimensions[[2]]]]$instance_id >= 100))
@@ -111,15 +134,18 @@ local({
   cloud@data[, PredInstance_FM := 0]
   empty_fm_path <- file.path(root, "empty_fm.las")
   writeLAS(cloud, empty_fm_path)
-  empty_fm <- run_groups(instance_read_groups(dimensions, empty_fm_path), "empty_fm")
+  empty_fm <- run_groups(one_read(empty_fm_path), "empty_fm")
   stopifnot(identical(names(empty_fm$segments), dimensions),
     identical(empty_fm$segments[[dimensions[[1]]]], sat),
     is.null(empty_fm$segments[[dimensions[[2]]]]))
+  stopifnot(same_segments(
+    parallel_group(one_read(empty_fm_path), "parallel_empty_fm"),
+    with_tiles(empty_fm$segments)))
   cloud@data[, PredInstance_SAT := 0]
   empty_all_path <- file.path(root, "empty_all.las")
   writeLAS(cloud, empty_all_path)
-  empty_all <- run_groups(instance_read_groups(dimensions, empty_all_path), "empty_all")
+  empty_all <- run_groups(one_read(empty_all_path), "empty_all")
   stopifnot(identical(names(empty_all$segments), dimensions),
             all(vapply(empty_all$segments, is.null, logical(1))))
-  message("instance read groups: exact segment parity; shared reads and normalization halved")
+  message("segment dimensions: exact segment parity; shared reads and normalization halved; parallel finalization equal")
 })

@@ -1,4 +1,4 @@
-.PHONY: build test test-raster test-production-contract test-projected-3d-crs \
+.PHONY: build test test-raster test-all-extra-bytes test-copc-window-reads test-knn-crash-safety test-production-contract test-projected-3d-crs \
 	test-parallel-production test-denoising test-original-companion-crs-fallback \
 	test-artifact-promotion test-voxel-counts test-copc-all-instance-dimensions \
 	build-original-order-copc
@@ -90,3 +90,26 @@ build-original-order-copc:
 	bash scripts/build_original_order_copc.sh \
 		"$(ORIGINAL_LAZ)" \
 		"$(COPC_LAZ)"
+
+# Patched rlas: selector 0 reads every ExtraByte, also after the ninth.
+.PHONY: test-all-extra-bytes
+test-all-extra-bytes:
+	docker run --rm --network none --cpus 1 --memory 1g --memory-swap 1g \
+		--entrypoint Rscript --volume "$(CURDIR)/tests:/tests:ro" "$(IMAGE)" \
+		/tests/test_all_extra_bytes.R
+
+# kNN filter crash safety on a real COPC against its reference noise list: a 4 GB
+# container, admission estimates 5x and 20x too low, a killed worker.
+# COPC=/path/to/cloud.copc.laz REFERENCE=/path/to/raster_noise_points.csv
+.PHONY: test-knn-crash-safety
+test-knn-crash-safety:
+	COPC="$(COPC)" REFERENCE="$(REFERENCE)" RASTER_IMAGE="$(IMAGE)" 		bash tests/test_knn_crash_safety.sh
+
+# COPC window reads through the hierarchy equal one full read (no laspy seek).
+# COPC=/path/to/cloud.copc.laz [WINDOW_M=20] [AREA_M=60]
+.PHONY: test-copc-window-reads
+test-copc-window-reads:
+	docker run --rm --network none --cpus 2 --memory 8g --memory-swap 8g \
+		--env PYTHONDONTWRITEBYTECODE=1 --entrypoint python3 \
+		--volume "$(CURDIR)/tests:/tests:ro" --volume "$(COPC):/in/cloud.copc.laz:ro" "$(IMAGE)" \
+		/tests/compare_copc_window_reads.py /in/cloud.copc.laz $(or $(WINDOW_M),20) $(or $(AREA_M),60)

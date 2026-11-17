@@ -36,6 +36,9 @@ stats = dict(re.findall(r"(\w+)=(\d+)", log.split("KNN_WINDOWS", 1)[1].splitline
 assert int(stats["workers"]) == 4 and int(stats["parts"]) >= len(whole_manifest["partitions"]), stats
 assert int(stats["far_points"]) > 0, "no point needed a read beyond its part's buffer"
 assert whole_manifest["rejected_points"] == windows_manifest["rejected_points"] > 0
+# Both paths sum per window, then across windows, exactly: the same threshold bit for bit.
+for key in ("distance_mean_m", "distance_sd_m", "threshold_m"):
+    assert whole_manifest[key] == windows_manifest[key], (key, whole_manifest[key], windows_manifest[key])
 cores = {(p["ix"], p["iy"]): p for p in windows_manifest["partitions"]}
 for partition in whole_manifest["partitions"]:
     other = cores[(partition["ix"], partition["iy"])]

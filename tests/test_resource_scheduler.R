@@ -81,5 +81,19 @@ local({
                       c(192, 256, 128)))
   dtm_estimates <- task_memory_estimates(windows, dense_policy, "DTM")
   stopifnot(all(dtm_estimates$bytes == dense_policy$task_fixed_bytes + 100 * 100))
+  # A selection ending in "0" reads every ExtraByte of the source: the planner
+  # adds a numeric column per ExtraByte for that phase only.
+  extra_path <- file.path(root, "extra.las")
+  extra <- lidR::add_lasattribute(las, as.numeric(seq_len(100)), "OriginalPointIndex", "order")
+  extra <- lidR::add_lasattribute(extra, rep(1, 100), "PredInstance", "ids")
+  lidR::writeLAS(extra, extra_path)
+  selected <- resource_policy(extra_path, 1, root,
+    selections = list(DTM = "xyz0", CHM = "xyz1", segment = "xyzc0"))
+  stopifnot(phase_bytes_per_point(selected, "DTM") == 100 + 8 * 2,
+            phase_bytes_per_point(selected, "CHM") == 192,
+            phase_bytes_per_point(selected, "segment") == 256 + 8 * 2,
+            phase_bytes_per_point(selected, "tiles") == 128,
+            all(task_memory_estimates(windows, selected, "DTM")$bytes ==
+                selected$task_fixed_bytes + 100 * (100 + 16)))
 })
 cat("aggregate resource admission checks passed\n")

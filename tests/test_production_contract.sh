@@ -54,7 +54,7 @@ run oracle low.copc.laz --dataset-id 150 --instance-dimension PredInstance,PredI
 run full high.copc.laz --target-chunk-points 500 --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 run aoi low.copc.laz --aoi-geojson /in/aoi.geojson --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 python3 "${repo_dir}/tests/compare_production_contract.py" "${root}"
-jq -e '.voxel_counts.enabled and .footprint_source == "point_cloud_extent" and .scheduler_resources.threads == 2 and .memory_budget_gib == 3.4 and .copc_projection.dimension == ["OriginalPointIndex", "PredInstance", "PredInstance_SAT", "PredInstance_FM"] and .catalog_spatial_streaming == "indexed LAZ projection"' "${root}/full/raster_run.json"
+jq -e '.voxel_counts.enabled and .footprint_source == "point_cloud_extent" and .scheduler_resources.threads == 2 and .memory_budget_gib == 3.4 and .copc_projection == null and .catalog_spatial_streaming == "COPC"' "${root}/full/raster_run.json"
 python3 "${repo_dir}/tests/validate_output_artifacts.py" raster "${root}/full"
 cat > "${root}/input/narrow.geojson" <<'JSON'
 {"type":"Polygon","coordinates":[[[1001,2001],[1005,2001],[1005,2005],[1001,2005],[1001,2001]]]}

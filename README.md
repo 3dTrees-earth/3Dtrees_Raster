@@ -227,7 +227,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
-| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`) and 2 Nov 2026 (`sha-f3d76a1`) |
+| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`), 2 Nov (`sha-f3d76a1`) and 13 Nov 2026 (`sha-3f02e86`). The image of 16 Nov 2026 writes byte-identical products, faster: rlas patched so selector `0` reads every ExtraByte, the COPC read through spatial windows in every stage (no plain-LAZ copy), noise-filter parts admitted by measured and live memory with a retry for a killed worker, and the instance dimensions of one read finalized in parallel |
 
 ## Build from source
 
@@ -258,7 +258,7 @@ COPC only after that check passes.
 ## How it works
 
 `src/raster.R` is the entry point. It validates the inputs and resources, runs
-the stages in `src/analysis.R`, checks the complete set of outputs and only
+the stages (`src/analysis.R` and the `src/analysis_*.R` files it sources), checks the complete set of outputs and only
 then moves them into the output folder. One R process runs the stages in order.
 Spatial windows go to forked R workers with one lidR thread each; streaming
 passes run as Python or GDAL child processes.
@@ -266,15 +266,15 @@ passes run as Python or GDAL child processes.
 | Stage | What it reads | Code |
 | --- | --- | --- |
 | Preflight | headers, input hash | `raster.R`, `production_contract.R` |
-| AOI and tile grid | header bounds or the AOI | `aoi_conversion.R`, `analysis.R` |
-| Noise filter (optional) | every point at once | `knn_denoising.py`, `denoising.R` |
-| DTM | 60 m windows with a 20 m buffer | `analysis.R` |
+| AOI and tile grid | header bounds or the AOI | `aoi_conversion.R`, `analysis_grid.R` |
+| Noise filter (optional) | COPC windows in parallel parts, or every point at once | `knn_denoising.py`, `knn_parts.py`, `denoising.R` |
+| DTM | 60 m windows with a 20 m buffer | `analysis_rasters.R` |
 | Voxel counts | every point, streamed | `voxel_counts.py`, `voxel_counts.R` |
-| Point reduction (dense clouds) | every point, streamed | `reduce_points.py` |
-| CHM and DSM | windows | `analysis.R` |
-| Segments | windows, then one summary per instance | `analysis.R`, `instance_read_groups.R` |
-| Tile metrics | one tile per task | `analysis.R`, `tile_scheduler.R` |
-| Outputs | tables and rasters | `raster.R`, `artifact_publication.R` |
+| Point reduction (dense clouds) | every point, streamed | `reduce_points.py`, `analysis_reduction.R` |
+| CHM and DSM | windows | `analysis_reduction.R` |
+| Segments | windows, then one summary per instance | `analysis_segments.R` |
+| Tile metrics | one tile per task | `analysis_tiles.R`, `tile_scheduler.R` |
+| Outputs | tables and rasters | `analysis_tiles.R`, `artifact_validation.R`, `artifact_publication.R` |
 
 Every window restores the source record order from `OriginalPointIndex` before
 any order-sensitive step. The DTM is a progressive TIN densification (PTD)
@@ -325,11 +325,31 @@ instance IDs are unchanged.
 | `--denoise-sigma` | `2` | Standard deviations above the whole cloud's mean distance |
 | `--denoise-window-size` | `60` | Width in metres of the windows the noise list is stored in |
 
-`knn_denoising.py` reads all points once, builds one KD-tree (scipy `cKDTree`)
-and queries it with all job threads. On dataset 576 (ULS, 53 M points, COPC, 10
+`knn_denoising.py` filters a COPC window by window in parallel worker
+processes. Each window part reads its points and a buffer through the COPC
+hierarchy; a point whose k-th neighbour lies beyond the read gets its
+neighbours from a box of that radius, so the distances equal those of one
+KD-tree (scipy `cKDTree`) over the whole cloud. The mean and standard deviation
+are summed exactly per window, then across windows, so the threshold does not
+depend on the windows or the number of workers. A plain LAS/LAZ uses one tree
+over all points with all job threads. On dataset 576 (ULS, 53 M points, COPC, 10
 threads) the stage takes 81 s instead of 16 min with windowed lidR, with the same
-2,114,341 rejected points and byte-identical products. It needs about 96 bytes per point and fails with
-`memory_budget_exceeded` when the cloud does not fit the job's memory. The
+2,114,341 rejected points and byte-identical products.
+
+A window part starts only when a worker is free, the reservations of the running
+parts and its own fit the memory budget, and the container's measured working
+set plus those reservations leaves 10 % of its limit free. A reservation is the
+part's estimate until parts of real size have finished, then their largest
+measured peak share of the estimate with a margin, never more than the
+estimate. Workers carry the highest OOM score: if the kernel still kills one,
+the parts that had not finished run again one at a time and the run goes on, so
+a wrong estimate costs time, not the run. A part killed while running alone, or
+one that cannot fit the budget even in quarters, stops the run with
+`memory_budget_exceeded`. A part's result does not depend on when or beside what
+it runs, so every path writes the same noise list. The part scheduling is
+`knn_parts.py`; it reads the container's memory with `container_memory.py`,
+which follows the R scheduler's rules (checked against it by
+`tests/test_container_memory.py`). The
 rejected ordinals are stored per fixed window anchored at `(0,0)`, so later reads
 load only the windows they overlap. The mask is computed once and reused for DTM, CHM,
 segment and tile metrics. The run publishes `<dataset>_noise_points.csv`, one
@@ -387,11 +407,30 @@ block (`RASTER_TILE_BLOCK_POINTS`), and give each tile exactly the points a
 single-tile read would return. Each worker gets at least two blocks, and a
 block in a much denser patch goes back to one read per tile.
 
-The image builds rlas 1.8.6 from source with
-`patches/rlas-1.8.6-64bit-point-count.patch`: a file with more than
-2,147,483,647 points reports its count as a 64-bit number instead of being
-refused. lidR only reads spatial windows of it, so such clouds run like any
-other.
+The instance dimensions that share one read (for example `PredInstance_SAT`,
+`PredInstance_FM` and `PredInstance_RCT` in one COPC) are finalized in parallel
+worker processes, each with its share of the threads and of the memory left.
+The tables are the same as when they are finalized one after another.
+
+The image builds rlas 1.8.6 from source with two patches:
+
+- `patches/rlas-1.8.6-64bit-point-count.patch`: a file with more than
+  2,147,483,647 points reports its count as a 64-bit number instead of being
+  refused. lidR only reads spatial windows of it, so such clouds run like any
+  other.
+- `patches/rlas-1.8.6-all-extra-bytes.patch`: the selector `0` reads every
+  ExtraByte. Unpatched, it read only the first nine (the digit selectors fill a
+  nine-slot table, so rlas's own "all fields" branch was never reached), and a
+  segmentation stored after the ninth field (3462's `PredInstance_RCT` is the
+  eleventh) needed a plain-LAZ copy of the whole cloud.
+
+A COPC is never copied or converted. Every stage reads it through spatial
+window queries over its hierarchy: lidR catalog chunks, `read_window.py` for
+dense windows, the noise filter's parallel windows and the task memory plans
+from the hierarchy's point counts. Python reads go through the hierarchy
+(`load_octree_for_query`), never through laspy's record `seek()`, which returns
+wrong records on LAZ with variable-size chunks such as every COPC
+(laspy 2.7 / lazrs 0.8).
 
 ### Galaxy
 
@@ -426,6 +465,9 @@ metadata JSON records the grid, the CRS and the point accounting.
 | `make test-copc-all-instance-dimensions` | All instance dimensions from one COPC read |
 | `make test-projected-3d-crs` | Projected 3D and compound CRSs |
 | `make test-parallel-production` | One worker against 2 and 4 workers give identical results |
+| `make test-all-extra-bytes` | The patched rlas reads every ExtraByte with selector `0` |
+| `make test-copc-window-reads COPC=…` | Window reads through a COPC's hierarchy equal one full read |
+| `make test-knn-crash-safety COPC=… REFERENCE=…` | The kNN filter flags the reference points in a 4 GB container, with admission estimates 5× and 20× too low, and with a killed worker |
 
 Set `IMAGE` to test a built image, for example `make test-raster IMAGE=3dtrees-raster:local`.
 
@@ -434,7 +476,8 @@ Set `IMAGE` to test a built image, for example `make test-raster IMAGE=3dtrees-r
 | Path | Contents |
 | --- | --- |
 | `src/raster.R` | Entry point: arguments, validation, provenance, publication |
-| `src/analysis.R` | The stages: grid, DTM, CHM, DSM, segments, tile metrics |
+| `src/analysis.R` | Shared constants and helpers; sources the stages |
+| `src/analysis_*.R` | The stages: grid, DTM, reduction with CHM and DSM, segments, tile metrics, the run |
 | `src/*.R`, `src/*.py` | Helpers named after their task |
 | `tests/` | Tests, fixtures and the canonical COPC builder |
 | `Dockerfile` | The published image |

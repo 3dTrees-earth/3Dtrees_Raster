@@ -1,0 +1,24 @@
+--- a/src/rlasstreamer.cpp
++++ b/src/rlasstreamer.cpp
+@@ -192,6 +192,21 @@
+     if (unselect.find("-9") != std::string::npos) select_eb[8] = false;
+   }
+
++  // 3Dtrees: "0" selects every ExtraByte, not only the first nine. The digit
++  // selectors fill select_eb(9), so read_eb() never saw its -1 ("all") code and
++  // fields 10+ were dropped. Without ExtraByte unselects ("-0" to "-9"), ask
++  // for all of them.
++  bool all_eb = false;
++  for (size_t at = select.find("0"); at != std::string::npos; at = select.find("0", at + 1))
++    if (at == 0 || select[at - 1] != '-') all_eb = true;
++  for (char digit = '0'; digit <= '9'; digit++)
++    if (unselect.find(std::string("-") + digit) != std::string::npos) all_eb = false;
++  if (all_eb)
++  {
++    read_eb(IntegerVector::create(-1));
++    return;
++  }
++
+   IntegerVector pos_eb;
+   for (size_t i = 0 ; i < select_eb.size() ; i++)
+   {

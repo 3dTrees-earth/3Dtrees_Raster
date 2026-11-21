@@ -166,8 +166,8 @@ data type, nodata value (-999999), tiling, compression and COG layout.
 
 `raster_dsm.tif` is computed natively in the CHM pass, from the same
 points: denoised when the kNN filter is on, with a finite height of at least 0 m above the
-DTM (points at most half a voxel below the DTM count as 0 m, so bare ground
-reads as 0 m canopy rather than an empty cell). Each cell holds the highest **absolute** point Z (the input's vertical
+DTM (points below the DTM count as 0 m, so a cell with points but nothing above
+the terrain reads 0 m canopy rather than empty). Each cell holds the highest **absolute** point Z (the input's vertical
 datum, not normalized) among those points. Points are assigned to cells through
 the centre of their `--voxel-resolution` voxel column, exactly as the CHM
 assigns its voxels. So the DSM has a value exactly where the CHM has one.
@@ -234,6 +234,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
+| 1.0.2 | CHM and DSM: every point below the DTM counts as 0 m (1.0.1: down to half a voxel), and points exactly on the cloud's upper X/Y bound go into the last cell instead of an extra, otherwise empty row or column; voxel counts count those points in the last cell instead of excluding them (3DT-3028) |
 | 1.0.1 | Runs without instance dimensions: then only the general products (DTM, CHM, DSM, voxel counts, noise flags), no structural metrics (3DT-3007). `--crs` writes a known CRS into the products when the point cloud has none (3DT-3029). A geocentric placeholder CRS on a cloud near 0,0,0 is read as local coordinates instead of stopping the run; real ECEF coordinates are refused with a clear message (3DT-3026). CHM and DSM: points up to half a voxel below the DTM count as 0 m, so bare ground is 0 m instead of empty (3DT-3028). Other products are unchanged |
 | 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`), 2 Nov (`sha-f3d76a1`) and 13 Nov 2026 (`sha-3f02e86`). The image of 16 Nov 2026 writes byte-identical products, faster: rlas patched so selector `0` reads every ExtraByte, the COPC read through spatial windows in every stage (no plain-LAZ copy), noise-filter parts admitted by measured and live memory with a retry for a killed worker, and the instance dimensions of one read finalized in parallel |
 

@@ -237,6 +237,16 @@ class CountTable:
 COUNTERS = ("read", "nonfinite", "excluded_domain", "invalid_dtm", "negative_height", "included")
 
 
+def cell_indices(x, y, grid):
+    """Column and row-from-bottom of each point. Cells own [lower, upper); a point
+    exactly on the grid's right or top edge goes into the last cell (3DT-3028)."""
+    col = np.floor((x - grid["transform"][0]) / RESOLUTION)
+    iy = np.floor((y - (grid["transform"][3] - grid["height"] * RESOLUTION)) / RESOLUTION)
+    col[x == grid["transform"][0] + grid["width"] * RESOLUTION] = grid["width"] - 1
+    iy[y == grid["transform"][3]] = grid["height"] - 1
+    return col, iy
+
+
 def count_points(points, grid, mask, dtm, counters, table):
     """Count one batch into `table`; return its highest height band or -1."""
     counters["read"] += len(points)
@@ -246,8 +256,7 @@ def count_points(points, grid, mask, dtm, counters, table):
     x, y, z = x[finite], y[finite], z[finite]
     # Own XY edges by increasing-coordinate [lower, upper) intervals,
     # independent of GDAL's top-down row convention at exact Y boundaries.
-    col_all = np.floor((x - grid["transform"][0]) / RESOLUTION)
-    iy_all = np.floor((y - (grid["transform"][3] - grid["height"] * RESOLUTION)) / RESOLUTION)
+    col_all, iy_all = cell_indices(x, y, grid)
     domain = mask.sample(grid["transform"][0] + (col_all + 0.5) * RESOLUTION,
                          grid["transform"][3] - grid["height"] * RESOLUTION + (iy_all + 0.5) * RESOLUTION)
     terrain = dtm.sample(x, y)
@@ -264,8 +273,8 @@ def count_points(points, grid, mask, dtm, counters, table):
         return -1
     if not np.all(np.isfinite(h)) or np.max(h) >= MAX_BANDS * RESOLUTION:
         raise ValueError("normalized height exceeds GeoTIFF band capacity; review source outliers (no points truncated)")
-    col = np.floor((x - grid["transform"][0]) / RESOLUTION).astype(np.int64)
-    row = grid["height"] - 1 - np.floor((y - (grid["transform"][3] - grid["height"] * RESOLUTION)) / RESOLUTION).astype(np.int64)
+    col, iy = cell_indices(x, y, grid)
+    col, row = col.astype(np.int64), grid["height"] - 1 - iy.astype(np.int64)
     iz = np.floor(h / RESOLUTION).astype(np.int64)
     # Pack the integer address instead of sorting Python/structured XYZ
     # tuples. A single int64 sort keeps dense batches fast and small.

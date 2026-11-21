@@ -231,9 +231,8 @@ class VoxelReduction:
             nearest = np.minimum(np.searchsorted(grid, values), len(grid) - 1)
             edge |= np.abs(values - grid[nearest]) < EDGE_TOLERANCE * resolution
             edge |= np.abs(values - grid[np.maximum(nearest - 1, 0)]) < EDGE_TOLERANCE * resolution
-        # The CHM counts points up to half a voxel below the DTM as 0 m (3DT-3028).
-        usable = (known & (height >= -resolution / 2 - 2 * scale_z)
-                  & (height <= args.maximum_height + 2 * scale_z))
+        # The CHM counts every point below the DTM as 0 m (3DT-3028).
+        usable = known & (height <= args.maximum_height + 2 * scale_z)
         self.unsure.append(frame.filter(pl.Series(valid & (~known | (usable & edge)))))
         chosen = valid & usable & ~edge
         batch = voxel_columns(frame.filter(pl.Series(chosen)), x[chosen], y[chosen], height[chosen],

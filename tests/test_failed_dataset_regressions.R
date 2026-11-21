@@ -80,9 +80,9 @@ stopifnot(grepl(
   perl = TRUE
 ))
 stopifnot(grepl(
-  "stream_virtual_raster(covering, output_path, \"CHM\", source_crs)",
+  "stream_virtual_raster\\(covering,\\s*output_path,\\s*\"CHM\",\\s*source_crs,\\s*fold_bounds = point_bounds\\)",
   chm_body,
-  fixed = TRUE
+  perl = TRUE
 ))
 
 segment_body <- paste(deparse(body(segment_chunk)), collapse = "\n")

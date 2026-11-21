@@ -336,7 +336,7 @@ move_to_collection_directories <- function(paths, output_directory, dataset_id,
     segment_diagnostics = "segment_diagnostics.csv",
     tiles = "tiles.geojson"
   )
-  for (directory in names(kinds)) {
+  for (directory in if (length(dimensions)) names(kinds)) {
     target_directory <- file.path(output_directory, directory)
     dir.create(target_directory, showWarnings = FALSE)
     for (dimension in dimensions) {
@@ -431,7 +431,14 @@ main <- function() {
   resolved_crs <- resolve_analysis_crs(
     point_cloud_crs,
     original_companion_crs,
-    supplied_crs_wkt(arguments$crs)
+    supplied_crs_wkt(arguments$crs),
+    # Distance of the cloud's centre from 0,0,0: a geocentric label on a cloud near the
+    # origin is Standardization's local placeholder, far from it real ECEF.
+    centre_distance_m = local({
+      b <- point_cloud_xyz_bounds(point_cloud)
+      sqrt(((b[["xmin"]] + b[["xmax"]]) / 2)^2 + ((b[["ymin"]] + b[["ymax"]]) / 2)^2 +
+           ((b[["zmin"]] + b[["zmax"]]) / 2)^2)
+    })
   )
   if (identical(resolved_crs$source, "original_companion")) {
     message(paste(
@@ -446,6 +453,7 @@ main <- function() {
   available <- vapply(definitions, function(definition) definition$name, character(1))
   dimension_selection <- if (length(arguments$instance_dimension)) "requested" else "all present"
   dimensions <- production_instance_dimensions(available, arguments$instance_dimension)
+  if (!length(dimensions)) dimension_selection <- "none present"
   arguments$instance_dimension <- dimensions
   missing <- character()
   input_sha256 <- sha256_file(point_cloud)
@@ -623,6 +631,7 @@ main <- function() {
     performance_report = TRUE,
     instance_dimension = arguments$instance_dimension,
     segment_diagnostics = TRUE,
+    structural_metrics = length(dimensions) > 0,
     surface_rasters = TRUE,
     reduce_points = TRUE,
     minimum_tree_voxels = arguments$minimum_tree_voxels,

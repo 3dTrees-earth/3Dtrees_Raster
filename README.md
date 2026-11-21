@@ -41,10 +41,13 @@ docker run --rm --network none \
 - Coordinates are taken as metres. When the point cloud has a CRS, it must be
   projected in metres and every raster, vector and the voxel COPC carry it; a
   point cloud without CRS gives the same products without CRS, unless `--crs`
-  names it. A geocentric CRS (EPSG:4978, Standardization's placeholder for
-  local coordinates) counts as local coordinates: the products get no CRS. It needs at least
-  one of the instance dimensions `PredInstance`, `PredInstance_SAT` (SegmentAnyTree),
-  `PredInstance_FM` (ForestMamba) or `PredInstance_RCT` (RayCloudTools). Without
+  names it. A geocentric CRS (EPSG:4978) on a cloud near 0,0,0 is
+  Standardization's placeholder for local coordinates: the products get no CRS.
+  A cloud in real Earth-centred (ECEF) coordinates is refused; reproject it first. The structural
+  metrics need one of the instance dimensions `PredInstance`, `PredInstance_SAT` (SegmentAnyTree),
+  `PredInstance_FM` (ForestMamba) or `PredInstance_RCT` (RayCloudTools). With none
+  given or found, the run makes the general products only: DTM, CHM, DSM, voxel
+  counts and noise flags, without tile metrics, tiles or segment diagnostics. Without
   `--instance-dimension` every one of them present is processed; with it
   (repeat the option or separate names with commas) exactly the named ones are,
   and a missing one fails the run before any analysis.
@@ -231,7 +234,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
-| 1.0.1 | `--crs` writes a known CRS into the products when the point cloud has none (3DT-3029). A geocentric placeholder CRS is read as local coordinates instead of stopping the run (3DT-3026). CHM and DSM: points up to half a voxel below the DTM count as 0 m, so bare ground is 0 m instead of empty (3DT-3028). Other products are unchanged |
+| 1.0.1 | Runs without instance dimensions: then only the general products (DTM, CHM, DSM, voxel counts, noise flags), no structural metrics (3DT-3007). `--crs` writes a known CRS into the products when the point cloud has none (3DT-3029). A geocentric placeholder CRS on a cloud near 0,0,0 is read as local coordinates instead of stopping the run; real ECEF coordinates are refused with a clear message (3DT-3026). CHM and DSM: points up to half a voxel below the DTM count as 0 m, so bare ground is 0 m instead of empty (3DT-3028). Other products are unchanged |
 | 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`), 2 Nov (`sha-f3d76a1`) and 13 Nov 2026 (`sha-3f02e86`). The image of 16 Nov 2026 writes byte-identical products, faster: rlas patched so selector `0` reads every ExtraByte, the COPC read through spatial windows in every stage (no plain-LAZ copy), noise-filter parts admitted by measured and live memory with a retry for a killed worker, and the instance dimensions of one read finalized in parallel |
 
 ## Build from source

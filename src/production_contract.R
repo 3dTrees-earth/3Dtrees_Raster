@@ -58,9 +58,11 @@ production_resources <- function(memory_budget = NULL, env = Sys.getenv,
 production_instance_dimensions <- function(available, requested = NULL) {
   supported <- c("PredInstance", "PredInstance_SAT", "PredInstance_FM", "PredInstance_RCT")
   if (is.null(requested) || !length(requested)) {
+    # None found: the run makes the general products only, without structural metrics (3DT-3007).
     dimensions <- supported[supported %in% available]
     if (!length(dimensions)) {
-      stop(paste("the point cloud has none of the instance dimensions", paste(supported, collapse = ", ")))
+      message(paste("The point cloud has none of the instance dimensions",
+        paste(supported, collapse = ", "), "- making the general products without structural metrics"))
     }
     return(dimensions)
   }

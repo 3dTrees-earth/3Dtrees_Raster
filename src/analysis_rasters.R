@@ -409,8 +409,10 @@ usable_crs_wkt <- function(value) {
   length(value) == 1L && !is.null(value) && !is.na(value) && nzchar(value)
 }
 
-# A geocentric CRS (EPSG:4978) is Standardization 1.2.1's placeholder for uploads in
-# local coordinates, shifted to 0,0,0 (3DT-3026): no raster can be georeferenced by it.
+# A geocentric CRS (EPSG:4978) on a cloud near 0,0,0 is Standardization 1.2.1's placeholder
+# for uploads in local coordinates (3DT-3026). Real Earth-centred coordinates lie about
+# 6,370 km from the centre; nothing that close to the origin can be on the Earth's surface.
+LOCAL_PLACEHOLDER_MAX_CENTRE_DISTANCE_M <- 1e6
 is_geocentric_crs <- function(wkt) {
   usable_crs_wkt(wkt) &&
     grepl("^\\s*(GEOCCS|GEODCRS|GEODETICCRS)\\b", wkt) &&
@@ -434,13 +436,20 @@ same_horizontal_crs <- function(a, b) {
 # means local coordinates: the products get no CRS and nothing is supplied to them.
 resolve_analysis_crs <- function(point_cloud_crs, original_companion_crs = NA_character_,
                                  supplied_crs = NA_character_,
-                                 same_crs = same_horizontal_crs) {
+                                 same_crs = same_horizontal_crs,
+                                 centre_distance_m = 0) {
   header <- if (usable_crs_wkt(point_cloud_crs)) {
     list(wkt = point_cloud_crs, source = "point_cloud")
   } else if (usable_crs_wkt(original_companion_crs)) {
     list(wkt = original_companion_crs, source = "original_companion")
   } else NULL
   if (!is.null(header) && is_geocentric_crs(header$wkt)) {
+    if (!is.finite(centre_distance_m) || centre_distance_m > LOCAL_PLACEHOLDER_MAX_CENTRE_DISTANCE_M) {
+      stop(paste(
+        "the point cloud is in Earth-centred (ECEF, geocentric) coordinates;",
+        "reproject it to a projected CRS in metres before the raster tool"
+      ))
+    }
     if (usable_crs_wkt(supplied_crs)) {
       message("Point cloud is in local coordinates (geocentric placeholder CRS); ignoring --crs")
     }

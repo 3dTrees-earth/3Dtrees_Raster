@@ -41,8 +41,12 @@ stopifnot(is.na(supplied_crs_wkt(NULL)))
 # 3DT-3026: Standardization's geocentric placeholder means local coordinates.
 geocentric <- sf::st_crs(4978)$wkt
 stopifnot(is_geocentric_crs(geocentric), !is_geocentric_crs(utm))
-local <- resolve_analysis_crs(geocentric, NA_character_, utm)
+local <- resolve_analysis_crs(geocentric, NA_character_, utm, centre_distance_m = 60)
 stopifnot(is.na(local$wkt), identical(local$source, "local"))
+# Real Earth-centred coordinates (about 6,370 km from the centre) are refused, not read as local.
+ecef <- tryCatch(resolve_analysis_crs(geocentric, centre_distance_m = 6.37e6),
+                 error = function(error) conditionMessage(error))
+stopifnot(is.character(ecef), grepl("Earth-centred", ecef))
 
 if (length(runtime_arguments) == 2L) {
   point_cloud_crs <- spatial_reference_wkt(readLAScatalog(runtime_arguments[[1]]))

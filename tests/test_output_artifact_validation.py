@@ -121,12 +121,14 @@ class OutputArtifactValidationTest(unittest.TestCase):
 
         self.assertEqual(report["status"], "invalid")
 
-    def test_unsegmented_source_uses_existing_unsuffixed_outputs(self) -> None:
+    def test_unsegmented_source_has_only_the_general_products(self) -> None:
+        # 3DT-3007: without an instance dimension there are no structural metrics.
         names = load_validator().expected_artifact_names(2001, [], True)
-        self.assertIn("2001_results.csv", names)
-        self.assertIn("2001_tiles.geojson", names)
         self.assertIn("2001_voxel_counts.tif", names)
-        self.assertNotIn("2001__results.csv", names)
+        self.assertIn("2001_chm.tif", names)
+        self.assertNotIn("2001_results.csv", names)
+        self.assertNotIn("2001_tiles.geojson", names)
+        self.assertNotIn("2001_tiles.png", names)
 
 
 if __name__ == "__main__":

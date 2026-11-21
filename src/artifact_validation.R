@@ -8,18 +8,18 @@ expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FA
     paste0(prefix, "_dtm.tif"),
     paste0(prefix, "_chm.tif"),
     paste0(prefix, "_dsm.tif"),
-    paste0(prefix, "_tiles.png"),
     paste0(prefix, "_performance.csv"),
     paste0(prefix, "_aoi_conversion.json"),
     paste0(prefix, "_run.json")
   )
-  suffixes <- if (length(dimensions) == 0L) "" else paste0("_", dimensions)
+  # Structural metrics come per instance dimension; without one there are none (3DT-3007).
+  suffixes <- if (length(dimensions)) paste0("_", dimensions) else character()
   dimension_files <- unlist(lapply(suffixes, function(suffix) c(
     paste0(prefix, suffix, "_results.csv"),
     paste0(prefix, suffix, "_segment_diagnostics.csv"),
     paste0(prefix, suffix, "_tiles.geojson")
   )))
-  c(common, dimension_files, if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
+  c(common, if (length(dimensions)) paste0(prefix, "_tiles.png"), dimension_files, if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
 }
 
 validate_performance_resources <- function(performance, memory_budget_gib,

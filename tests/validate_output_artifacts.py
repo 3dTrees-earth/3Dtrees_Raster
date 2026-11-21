@@ -49,15 +49,15 @@ def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_c
         f"{dataset_id}_dtm.tif",
         f"{dataset_id}_chm.tif",
         f"{dataset_id}_dsm.tif",
-        f"{dataset_id}_tiles.png",
         f"{dataset_id}_performance.csv",
         f"{dataset_id}_aoi_conversion.json",
         f"{dataset_id}_run.json",
     }
+    # Structural metrics come per instance dimension; without one only the general products (3DT-3007).
+    if processed:
+        names.add(f"{dataset_id}_tiles.png")
     for dimension in processed:
         names.update(f"{folder}/{dimension}_{folder}.{extension}" for folder, _, extension in COLLECTION_FILES)
-    if not processed:
-        names.update(f"{dataset_id}_{kind}.{extension}" for _, kind, extension in COLLECTION_FILES)
     if voxel_counts:
         names.update(f"{dataset_id}_voxel_counts{suffix}" for suffix in (".csv", ".tif", ".json", "_validity.tif"))
         if voxel_points:

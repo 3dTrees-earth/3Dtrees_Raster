@@ -15,7 +15,8 @@ stopifnot(identical(production_instance_dimensions(available), "PredInstance_SAT
           identical(production_instance_dimensions(available, character()), "PredInstance_SAT"),
           identical(production_instance_dimensions(c("PredInstance_RCT", "X", "PredInstance"), NULL),
                     c("PredInstance", "PredInstance_RCT")))
-fails(production_instance_dimensions("OriginalPointIndex"), "none of the instance dimensions")
+# None found and none requested: general products only (3DT-3007).
+stopifnot(identical(production_instance_dimensions("OriginalPointIndex"), character()))
 fails(production_instance_dimensions(available, "PredInstance"), "missing requested")
 fails(production_instance_dimensions(character(), "PredInstance_SAT"), "missing requested")
 fails(production_instance_dimensions(available, "junk"), "unsupported")

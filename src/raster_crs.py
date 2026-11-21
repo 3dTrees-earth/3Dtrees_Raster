@@ -20,5 +20,17 @@ def horizontal_crs_wkt(wkt):
     return reference.ExportToWkt(["FORMAT=WKT2_2019"])
 
 
+def same_horizontal_crs(a, b):
+    """Whether two CRS have the same horizontal reference (axis order ignored)."""
+    osr.UseExceptions()
+    first = osr.SpatialReference(wkt=horizontal_crs_wkt(osr.SpatialReference(wkt=a).ExportToWkt(["FORMAT=WKT2_2019"])))
+    second = osr.SpatialReference(wkt=horizontal_crs_wkt(osr.SpatialReference(wkt=b).ExportToWkt(["FORMAT=WKT2_2019"])))
+    return bool(first.IsSame(second, ["IGNORE_DATA_AXIS_TO_SRS_AXIS_MAPPING=YES",
+                                      "CRITERION=EQUIVALENT_EXCEPT_AXIS_ORDER_GEOGCRS"]))
+
+
 if __name__ == "__main__":
-    print(horizontal_crs_wkt(sys.argv[1]))
+    if sys.argv[1] == "--same":
+        print("true" if same_horizontal_crs(sys.argv[2], sys.argv[3]) else "false")
+    else:
+        print(horizontal_crs_wkt(sys.argv[1]))

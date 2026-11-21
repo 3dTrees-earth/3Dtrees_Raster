@@ -444,121 +444,130 @@ run_analysis <- function(parameters) {
   )
   message("RASTER_STAGE stage=segmentation status=completed")
 
-  edge_flags <- compute_edge_flags(tiles, parameters$tile_size)
-  message("RASTER_STAGE stage=tiles status=started")
-  tile_started <- proc.time()[["elapsed"]]
-  tile_indices <- seq_len(nrow(tiles))
-  # Match the decimal bounds passed to the tile reader's -inside filter.
-  tile_windows <- lapply(tile_indices, function(index)
-    as.numeric(sprintf("%.10f", st_bbox(tiles[index, ]))))
-  # Neighbouring tiles share one read: every per-tile COPC query decoded the
-  # coarse octree levels again, which dominated large areas.
-  analysis_bounds <- point_cloud_xy_bounds(analysis_cloud)
-  analysis_density <- point_count_from_las_header(analysis_cloud) /
-    max(1, (analysis_bounds[["xmax"]] - analysis_bounds[["xmin"]]) *
-           (analysis_bounds[["ymax"]] - analysis_bounds[["ymin"]]))
-  tile_blocks <- plan_tile_blocks(tile_windows, parameters$tile_size,
-    analysis_density, analysis_policy, workers = min(thread_budget, catalog_workers))
-  block_windows <- lapply(tile_blocks, function(block) tile_block_window(tile_windows[block]))
-  tile_plan <- tile_worker_plan(thread_budget, length(tile_blocks), catalog_workers)
-  tile_workers <- tile_plan$process_workers
-  tile_threads_per_worker <- tile_plan$threads_per_worker
-  calculate_block <- function(block_index) {
-    if (tile_workers > 1L) {
-      set_lidr_threads(tile_threads_per_worker)
+  # Without an instance dimension (none given or found), only the general products are made:
+  # no tile metrics, tiles or segment diagnostics (3DT-3007).
+  structural_metrics <- isTRUE(parameter_or(parameters, "structural_metrics", TRUE))
+  tile_seconds <- 0
+  if (structural_metrics) {
+    edge_flags <- compute_edge_flags(tiles, parameters$tile_size)
+    message("RASTER_STAGE stage=tiles status=started")
+    tile_started <- proc.time()[["elapsed"]]
+    tile_indices <- seq_len(nrow(tiles))
+    # Match the decimal bounds passed to the tile reader's -inside filter.
+    tile_windows <- lapply(tile_indices, function(index)
+      as.numeric(sprintf("%.10f", st_bbox(tiles[index, ]))))
+    # Neighbouring tiles share one read: every per-tile COPC query decoded the
+    # coarse octree levels again, which dominated large areas.
+    analysis_bounds <- point_cloud_xy_bounds(analysis_cloud)
+    analysis_density <- point_count_from_las_header(analysis_cloud) /
+      max(1, (analysis_bounds[["xmax"]] - analysis_bounds[["xmin"]]) *
+             (analysis_bounds[["ymax"]] - analysis_bounds[["ymin"]]))
+    tile_blocks <- plan_tile_blocks(tile_windows, parameters$tile_size,
+      analysis_density, analysis_policy, workers = min(thread_budget, catalog_workers))
+    block_windows <- lapply(tile_blocks, function(block) tile_block_window(tile_windows[block]))
+    tile_plan <- tile_worker_plan(thread_budget, length(tile_blocks), catalog_workers)
+    tile_workers <- tile_plan$process_workers
+    tile_threads_per_worker <- tile_plan$threads_per_worker
+    calculate_block <- function(block_index) {
+      if (tile_workers > 1L) {
+        set_lidr_threads(tile_threads_per_worker)
+      }
+      worker_dtm <- rast(dtm_path)
+      block <- tile_blocks[[block_index]]
+      block_las <- if (length(block) > 1L) {
+        window <- block_windows[[block_index]]
+        read_tile_points(analysis_cloud,
+          c(xmin = window[[1]], ymin = window[[2]], xmax = window[[3]], ymax = window[[4]]),
+          parameters)
+      }
+      block_rows <- if (!is.null(block_las)) {
+        if (is.empty(block_las)) lapply(block, function(index) integer())
+        else tile_point_rows(block_las, tile_windows[block])
+      }
+      lapply(seq_along(block), function(position) {
+        index <- block[[position]]
+        metrics <- calculate_tile_metrics(
+          analysis_cloud,
+          tiles[index, ],
+          worker_dtm,
+          parameters,
+          block_las = block_las,
+          block_rows = block_rows[[position]]
+        )
+        build_tile_row(
+          parameters$point_cloud_display_name,
+          tiles[index, ],
+          edge_flags[[index]],
+          nrow(tiles),
+          metrics,
+          empty_tree_metrics(),
+          parameters$sensor,
+          parameters$country
+        )
+      })
     }
-    worker_dtm <- rast(dtm_path)
-    block <- tile_blocks[[block_index]]
-    block_las <- if (length(block) > 1L) {
-      window <- block_windows[[block_index]]
-      read_tile_points(analysis_cloud,
-        c(xmin = window[[1]], ymin = window[[2]], xmax = window[[3]], ymax = window[[4]]),
-        parameters)
+    if (length(tile_indices) > 0L) {
+      message(sprintf(
+        "Calculating %d tile metric rows in %d block(s) with %d process worker(s), %d lidR thread(s) each",
+        length(tile_indices), length(tile_blocks),
+        tile_workers, tile_threads_per_worker
+      ))
     }
-    block_rows <- if (!is.null(block_las)) {
-      if (is.empty(block_las)) lapply(block, function(index) integer())
-      else tile_point_rows(block_las, tile_windows[block])
-    }
-    lapply(seq_along(block), function(position) {
-      index <- block[[position]]
-      metrics <- calculate_tile_metrics(
-        analysis_cloud,
-        tiles[index, ],
-        worker_dtm,
-        parameters,
-        block_las = block_las,
-        block_rows = block_rows[[position]]
-      )
-      build_tile_row(
-        parameters$point_cloud_display_name,
-        tiles[index, ],
-        edge_flags[[index]],
-        nrow(tiles),
-        metrics,
-        empty_tree_metrics(),
-        parameters$sensor,
-        parameters$country
-      )
-    })
+    base_result <- collect_tile_block_rows(tile_indices, tile_blocks, calculate_block,
+      tile_workers, task_windows = block_windows, memory_policy = analysis_policy)
+    tile_seconds <- elapsed_seconds(tile_started)
+    message("RASTER_STAGE stage=tiles status=completed")
   }
-  if (length(tile_indices) > 0L) {
-    message(sprintf(
-      "Calculating %d tile metric rows in %d block(s) with %d process worker(s), %d lidR thread(s) each",
-      length(tile_indices), length(tile_blocks),
-      tile_workers, tile_threads_per_worker
-    ))
-  }
-  base_result <- collect_tile_block_rows(tile_indices, tile_blocks, calculate_block,
-    tile_workers, task_windows = block_windows, memory_policy = analysis_policy)
-  tile_seconds <- elapsed_seconds(tile_started)
-  message("RASTER_STAGE stage=tiles status=completed")
 
   message("RASTER_STAGE stage=output status=started")
   output_started <- proc.time()[["elapsed"]]
-  output_dimensions <- if (length(instance_dimensions) == 0) {
-    list(NULL)
-  } else {
-    as.list(instance_dimensions)
-  }
-  output_paths <- lapply(output_dimensions, function(instance_dimension) {
-    target_dimension <- instance_dimension
-    dimension_paths <- dimension_artifact_paths(paths, instance_dimension)
-    dimension_segments <- if (is.null(instance_dimension)) {
-      NULL
+  output_paths <- list()
+  if (structural_metrics) {
+    output_dimensions <- if (length(instance_dimensions) == 0) {
+      list(NULL)
     } else {
-      segments_by_dimension[[target_dimension]]
+      as.list(instance_dimensions)
     }
-    result <- result_with_tree_metrics(base_result, dimension_segments)
-    write_upstream_csv(result, dimension_paths$results)
-    write_segment_diagnostics(
-      dimension_segments,
-      parameters$point_cloud_display_name,
-      dimension_paths$segment_diagnostics,
-      parameters$sensor,
-      parameters$country
-    )
-    write_tile_geojson(
+    output_paths <- lapply(output_dimensions, function(instance_dimension) {
+      target_dimension <- instance_dimension
+      dimension_paths <- dimension_artifact_paths(paths, instance_dimension)
+      dimension_segments <- if (is.null(instance_dimension)) {
+        NULL
+      } else {
+        segments_by_dimension[[target_dimension]]
+      }
+      result <- result_with_tree_metrics(base_result, dimension_segments)
+      write_upstream_csv(result, dimension_paths$results)
+      write_segment_diagnostics(
+        dimension_segments,
+        parameters$point_cloud_display_name,
+        dimension_paths$segment_diagnostics,
+        parameters$sensor,
+        parameters$country
+      )
+      write_tile_geojson(
+        tiles,
+        result,
+        source_crs,
+        dimension_paths$tiles_geojson
+      )
+      message(sprintf(
+        "Wrote %d Analysis Tile rows for Instance Dimension %s to %s",
+        nrow(result),
+        if (is.null(instance_dimension)) "NA" else instance_dimension,
+        dimension_paths$results
+      ))
+      dimension_paths
+    })
+    write_layout_png(
+      aoi,
       tiles,
-      result,
-      source_crs,
-      dimension_paths$tiles_geojson
+      edge_flags,
+      parameters$point_cloud_display_name,
+      parameters$tile_size,
+      paths$tiles_png
     )
-    message(sprintf(
-      "Wrote %d Analysis Tile rows for Instance Dimension %s to %s",
-      nrow(result),
-      if (is.null(instance_dimension)) "NA" else instance_dimension,
-      dimension_paths$results
-    ))
-    dimension_paths
-  })
-  write_layout_png(
-    aoi,
-    tiles,
-    edge_flags,
-    parameters$point_cloud_display_name,
-    parameters$tile_size,
-    paths$tiles_png
-  )
+  }
   output_seconds <- elapsed_seconds(output_started)
   if (parameters$performance_report) {
     write_performance_report(

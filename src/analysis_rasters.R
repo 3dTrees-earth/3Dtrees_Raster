@@ -409,14 +409,80 @@ usable_crs_wkt <- function(value) {
   length(value) == 1L && !is.null(value) && !is.na(value) && nzchar(value)
 }
 
-resolve_analysis_crs <- function(point_cloud_crs, original_companion_crs = NA_character_) {
-  if (usable_crs_wkt(point_cloud_crs)) {
-    return(list(wkt = point_cloud_crs, source = "point_cloud"))
+# A geocentric CRS (EPSG:4978) on a cloud near 0,0,0 is Standardization 1.2.1's placeholder
+# for uploads in local coordinates (3DT-3026). Real Earth-centred coordinates lie about
+# 6,370 km from the centre; nothing that close to the origin can be on the Earth's surface.
+LOCAL_PLACEHOLDER_MAX_CENTRE_DISTANCE_M <- 1e6
+is_geocentric_crs <- function(wkt) {
+  usable_crs_wkt(wkt) &&
+    grepl("^\\s*(GEOCCS|GEODCRS|GEODETICCRS)\\b", wkt) &&
+    grepl("Cartesian", wkt, fixed = TRUE)
+}
+
+# Whether two CRS share the same horizontal reference (raster_crs.py, GDAL).
+same_horizontal_crs <- function(a, b) {
+  result <- system2("python3", c(
+    shQuote(file.path(script_directory, "raster_crs.py")), "--same",
+    shQuote(a), shQuote(b)), stdout = TRUE)
+  status <- attr(result, "status")
+  if ((!is.null(status) && status != 0L) || !length(result)) {
+    stop("could not compare the point-cloud CRS with the supplied CRS")
   }
-  if (usable_crs_wkt(original_companion_crs)) {
-    return(list(wkt = original_companion_crs, source = "original_companion"))
+  identical(trimws(result[[length(result)]]), "true")
+}
+
+# The output CRS: the point cloud's header, else its original companion, else the
+# CRS the caller supplied from the dataset record (3DT-3029). A placeholder header
+# means local coordinates: the products get no CRS and nothing is supplied to them.
+resolve_analysis_crs <- function(point_cloud_crs, original_companion_crs = NA_character_,
+                                 supplied_crs = NA_character_,
+                                 same_crs = same_horizontal_crs,
+                                 centre_distance_m = 0) {
+  header <- if (usable_crs_wkt(point_cloud_crs)) {
+    list(wkt = point_cloud_crs, source = "point_cloud")
+  } else if (usable_crs_wkt(original_companion_crs)) {
+    list(wkt = original_companion_crs, source = "original_companion")
+  } else NULL
+  if (!is.null(header) && is_geocentric_crs(header$wkt)) {
+    if (!is.finite(centre_distance_m) || centre_distance_m > LOCAL_PLACEHOLDER_MAX_CENTRE_DISTANCE_M) {
+      stop(paste(
+        "the point cloud is in Earth-centred (ECEF, geocentric) coordinates;",
+        "reproject it to a projected CRS in metres before the raster tool"
+      ))
+    }
+    if (usable_crs_wkt(supplied_crs)) {
+      message("Point cloud is in local coordinates (geocentric placeholder CRS); ignoring --crs")
+    }
+    return(list(wkt = NA_character_, source = "local"))
+  }
+  if (!is.null(header)) {
+    if (usable_crs_wkt(supplied_crs) && !same_crs(header$wkt, supplied_crs)) {
+      stop(paste(
+        "the supplied --crs differs from the point cloud's CRS; the header CRS",
+        "is kept only when they agree"
+      ))
+    }
+    return(header)
+  }
+  if (usable_crs_wkt(supplied_crs)) {
+    return(list(wkt = supplied_crs, source = "supplied"))
   }
   list(wkt = NA_character_, source = "unavailable")
+}
+
+# ``--crs`` as WKT: an EPSG code (EPSG:25832) or any CRS PROJ reads, projected in metres.
+supplied_crs_wkt <- function(value) {
+  if (is.null(value) || !nzchar(value)) return(NA_character_)
+  reference <- sf::st_crs(value)
+  if (is.na(reference)) stop(sprintf("--crs %s is not a CRS PROJ can read", value))
+  if (isTRUE(reference$IsGeographic) || is_geocentric_crs(reference$wkt)) {
+    stop(sprintf("--crs %s must be a projected CRS in metres", value))
+  }
+  units <- reference$units_gdal
+  if (!is.null(units) && !is.na(units) && !units %in% c("metre", "meter", "Meter")) {
+    stop(sprintf("--crs %s must be a projected CRS in metres", value))
+  }
+  reference$wkt
 }
 
 build_chunk_virtual_raster <- function(results, work_directory, label,

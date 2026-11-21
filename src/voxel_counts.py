@@ -12,6 +12,7 @@ import argparse
 from collections import OrderedDict, namedtuple
 import csv
 import hashlib
+import sys
 import json
 import math
 import multiprocessing
@@ -35,6 +36,7 @@ NODATA = 4294967295
 MAX_BANDS = 65535  # TIFF SamplesPerPixel limit; fail explicitly, never truncate.
 FIXED_MEMORY_RESERVE = 192 * 1024**2
 MINIMUM_MEMORY = 256 * 1024**2
+MINIMUM_CHUNK_POINTS = 65_536
 # Interpreter, GDAL and laspy of one count worker; 10 workers on 707 peaked at
 # 1.3 GiB for the whole step.
 WORKER_MEMORY_RESERVE = 192 * 1024**2
@@ -216,6 +218,7 @@ class CountTable:
         self.budget = budget
         self.keys, self.counts = np.empty(0, np.int64), np.empty(0, np.int64)
         self.pending_keys, self.pending_counts, self.pending = [], [], 0
+        self.warned = False
 
     def add(self, keys, counts):
         self.pending_keys.append(keys)
@@ -223,8 +226,9 @@ class CountTable:
         self.pending += len(keys)
         if self.pending > max(len(self.keys), 4_000_000):
             # Sorting needs the merged and pending rows twice, 16 B each.
-            if 4 * 16 * (len(self.keys) + self.pending) > self.budget:
-                raise ValueError("memory_budget_exceeded: voxel count table")
+            if 4 * 16 * (len(self.keys) + self.pending) > self.budget and not self.warned:
+                print("Warning: memory_budget_exceeded: voxel count table; continuing", file=sys.stderr)
+                self.warned = True
             self.result()
 
     def result(self):
@@ -526,9 +530,8 @@ def check_raster_budget(grid, bands, budget, other_raster_bytes=0):
     estimate = raster_memory_bytes(grid, bands)
     required = FIXED_MEMORY_RESERVE + estimate + other_raster_bytes
     if required > budget:
-        raise ValueError(
-            f"memory_budget_exceeded: raster directories require {required} bytes "
-            f"including caches, available {int(budget)}; reduce AOI or increase budget")
+        print(f"Warning: memory_budget_exceeded: raster directories require {required} bytes "
+              f"including caches, available {int(budget)}; continuing", file=sys.stderr)
     return dict(directory_bytes=estimate, fixed_cache_reserve_bytes=FIXED_MEMORY_RESERVE,
                 required_bytes=required, available_bytes=int(budget))
 
@@ -564,7 +567,8 @@ def export(config):
         raise ValueError("invalid voxel-count AOI")
     budget = float(config.get("memory_available_gib", 1)) * 1024**3
     if budget < MINIMUM_MEMORY:
-        raise ValueError("memory_budget_exceeded: voxel export needs at least 256 MiB available")
+        print("Warning: memory_budget_exceeded: voxel export has less than 256 MiB available; "
+              "continuing", file=sys.stderr)
     paths = config["paths"]
     # Only X, Y and Z are read; skipping the other fields saves decompression.
     with laspy.open(config["point_cloud"], decompression_selection=XYZ) as source:
@@ -593,10 +597,13 @@ def export(config):
         # Workers share the batch size, so only their fixed reserve is extra.
         workers = max(1, min(int(config.get("workers", 1)), int(available // (2 * WORKER_MEMORY_RESERVE))))
         available -= (workers - 1) * WORKER_MEMORY_RESERVE
-        chunk_points = min(int(config.get("chunk_points", 2_000_000)),
-                           int(available / (4 * source.header.point_format.size + 400)))
-        if chunk_points < 1:
-            raise ValueError("chunk_points must be positive within the memory budget")
+        budget_points = int(available / (4 * source.header.point_format.size + 400))
+        if budget_points < 1:
+            # Galaxy enforces the grant; a budget too small for any batch only warns.
+            print(f"Warning: memory_budget_exceeded: voxel batches of {MINIMUM_CHUNK_POINTS} points "
+                  "exceed the budget; continuing", file=sys.stderr)
+            budget_points = MINIMUM_CHUNK_POINTS
+        chunk_points = min(int(config.get("chunk_points", 2_000_000)), budget_points)
         terrain = RasterSampler(dtm_ds)
         mask_ds, domain = make_validity_mask(paths["mask"], grid, geometry, terrain)
         # Close and reopen read-only: GTiff completes the file on close, and

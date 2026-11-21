@@ -26,6 +26,7 @@ from pathlib import Path
 import math
 import os
 import resource
+import sys
 import tempfile
 import time
 
@@ -126,11 +127,12 @@ def window_distances(reader, window, size, neighbors, threads, budget, header, d
                                   query_bounds=Bounds(lower, upper))
     # Decoding costs decoded_bytes(); the points inside the read then cost
     # WINDOW_BYTES_PER_POINT each.
-    if decoded_bytes(nodes, header) > budget:
+    # At the deepest split the part is read whatever its size: Galaxy enforces the grant.
+    if decoded_bytes(nodes, header) > budget and depth < MAX_SPLITS:
         return quarters(reader, window, size, neighbors, threads, budget, header, dimension,
                         part, depth, (x0, x1, y0, y1))
     xyz, all_ids = read_box(reader, nodes, lower, upper, dimension)
-    if len(xyz) * WINDOW_BYTES_PER_POINT > budget:
+    if len(xyz) * WINDOW_BYTES_PER_POINT > budget and depth < MAX_SPLITS:
         del xyz, all_ids
         return quarters(reader, window, size, neighbors, threads, budget, header, dimension,
                         part, depth, (x0, x1, y0, y1))
@@ -272,9 +274,10 @@ def bounded_distances(reader, query, radius, neighbors, threads, budget, header)
 
 def quarters(reader, window, size, neighbors, threads, budget, header, dimension, part, depth, bounds):
     """The distances of a part's four quarters, in a fixed order."""
-    if depth == MAX_SPLITS:
-        raise SystemExit(f"RASTER_FLAG memory_budget_exceeded: the kNN window at {bounds[0]:.0f} "
-                         f"{bounds[2]:.0f} reads too many points for {budget / 1024**3:.1f} GiB")
+    if depth + 1 == MAX_SPLITS:
+        print(f"Warning: RASTER_FLAG memory_budget_exceeded: the kNN window at {bounds[0]:.0f} "
+              f"{bounds[2]:.0f} is read in its smallest parts beyond {budget / 1024**3:.1f} GiB",
+              file=sys.stderr)
     parts = [window_distances(reader, window, size, neighbors, threads, budget, header,
                               dimension, quarter, depth + 1)
              for quarter in part_quarters(part, bounds)]
@@ -512,9 +515,9 @@ def run(args, **windowed_options) -> None:
         return
     required = n * BYTES_PER_POINT + 512 * 1024**2
     if required > args.memory_budget_bytes:
-        raise SystemExit(f"RASTER_FLAG memory_budget_exceeded: the kNN filter needs "
-                         f"{required / 1024**3:.1f} GiB for {n} points, "
-                         f"{args.memory_budget_bytes / 1024**3:.1f} GiB available")
+        print(f"Warning: RASTER_FLAG memory_budget_exceeded: the kNN filter needs "
+              f"{required / 1024**3:.1f} GiB for {n} points, "
+              f"{args.memory_budget_bytes / 1024**3:.1f} GiB available; continuing", file=sys.stderr)
     xyz, ids = read_points(args.input, args.order_dimension)
     with laspy.open(args.input) as reader:
         origin = np.asarray(reader.header.mins, dtype=float)

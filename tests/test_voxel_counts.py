@@ -286,8 +286,9 @@ class VoxelCountsTest(unittest.TestCase):
         grid = dict(width=12800, height=12800)
         # This directory alone takes >30 MiB, outside GDAL's block cache.
         self.assertGreater(voxel.raster_memory_bytes(grid, 100), 30 * 1024**2)
-        with self.assertRaisesRegex(ValueError, "raster directories"):
-            voxel.check_raster_budget(grid, 100, 120 * 1024**2)
+        # Above the budget only warns (Galaxy enforces the grant).
+        tight = voxel.check_raster_budget(grid, 100, 120 * 1024**2)
+        self.assertGreater(tight["required_bytes"], tight["available_bytes"])
         voxel.check_raster_budget(grid, 100, 256 * 1024**2)
 
     def test_copc_workers_match_one_process(self):
@@ -331,9 +332,12 @@ class VoxelCountsTest(unittest.TestCase):
             for key in ("point_accounting", "occupied_voxels", "band_count", "domain_cells"):
                 self.assertEqual(base[key], result[key], f"{name} {key}")
 
-    def test_insufficient_budget_fails_before_allocating_cube(self):
-        with self.assertRaisesRegex(ValueError, "memory_budget_exceeded"):
-            self.run_export(memory=.01)
+    def test_insufficient_budget_only_warns(self):
+        # Galaxy enforces the grant; the export warns and still counts every voxel.
+        base, base_rows, _ = self.run_export(name="enough")
+        result, rows, _ = self.run_export(name="tight", memory=.01)
+        self.assertEqual(rows, base_rows)
+        self.assertEqual(result["occupied_voxels"], base["occupied_voxels"])
 
 
 if __name__ == "__main__":

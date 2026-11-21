@@ -154,7 +154,15 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
       base <- memory_current()
     }
     available <- policy$budget_bytes - policy$reserve_bytes - base - sum(costs[running])
-    if (next_task <= length(indices) && length(running) < workers && costs[[next_task]] <= available) {
+    # A task larger than the estimate allows still runs, alone (Galaxy enforces the grant).
+    alone <- !length(running) && next_task <= length(indices) && costs[[next_task]] > available
+    if (alone) {
+      message(sprintf(paste0("Warning: RASTER_FLAG memory_budget_exceeded: one %s task ",
+        "requires an estimated %.3f GiB with %.3f GiB available; running it alone"),
+        phase, costs[[next_task]] / 1024^3, max(0, available) / 1024^3))
+    }
+    if (next_task <= length(indices) && length(running) < workers &&
+        (costs[[next_task]] <= available || alone)) {
       if (workers == 1L) {
         value <- try(calculate(indices[[next_task]]), silent = TRUE)
         if (inherits(value, "try-error")) {
@@ -180,11 +188,6 @@ run_memory_admitted_tasks <- function(indices, calculate, workers, windows,
         memory_before_bytes = base, started_seconds = elapsed_seconds(started))
       next_task <- next_task + 1L
       next
-    }
-    if (!length(running)) {
-      stop(sprintf(paste0("RASTER_FLAG memory_budget_exceeded: one spatial task ",
-        "requires an estimated %.3f GiB with %.3f GiB available; geometry was not changed"),
-        costs[[next_task]] / 1024^3, max(0, available) / 1024^3))
     }
     finished <- parallel::mccollect(jobs, wait = FALSE, timeout = 1)
     for (pid in names(finished)) {

@@ -448,8 +448,8 @@ run_analysis <- function(parameters) {
   # no tile metrics, tiles or segment diagnostics (3DT-3007).
   structural_metrics <- isTRUE(parameter_or(parameters, "structural_metrics", TRUE))
   tile_seconds <- 0
+  edge_flags <- compute_edge_flags(tiles, parameters$tile_size)
   if (structural_metrics) {
-    edge_flags <- compute_edge_flags(tiles, parameters$tile_size)
     message("RASTER_STAGE stage=tiles status=started")
     tile_started <- proc.time()[["elapsed"]]
     tile_indices <- seq_len(nrow(tiles))
@@ -559,15 +559,16 @@ run_analysis <- function(parameters) {
       ))
       dimension_paths
     })
-    write_layout_png(
-      aoi,
-      tiles,
-      edge_flags,
-      parameters$point_cloud_display_name,
-      parameters$tile_size,
-      paths$tiles_png
-    )
   }
+  # The layout image is always written: the Galaxy wrapper collects it.
+  write_layout_png(
+    aoi,
+    tiles,
+    edge_flags,
+    parameters$point_cloud_display_name,
+    parameters$tile_size,
+    paths$tiles_png
+  )
   output_seconds <- elapsed_seconds(output_started)
   if (parameters$performance_report) {
     write_performance_report(

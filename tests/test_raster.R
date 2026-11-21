@@ -63,18 +63,13 @@ stopifnot(!grepl('readLAS(point_cloud)', segment_body, fixed = TRUE))
 
 unlimited <- list(memory_budget_gib = Inf)
 stopifnot(isTRUE(assert_memory_budget(.Machine$double.xmax, unlimited, "test")))
-impossible <- tryCatch(
-  {
-    assert_memory_budget(1, list(memory_budget_gib = 1e-12), "test")
-    FALSE
-  },
-  error = function(error) grepl(
-    "RASTER_FLAG memory_budget_exceeded",
-    conditionMessage(error),
-    fixed = TRUE
-  )
+# An estimate above the budget only warns (Galaxy enforces the grant).
+warning_text <- capture.output(
+  impossible <- assert_memory_budget(1, list(memory_budget_gib = 1e-12), "test"),
+  type = "message"
 )
-stopifnot(impossible)
+stopifnot(identical(impossible, FALSE),
+          any(grepl("RASTER_FLAG memory_budget_exceeded", warning_text, fixed = TRUE)))
 
 store_directory <- tempfile("segment_adapter_test_")
 dir.create(store_directory)

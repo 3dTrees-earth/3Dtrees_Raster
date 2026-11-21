@@ -20,7 +20,7 @@ expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FA
     paste0(prefix, suffix, "_segment_diagnostics.csv"),
     paste0(prefix, suffix, "_tiles.geojson")
   )))
-  c(common, if (length(dimensions)) paste0(prefix, "_tiles.png"), dimension_files,
+  c(common, paste0(prefix, "_tiles.png"), dimension_files,
     if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
 }
 

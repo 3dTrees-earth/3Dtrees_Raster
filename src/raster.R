@@ -20,7 +20,7 @@ is_copc_point_cloud <- function(path) {
 # The original LAZ is optional at runtime and is never used for computation.
 # Reject incompatible companions without re-scanning the source. Lossless
 # preparation validation (indices and fingerprints) remains the identity proof.
-TOOL_VERSION <- "1.0.0"
+TOOL_VERSION <- "1.0.1"
 # Scientific settings exposed on the command line. Defaults are the published
 # production contract; every run records the values it used in its provenance.
 SCIENTIFIC_DEFAULTS <- list(
@@ -146,6 +146,11 @@ parse_raster_parameters <- function() {
   # ``--original-point-cloud`` is optional identity/provenance evidence only.
   parser$add_argument("--original-point-cloud", default = NULL,
     help = "Optional original LAS/LAZ of a COPC, used only for header and provenance checks")
+  parser$add_argument("--crs", default = NULL,
+    help = paste(
+      "Optional known horizontal CRS of the point cloud (EPSG:xxxx or WKT), used only",
+      "when its header has none; a different header CRS stops the run"
+    ))
   parser$add_argument("--aoi-geojson", default = NULL,
     help = "Optional Audit AOI in source XY coordinates; otherwise use the full extent")
   # Retain old batch invocations without exposing database identifiers to Galaxy.
@@ -425,7 +430,8 @@ main <- function() {
   }
   resolved_crs <- resolve_analysis_crs(
     point_cloud_crs,
-    original_companion_crs
+    original_companion_crs,
+    supplied_crs_wkt(arguments$crs)
   )
   if (identical(resolved_crs$source, "original_companion")) {
     message(paste(
@@ -721,8 +727,11 @@ main <- function() {
     original_point_cloud = original_point_cloud,
     output_crs_source = resolved_crs$source,
     source_crs_wkt = resolved_crs$wkt,
-    raster_crs_wkt = terra::crs(terra::rast(file.path(
-      incoming_directory, paste0(arguments$dataset_id, "_dtm.tif")))),
+    # terra reports CRS84 for a raster without CRS whose extent looks like degrees.
+    raster_crs_wkt = local({
+      dtm <- file.path(incoming_directory, paste0(arguments$dataset_id, "_dtm.tif"))
+      if (gdal_raster_has_crs(dtm)) terra::crs(terra::rast(dtm)) else NA_character_
+    }),
     raster_crs_policy = "horizontal CRS embedded in GeoTIFF; no coordinate or height transformation",
     # These fields make order restoration and streaming mode machine-auditable.
     point_order_dimension = point_order_dimension,

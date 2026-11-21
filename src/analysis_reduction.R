@@ -255,6 +255,15 @@ write_dsm_chunk <- function(chunk, chm_raster, maxima = NULL, header = NULL) {
 # Process one CHM chunk after restoring the source record sequence when COPC is
 # active.  This keeps order-dependent voxel/canopy ties reproducible.
 # With `dsm = TRUE` the same points also give the chunk's DSM, written beside it.
+# Ground points the interpolated DTM lies slightly above (paths, ditches) get height 0,
+# so bare ground reads as 0 m canopy instead of an empty CHM and DSM cell (3DT-3028).
+# Points more than half a voxel below the DTM are still dropped.
+ground_to_zero <- function(las, voxel_resolution) {
+  below <- is.finite(las@data$Z) & las@data$Z < 0 & las@data$Z >= -voxel_resolution / 2
+  if (any(below)) las@data$Z[below] <- 0
+  las
+}
+
 chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
                       chm_resolution, point_order_dimension = NULL,
                       observation_directory = NULL,
@@ -278,7 +287,7 @@ chm_chunk <- function(chunk, dtm_path, voxel_resolution, maximum_height,
   las <- restore_original_point_order(las, point_order_dimension, "CHM")
   las <- apply_denoising_mask(las, denoising)
   if (is.empty(las)) return(finish(empty_chunk_raster(chunk, chm_resolution)))
-  las <- normalize_height(las, terra::rast(dtm_path))
+  las <- ground_to_zero(normalize_height(las, terra::rast(dtm_path)), voxel_resolution)
   las <- filter_poi(las, is.finite(Z) & Z >= 0 & Z <= maximum_height)
   if (is.empty(las)) return(finish(empty_chunk_raster(chunk, chm_resolution)))
   dsm_maxima <- if (isTRUE(dsm)) dsm_column_maxima(las@data, voxel_resolution)
@@ -465,7 +474,7 @@ adaptive_chm_chunk <- function(chunk, dtm_path, voxel_resolution,
     las <- restore_original_point_order(las, point_order_dimension, "CHM")
     las <- apply_denoising_mask(las, denoising)
     if (is.empty(las)) next
-    las <- normalize_height(las, terra::rast(dtm_path))
+    las <- ground_to_zero(normalize_height(las, terra::rast(dtm_path)), voxel_resolution)
     las <- filter_poi(las, is.finite(Z) & Z >= 0 & Z <= maximum_height)
     if (is.empty(las)) next
     if (isTRUE(dsm)) {

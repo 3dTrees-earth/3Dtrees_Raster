@@ -115,6 +115,7 @@ for the method and its limits.
 | `--output-dir`, `--temp-dir` | Output and scratch directories |
 | `--raster-format` | `COG` (default) or `GTiff` for the DTM, CHM, DSM and voxel-count rasters |
 | `--version` | Print the tool version and exit |
+| `--debug` | Also publish `raster_performance.csv` and the memory figures in `raster_run.json`. Memory peaks above the grant are logged as warnings in every run; Galaxy enforces the grant, so none fails the run |
 | `--memory-budget-gib` | Optional lower internal memory budget; the container or Galaxy limit is used otherwise |
 | `--target-chunk-points` | Approximate points per COPC CHM/segment read window (default 50,000,000; `0` uses fixed windows) |
 | `--voxel-count-chunk-points` | Maximum records per voxel-count batch (default 2,000,000) |
@@ -151,7 +152,7 @@ Shared by all dimensions, each starting with the prefix `raster`:
 | `raster_noise_points.csv` | With the filter on (default): one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
 | `raster_denoising.json` | With the filter on (default): parameters and per-window point accounting |
 | `raster_run.json` | Run provenance: inputs, parameters, versions, resources |
-| `raster_performance.csv` | Stage timings and memory observations |
+| `raster_performance.csv` | Stage timings and memory observations; only with `--debug` |
 | `raster_aoi_conversion.json` | The analysed footprint and its AOI conversion checks |
 
 Voxel counts include every recorded point, also those flagged as noise. Zero
@@ -234,7 +235,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
-| 1.0.1 | Runs without instance dimensions: then only the general products (DTM, CHM, DSM, voxel counts, noise flags), no structural metrics (3DT-3007). `--crs` writes a known CRS into the products when the point cloud has none (3DT-3029). A geocentric placeholder CRS on a cloud near 0,0,0 is read as local coordinates instead of stopping the run; real ECEF coordinates are refused with a clear message (3DT-3026). CHM and DSM: every point below the DTM counts as 0 m, so a cell with points is never empty, and points exactly on the cloud's upper X/Y bound go into the last cell instead of an extra, otherwise empty row or column; voxel counts count those points in the last cell instead of excluding them (3DT-3028). A cgroup memory peak above the allocation (reclaimable disk cache) only warns; peak RSS above the budget still fails. Other products are unchanged |
+| 1.0.1 | Runs without instance dimensions: then only the general products (DTM, CHM, DSM, voxel counts, noise flags), no structural metrics (3DT-3007). `--crs` writes a known CRS into the products when the point cloud has none (3DT-3029). A geocentric placeholder CRS on a cloud near 0,0,0 is read as local coordinates instead of stopping the run; real ECEF coordinates are refused with a clear message (3DT-3026). CHM and DSM: every point below the DTM counts as 0 m, so a cell with points is never empty, and points exactly on the cloud's upper X/Y bound go into the last cell instead of an extra, otherwise empty row or column; voxel counts count those points in the last cell instead of excluding them (3DT-3028). Memory peaks above the grant are logged as warnings and never fail the run; the performance report and memory figures only with `--debug` (dataset 97 finished every stage and was rejected by a cgroup peak that counted disk cache). Other products are unchanged |
 | 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`), 2 Nov (`sha-f3d76a1`) and 13 Nov 2026 (`sha-3f02e86`). The image of 16 Nov 2026 writes byte-identical products, faster: rlas patched so selector `0` reads every ExtraByte, the COPC read through spatial windows in every stage (no plain-LAZ copy), noise-filter parts admitted by measured and live memory with a retry for a killed worker, and the instance dimensions of one read finalized in parallel |
 
 ## Build from source
@@ -384,7 +385,7 @@ non-negative height above the DTM; there is no upper height cutoff. Tile
 densities and the vertical complexity use one shared height domain,
 `H = max(1, ceiling(maximum accepted voxel height))` metres over the whole cloud,
 even when an AOI restricts the reported tiles. It is recorded as
-`metric_height_upper_m` in each tile row, the performance CSV and the run
+`metric_height_upper_m` in each tile row, the performance CSV (`--debug`) and the run
 provenance, with the exact maximum as `observed_maximum_voxel_height_m_exact`.
 
 ### Resources

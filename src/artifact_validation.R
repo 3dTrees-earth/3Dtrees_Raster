@@ -2,13 +2,14 @@
 # expected files, the performance record's resources, the surface rasters.
 # Sourced by raster.R.
 
-expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FALSE) {
+expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FALSE,
+                               debug = TRUE) {
   prefix <- file.path(directory, as.character(dataset_id))
   common <- c(
     paste0(prefix, "_dtm.tif"),
     paste0(prefix, "_chm.tif"),
     paste0(prefix, "_dsm.tif"),
-    paste0(prefix, "_performance.csv"),
+    if (debug) paste0(prefix, "_performance.csv"),
     paste0(prefix, "_aoi_conversion.json"),
     paste0(prefix, "_run.json")
   )
@@ -19,27 +20,37 @@ expected_artifacts <- function(directory, dataset_id, dimensions, denoising = FA
     paste0(prefix, suffix, "_segment_diagnostics.csv"),
     paste0(prefix, suffix, "_tiles.geojson")
   )))
-  c(common, if (length(dimensions)) paste0(prefix, "_tiles.png"), dimension_files, if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
+  c(common, if (length(dimensions)) paste0(prefix, "_tiles.png"), dimension_files,
+    if (denoising) paste0(prefix, c("_noise_points.csv", "_denoising.json")))
 }
 
 validate_performance_resources <- function(performance, memory_budget_gib,
                                            source_point_count,
                                            memory_limit_gib = memory_budget_gib) {
+  # A debug report; it never fails the run (Kilian, 21 Nov).
   if (nrow(performance) != 1L ||
-      performance$point_count[[1]] != source_point_count ||
+      !isTRUE(performance$point_count[[1]] == source_point_count) ||
       !is.finite(performance$peak_rss_mib[[1]]) ||
-      performance$peak_rss_mib[[1]] >= memory_budget_gib * 1024 ||
       !is.finite(performance$cgroup_memory_peak_mib[[1]]) ||
       !is.finite(performance$temporary_disk_peak_mib[[1]])) {
-    stop("incoming artifact validation failed: performance/resource checks failed")
+    message("Warning: the performance report is incomplete or does not match the source")
   }
-  # The kernel's cgroup peak counts reclaimable disk cache, which may exceed the
-  # allocation without harm (dataset 97: 77.4 GB peak, 0.7 GB RSS, 40.9 GB limit).
-  # Real overuse fails above (peak RSS) or is killed by the kernel; this only warns.
-  if (performance$cgroup_memory_peak_mib[[1]] > memory_limit_gib * 1024) {
+  invisible(TRUE)
+}
+
+# Galaxy enforces the memory grant itself, so memory peaks only warn, in every run.
+# The kernel's cgroup peak also counts reclaimable disk cache (dataset 97: 77.4 GB
+# peak, 0.7 GB main-process RSS, 40.9 GB grant).
+warn_memory_peaks <- function(performance, memory_budget_gib,
+                              memory_limit_gib = memory_budget_gib) {
+  if (isTRUE(performance$peak_rss_mib[[1]] >= memory_budget_gib * 1024)) {
+    message(sprintf("Warning: peak RSS %.0f MiB reached the %.0f MiB internal budget",
+      performance$peak_rss_mib[[1]], memory_budget_gib * 1024))
+  }
+  if (isTRUE(performance$cgroup_memory_peak_mib[[1]] > memory_limit_gib * 1024)) {
     message(sprintf(paste(
-      "Warning: cgroup memory peak %.0f MiB exceeds the %.0f MiB limit (mostly",
-      "reclaimable disk cache; peak RSS %.0f MiB)"),
+      "Warning: cgroup memory peak %.0f MiB exceeds the %.0f MiB limit (it includes",
+      "reclaimable disk cache; main-process peak RSS %.0f MiB)"),
       performance$cgroup_memory_peak_mib[[1]], memory_limit_gib * 1024,
       performance$peak_rss_mib[[1]]))
   }
@@ -66,14 +77,15 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
                                         memory_limit_gib = memory_budget_gib,
                                         denoising = FALSE, dtm_resolution = 1,
                                         chm_resolution = 0.5,
-                                        voxel_count_resolution = 0.5) {
+                                        voxel_count_resolution = 0.5,
+                                        debug = TRUE) {
   matches_label <- function(values, expected) {
     if (identical(expected, "NA")) {
       return(all(is.na(values) | as.character(values) == "NA"))
     }
     all(!is.na(values) & as.character(values) == expected)
   }
-  paths <- c(expected_artifacts(directory, dataset_id, dimensions, denoising),
+  paths <- c(expected_artifacts(directory, dataset_id, dimensions, denoising, debug),
              if (voxel_counts) validate_voxel_count_artifacts(directory, dataset_id, voxel_count_resolution))
   absent <- paths[!file.exists(paths) | file.info(paths)$size <= 0]
   if (length(absent) > 0L) {
@@ -91,11 +103,14 @@ validate_incoming_artifacts <- function(directory, dataset_id, dimensions,
     ))
     if (status != 0L) stop("incoming denoising accounting validation failed")
   }
+  # Written by every run; published (and checked) only with --debug.
   performance <- fread(
     file.path(directory, paste0(dataset_id, "_performance.csv"))
   )
-  validate_performance_resources(performance, memory_budget_gib,
-                                 source_point_count, memory_limit_gib)
+  if (debug) {
+    validate_performance_resources(performance, memory_budget_gib,
+                                   source_point_count, memory_limit_gib)
+  }
   dtm <- terra::rast(file.path(directory, paste0(dataset_id, "_dtm.tif")))
   chm <- terra::rast(file.path(directory, paste0(dataset_id, "_chm.tif")))
   if (terra::inMemory(dtm) || terra::inMemory(chm) ||

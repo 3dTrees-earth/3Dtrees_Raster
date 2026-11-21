@@ -42,17 +42,20 @@ def as_list(value: Any) -> list[Any]:
 
 
 def expected_artifact_names(dataset_id: int | str, processed: list[str], voxel_counts: bool = False,
-                            denoising: bool = False, voxel_points: bool = True) -> set[str]:
+                            denoising: bool = False, voxel_points: bool = True,
+                            debug: bool = True) -> set[str]:
     """Return the exact scientific and provenance artifact contract."""
 
     names = {
         f"{dataset_id}_dtm.tif",
         f"{dataset_id}_chm.tif",
         f"{dataset_id}_dsm.tif",
-        f"{dataset_id}_performance.csv",
         f"{dataset_id}_aoi_conversion.json",
         f"{dataset_id}_run.json",
     }
+    # The performance report is published only by --debug runs.
+    if debug:
+        names.add(f"{dataset_id}_performance.csv")
     # Structural metrics come per instance dimension; without one only the general products (3DT-3007).
     if processed:
         names.add(f"{dataset_id}_tiles.png")
@@ -123,7 +126,8 @@ def validate_output_directory(dataset_id: int | str, output: Path) -> dict[str, 
     expected = expected_artifact_names(dataset_id, processed,
         provenance.get("voxel_counts", {}).get("enabled", False),
         provenance.get("denoising", {}).get("enabled", False),
-        has_voxel_points(output / f"{dataset_id}_voxel_counts.json"))
+        has_voxel_points(output / f"{dataset_id}_voxel_counts.json"),
+        provenance.get("debug", True))
     present = {path.relative_to(output).as_posix() for path in output.rglob("*") if path.is_file()}
     allowed_sidecars = allowed_gdal_sidecar_names(dataset_id)
     ignored_sidecars = sorted(present & allowed_sidecars)

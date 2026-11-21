@@ -162,6 +162,11 @@ parse_raster_parameters <- function() {
     help = "Format of the DTM, CHM, DSM and voxel-count rasters (default: COG)")
   parser$add_argument("--version", action = "store_true",
     help = "Print the tool version and exit")
+  parser$add_argument("--debug", action = "store_true",
+    help = paste(
+      "Also publish the performance report (raster_performance.csv), memory figures",
+      "in raster_run.json and memory warnings"
+    ))
   parser$add_argument("--temp-dir", default = Sys.getenv("TMPDIR", tempdir()),
     help = "Scratch directory (default: TMPDIR)")
   parser$add_argument("--memory-budget-gib", type = "double", default = NULL,
@@ -364,6 +369,8 @@ main <- function() {
   }
   # Parse and validate every external path/resource setting before creating work.
   arguments <- parse_raster_parameters()
+  # Performance report and memory figures only for debugging (Kilian, 21 Nov).
+  debug <- isTRUE(arguments$debug)
   Sys.setenv(RASTER_FORMAT = arguments$raster_format)
   message("RASTER_STAGE stage=preflight status=started")
   # Retain the user-requested path separately from later local staging paths.
@@ -699,6 +706,10 @@ main <- function() {
   }
   temporary_disk_peak_mib <- performance$temporary_disk_peak_mib[[1]] +
     temporary_directory_bytes(job_directory) / 1024^2
+  # Galaxy enforces the memory grant itself: memory peaks only warn, in every run.
+  warn_memory_peaks(performance, arguments$memory_budget_gib,
+    if (is.null(arguments$resources$memory_limit_gib)) arguments$memory_budget_gib
+    else arguments$resources$memory_limit_gib)
 
   # Persist enough provenance to prove that the run used COPC spatial streaming,
   # restored original order, and optionally validated the original companion.
@@ -768,8 +779,9 @@ main <- function() {
     footprint_source = aoi_provenance$source,
     segment_bucket_count = segment_bucket_count,
     memory_budget_gib = arguments$memory_budget_gib,
-    parent_peak_rss_mib = performance$peak_rss_mib[[1]],
-    cgroup_memory_peak_mib = performance$cgroup_memory_peak_mib[[1]],
+    debug = debug,
+    parent_peak_rss_mib = if (debug) performance$peak_rss_mib[[1]],
+    cgroup_memory_peak_mib = if (debug) performance$cgroup_memory_peak_mib[[1]],
     temporary_disk_peak_mib = temporary_disk_peak_mib,
     adaptive_chunking = list(
       enabled = performance$adaptive_chunking_enabled[[1]],
@@ -860,9 +872,12 @@ main <- function() {
     denoising = !is.null(parameters$denoising),
     dtm_resolution = arguments$dtm_resolution,
     chm_resolution = arguments$chm_resolution,
-    voxel_count_resolution = arguments$voxel_count_resolution
+    voxel_count_resolution = arguments$voxel_count_resolution,
+    debug = debug
   )
   message("RASTER_STAGE stage=internal_validation status=completed")
+  # The performance report is published only for debugging.
+  if (!debug) unlink(file.path(incoming_directory, paste0(arguments$dataset_id, "_performance.csv")))
   run_provenance$status <- "valid"
   write_json(
     run_provenance,

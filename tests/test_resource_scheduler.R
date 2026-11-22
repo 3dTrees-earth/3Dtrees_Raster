@@ -31,9 +31,9 @@ local({
     error <- tryCatch({ force(expression); NULL }, error = identity)
     stopifnot(inherits(error, "error"), grepl(pattern, conditionMessage(error), fixed = TRUE))
   }
-  fails(run_memory_admitted_tasks(1L, function(i) stop("must not run"), 4L,
-    windows[1L], policy, memory_current = function() policy$budget_bytes),
-    "memory_budget_exceeded")
+  # A task above the estimate runs alone with a warning (Galaxy enforces the grant).
+  stopifnot(identical(run_memory_admitted_tasks(1L, function(i) "ran alone", 4L,
+    windows[1L], policy, memory_current = function() policy$budget_bytes), list("ran alone")))
   fails(run_memory_admitted_tasks(seq_len(5), function(i) {
     if (i == 1L) stop("worker fixture failure") else i
   }, 4L, windows, policy, memory_current = headroom), "worker failed")

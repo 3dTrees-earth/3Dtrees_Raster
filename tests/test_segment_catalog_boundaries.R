@@ -48,7 +48,7 @@ local({
   stopifnot(terra::compareGeom(full_chm, adaptive_chm),
             identical(as.numeric(terra::values(full_chm)), as.numeric(terra::values(adaptive_chm))),
             max(terra::values(full_chm), na.rm = TRUE) > 8.9,
-            identical(unname(as.vector(terra::ext(full_chm))), c(-0.5, 60.5, -0.5, 60.5)))
+            identical(unname(as.vector(terra::ext(full_chm))), c(-0.5, 60, -0.5, 60)))
   # COPC writers can store tiny extrema rounding differences. Source identity
   # remains on its .001 m lattice, and adaptive pruning must use that lattice.
   rounded_path <- file.path(root, "rounded-header.las")

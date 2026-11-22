@@ -115,6 +115,7 @@ for the method and its limits.
 | `--output-dir`, `--temp-dir` | Output and scratch directories |
 | `--raster-format` | `COG` (default) or `GTiff` for the DTM, CHM, DSM and voxel-count rasters |
 | `--version` | Print the tool version and exit |
+| `--debug` | Also publish `raster_performance.csv` and the memory figures in `raster_run.json`. Memory peaks above the grant are logged as warnings in every run; Galaxy enforces the grant, so none fails the run |
 | `--memory-budget-gib` | Optional lower internal memory budget; the container or Galaxy limit is used otherwise |
 | `--target-chunk-points` | Approximate points per COPC CHM/segment read window (default 50,000,000; `0` uses fixed windows) |
 | `--voxel-count-chunk-points` | Maximum records per voxel-count batch (default 2,000,000) |
@@ -151,7 +152,7 @@ Shared by all dimensions, each starting with the prefix `raster`:
 | `raster_noise_points.csv` | With the filter on (default): one rejected `OriginalPointIndex` per row (the 0-based record position for a plain LAS/LAZ without that field) |
 | `raster_denoising.json` | With the filter on (default): parameters and per-window point accounting |
 | `raster_run.json` | Run provenance: inputs, parameters, versions, resources |
-| `raster_performance.csv` | Stage timings and memory observations |
+| `raster_performance.csv` | Stage timings and memory observations; only with `--debug` |
 | `raster_aoi_conversion.json` | The analysed footprint and its AOI conversion checks |
 
 Voxel counts include every recorded point, also those flagged as noise. Zero
@@ -166,8 +167,8 @@ data type, nodata value (-999999), tiling, compression and COG layout.
 
 `raster_dsm.tif` is computed natively in the CHM pass, from the same
 points: denoised when the kNN filter is on, with a finite height of at least 0 m above the
-DTM (points at most half a voxel below the DTM count as 0 m, so bare ground
-reads as 0 m canopy rather than an empty cell). Each cell holds the highest **absolute** point Z (the input's vertical
+DTM (points below the DTM count as 0 m, so a cell with points but nothing above
+the terrain reads 0 m canopy rather than empty). Each cell holds the highest **absolute** point Z (the input's vertical
 datum, not normalized) among those points. Points are assigned to cells through
 the centre of their `--voxel-resolution` voxel column, exactly as the CHM
 assigns its voxels. So the DSM has a value exactly where the CHM has one.
@@ -234,8 +235,7 @@ version, and users identify results by it.
 
 | Version | Notes |
 | --- | --- |
-| 1.0.1 | Runs without instance dimensions: then only the general products (DTM, CHM, DSM, voxel counts, noise flags), no structural metrics (3DT-3007). `--crs` writes a known CRS into the products when the point cloud has none (3DT-3029). A geocentric placeholder CRS on a cloud near 0,0,0 is read as local coordinates instead of stopping the run; real ECEF coordinates are refused with a clear message (3DT-3026). CHM and DSM: points up to half a voxel below the DTM count as 0 m, so bare ground is 0 m instead of empty (3DT-3028). Other products are unchanged |
-| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`), 2 Nov (`sha-f3d76a1`) and 13 Nov 2026 (`sha-3f02e86`). The image of 16 Nov 2026 writes byte-identical products, faster: rlas patched so selector `0` reads every ExtraByte, the COPC read through spatial windows in every stage (no plain-LAZ copy), noise-filter parts admitted by measured and live memory with a retry for a killed worker, and the instance dimensions of one read finalized in parallel |
+| 1.0.0 | First release: tile metrics, segment diagnostics with apex position, crown area and volume, DTM, CHM and DSM (COG), voxel counts (CSV, multiband COG, COPC), optional kNN distance noise filter, PredInstance_RCT, adjustable scientific parameters. A point cloud without CRS gives products without CRS; a CRS that is present is carried into every product. Replaces the images tagged 1.0.0 on 21 Oct (`sha-3b68a08`), 2 Nov (`sha-f3d76a1`) and 13 Nov 2026 (`sha-3f02e86`). The image of 16 Nov 2026 writes byte-identical products, faster: rlas patched so selector `0` reads every ExtraByte, the COPC read through spatial windows in every stage (no plain-LAZ copy), noise-filter parts admitted by measured and live memory with a retry for a killed worker, and the instance dimensions of one read finalized in parallel The image of 21 Nov 2026, a drop-in replacement for the same Galaxy wrapper: Runs without instance dimensions: then only the general products (DTM, CHM, DSM, voxel counts, noise flags), no structural metrics (3DT-3007). `--crs` writes a known CRS into the products when the point cloud has none (3DT-3029). A geocentric placeholder CRS on a cloud near 0,0,0 is read as local coordinates instead of stopping the run; real ECEF coordinates are refused with a clear message (3DT-3026). CHM and DSM: every point below the DTM counts as 0 m, so a cell with points is never empty, and points exactly on the cloud's upper X/Y bound go into the last cell instead of an extra, otherwise empty row or column; voxel counts count those points in the last cell instead of excluding them (3DT-3028). Memory estimates and peaks above the budget or grant are logged as warnings and never fail the run (a task that does not fit runs alone; dataset 58, 97, 107 and 108 failed on these estimates); the performance report and memory figures only with `--debug` (dataset 97 finished every stage and was rejected by a cgroup peak that counted disk cache). The other products are byte-identical (3711) |
 
 ## Build from source
 
@@ -351,9 +351,9 @@ part's estimate until parts of real size have finished, then their largest
 measured peak share of the estimate with a margin, never more than the
 estimate. Workers carry the highest OOM score: if the kernel still kills one,
 the parts that had not finished run again one at a time and the run goes on, so
-a wrong estimate costs time, not the run. A part killed while running alone, or
-one that cannot fit the budget even in quarters, stops the run with
-`memory_budget_exceeded`. A part's result does not depend on when or beside what
+a wrong estimate costs time, not the run. A part that cannot fit the budget even
+in quarters is read anyway, with a warning; only a part the kernel kills while
+running alone stops the run (`memory_budget_exceeded`). A part's result does not depend on when or beside what
 it runs, so every path writes the same noise list. The part scheduling is
 `knn_parts.py`; it reads the container's memory with `container_memory.py`,
 which follows the R scheduler's rules (checked against it by
@@ -384,7 +384,7 @@ non-negative height above the DTM; there is no upper height cutoff. Tile
 densities and the vertical complexity use one shared height domain,
 `H = max(1, ceiling(maximum accepted voxel height))` metres over the whole cloud,
 even when an AOI restricts the reported tiles. It is recorded as
-`metric_height_upper_m` in each tile row, the performance CSV and the run
+`metric_height_upper_m` in each tile row, the performance CSV (`--debug`) and the run
 provenance, with the exact maximum as `observed_maximum_voxel_height_m_exact`.
 
 ### Resources
@@ -400,7 +400,8 @@ the COPC hierarchy, without decoding them, and starts as many workers as fit
 the budget. It reserves 128 MiB per task plus, per counted point, 160 bytes for
 the DTM, 192 for the CHM, 256 for segments and 128 for tiles. These come from
 real memory measured with one worker, plus a margin. A task that cannot fit
-stops the run before it reads points, with `memory_budget_exceeded`. A plain
+runs alone, with a `memory_budget_exceeded` warning: Galaxy enforces the job's
+memory grant, so the tool's own estimates never stop a run. A plain
 LAS/LAZ has no hierarchy, so every task reserves the whole file.
 `RASTER_CATALOG_WORKERS` (1–10) sets the worker count explicitly.
 

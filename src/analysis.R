@@ -111,10 +111,11 @@ assert_memory_budget <- function(required_bytes, parameters, operation,
   } else {
     "memory_budget_exceeded"
   }
-  stop(sprintf(
+  # Galaxy enforces the memory grant; the tool's own estimate only warns (Kilian, 21 Nov).
+  message(sprintf(
     paste0(
-      "RASTER_FLAG %s: %s requires an estimated %.3f GiB ",
-      "at %.3f GiB RSS with a %.3f GiB internal budget"
+      "Warning: RASTER_FLAG %s: %s requires an estimated %.3f GiB ",
+      "at %.3f GiB RSS with a %.3f GiB internal budget; continuing"
     ),
     flag,
     operation,
@@ -122,6 +123,7 @@ assert_memory_budget <- function(required_bytes, parameters, operation,
     rss / 1024^3,
     budget_gib
   ))
+  invisible(FALSE)
 }
 
 # A read with selector "0" (every ExtraByte: how fields after the ninth are

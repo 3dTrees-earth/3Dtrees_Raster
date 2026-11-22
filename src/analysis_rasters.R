@@ -580,8 +580,20 @@ align_raster_file_crs <- function(path, source_crs, label) {
   invisible(path)
 }
 
+# CHM and DSM: cells beyond the cloud's upper X/Y bound go into the last cell (3DT-3028).
+fold_upper_edge <- function(path, bounds, label) {
+  result <- system2("python3", c(
+    shQuote(file.path(script_directory, "fold_upper_edge.py")), shQuote(path),
+    format(bounds[["xmax"]], digits = 17), format(bounds[["ymax"]], digits = 17)), stdout = TRUE)
+  status <- attr(result, "status")
+  if (!is.null(status) && status != 0L) {
+    stop(sprintf("could not fold the %s cells beyond the cloud into its last cell", label))
+  }
+  invisible(path)
+}
+
 stream_virtual_raster <- function(result, output_path, label,
-                                  source_crs = NULL) {
+                                  source_crs = NULL, fold_bounds = NULL) {
   source_path <- virtual_raster_source(result, label)
   partial_path <- paste0(output_path, ".partial.tif")
   unlink(partial_path, force = TRUE)
@@ -607,6 +619,7 @@ stream_virtual_raster <- function(result, output_path, label,
     stop(sprintf("could not atomically publish the global %s GeoTIFF", label))
   }
   align_raster_file_crs(output_path, source_crs, label)
+  if (!is.null(fold_bounds)) fold_upper_edge(output_path, fold_bounds, label)
   convert_raster_format(output_path, label)
 }
 

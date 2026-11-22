@@ -255,11 +255,11 @@ write_dsm_chunk <- function(chunk, chm_raster, maxima = NULL, header = NULL) {
 # Process one CHM chunk after restoring the source record sequence when COPC is
 # active.  This keeps order-dependent voxel/canopy ties reproducible.
 # With `dsm = TRUE` the same points also give the chunk's DSM, written beside it.
-# Ground points the interpolated DTM lies slightly above (paths, ditches) get height 0,
-# so bare ground reads as 0 m canopy instead of an empty CHM and DSM cell (3DT-3028).
-# Points more than half a voxel below the DTM are still dropped.
+# Points below the DTM get height 0 (Kilian, 21 Nov: "all below DTM"), so a cell with
+# points but nothing above the terrain reads 0 m canopy instead of empty (3DT-3028).
+# Deep low outliers are the noise filter's job.
 ground_to_zero <- function(las, voxel_resolution) {
-  below <- is.finite(las@data$Z) & las@data$Z < 0 & las@data$Z >= -voxel_resolution / 2
+  below <- is.finite(las@data$Z) & las@data$Z < 0
   if (any(below)) las@data$Z[below] <- 0
   las
 }
@@ -612,9 +612,12 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
     chm_resolution,
     work_directory,
     "CHM",
-    voxel_resolution = if (is.null(point_order_dimension)) NULL else voxel_resolution
+    # Both input kinds keep the cells of points on the upper edge; the fold then moves
+    # them into the last cell (3DT-3028).
+    voxel_resolution = voxel_resolution
   )
-  stream_virtual_raster(covering, output_path, "CHM", source_crs)
+  point_bounds <- point_cloud_xyz_bounds(point_cloud)
+  stream_virtual_raster(covering, output_path, "CHM", source_crs, fold_bounds = point_bounds)
   if (!is.null(dsm_path)) {
     # The DSM mosaic repeats the CHM's VRT, covering-extent and streaming steps
     # on the DSM chunks, so both rasters share one grid and nodata policy.
@@ -625,9 +628,9 @@ write_global_chm <- function(point_cloud, dtm_path, output_path, work_directory,
       chm_resolution,
       work_directory,
       "DSM",
-      voxel_resolution = if (is.null(point_order_dimension)) NULL else voxel_resolution
+      voxel_resolution = voxel_resolution
     )
-    stream_virtual_raster(dsm_covering, dsm_path, "DSM", source_crs)
+    stream_virtual_raster(dsm_covering, dsm_path, "DSM", source_crs, fold_bounds = point_bounds)
   }
   summarize_chunk_observations(observation_directory)
 }

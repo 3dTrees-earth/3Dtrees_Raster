@@ -20,7 +20,7 @@ run_candidate() {
   docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --env "RASTER_SEGMENT_BUCKET_COUNT=${bucket_count}" --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${test_root}/output:/out" --volume "${test_root}/work:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 150 --output-dir /out --temp-dir /work --memory-budget-gib "${memory_budget_gib}" --sensor "${sensor}" --country "${country}" --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM
 }
 
-test "$(docker run --rm --network none "${image_name}" --version)" = "1.0.1"
+test "$(docker run --rm --network none "${image_name}" --version)" = "1.0.0"
 
 run_candidate 2>&1 | tee "${test_root}/first.log"
 for dimension in PredInstance PredInstance_SAT PredInstance_FM; do
@@ -89,20 +89,15 @@ test -z "$(find "${sor_output}" -maxdepth 1 -name '152_PredInstance*' -print -qu
 cmp "${sor_output}/tile_metrics/PredInstance_tile_metrics.csv" "${sor_output}/tile_metrics/PredInstance_SAT_tile_metrics.csv"
 test -z "$(find "${sor_work}" -mindepth 1 -print -quit)"
 
-failure_output="${test_root}/failure_output"
-failure_work="${test_root}/failure_work"
-mkdir -p "${failure_output}" "${failure_work}"
-set +e
-docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${failure_output}:/out" --volume "${failure_work}:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 151 --output-dir /out --temp-dir /work --memory-budget-gib 0.0001 --instance-dimension PredInstance > "${test_root}/budget_failure.log" 2>&1
-failure_status="$?"
-set -e
-if [[ "${failure_status}" == "0" ]]; then
-  echo "impossible memory budget unexpectedly succeeded" >&2
-  exit 1
-fi
-grep -Eq 'memory_budget_exceeded|single_segment_exceeds_memory_budget' "${test_root}/budget_failure.log"
-test -z "$(find "${failure_output}" -mindepth 1 -print -quit)"
-test -z "$(find "${failure_work}" -mindepth 1 -print -quit)"
+# A memory budget far below the estimates only warns and the run still publishes
+# (Galaxy enforces the grant).
+budget_output="${test_root}/budget_output"
+budget_work="${test_root}/budget_work"
+mkdir -p "${budget_output}" "${budget_work}"
+docker run --rm --network none --cpus 2 --memory 4g --memory-swap 4g --user "$(id -u):$(id -g)" --env RASTER_THREADS=2 --volume "${test_root}/input/high_ordinal.laz:/in/high_ordinal.laz:ro" --volume "${test_root}/input/aoi.geojson:/in/aoi.geojson:ro" --volume "${budget_output}:/out" --volume "${budget_work}:/work" "${image_name}" --denoise none --point-cloud /in/high_ordinal.laz --aoi-geojson /in/aoi.geojson --dataset-id 151 --output-dir /out --temp-dir /work --memory-budget-gib 0.0001 --instance-dimension PredInstance > "${test_root}/budget_warning.log" 2>&1
+grep -Eq 'Warning: .*(memory_budget_exceeded|single_segment_exceeds_memory_budget)' "${test_root}/budget_warning.log"
+test -s "${budget_output}/151_chm.tif"
+test -z "$(find "${budget_work}" -mindepth 1 -print -quit)"
 
 # Without --instance-dimension every supported dimension present is processed,
 # with the same tile metrics as the explicit request above (second run's labels).

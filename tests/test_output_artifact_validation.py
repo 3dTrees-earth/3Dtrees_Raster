@@ -128,7 +128,7 @@ class OutputArtifactValidationTest(unittest.TestCase):
         self.assertIn("2001_chm.tif", names)
         self.assertNotIn("2001_results.csv", names)
         self.assertNotIn("2001_tiles.geojson", names)
-        self.assertNotIn("2001_tiles.png", names)
+        self.assertIn("2001_tiles.png", names)
 
 
 if __name__ == "__main__":

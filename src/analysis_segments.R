@@ -524,12 +524,15 @@ finalize_segment_partition <- function(paths, parameters, depth = 0L) {
   child_paths <- unlist(split$paths, use.names = FALSE)
   on.exit(unlink(child_paths, force = TRUE), add = TRUE)
   if (split$unique_keys <= 1L || depth >= 52L) {
+    # Splitting cannot shrink one segment: it is finalized whole, with a warning
+    # (Galaxy enforces the grant).
     assert_memory_budget(
       estimate,
       parameters,
       "one complete segment",
       single_segment = TRUE
     )
+    return(load_segment_partition(paths, parameters))
   }
   message(sprintf(
     "Splitting oversized segment partition at depth %d into %d child partition(s)",

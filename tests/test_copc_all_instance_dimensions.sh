@@ -114,9 +114,11 @@ for raster in voxel_counts.tif voxel_counts_validity.tif; do
   cmp "${test_root}/ordered-output/150_${raster}" \
       "${test_root}/copc-output/150_${raster}"
 done
-# The DTM must be byte-identical. The CHM grid follows the header bounds, and a
-# COPC's header can reach one cell further at the far edges, where it then holds
-# the points on that edge. Every shared cell must be identical.
+# The DTM must be byte-identical. CHM and DSM share their grid; points exactly on
+# the cloud's upper X/Y bound go into the last cell (3DT-3028). A plain LAZ read by
+# lidR's catalog loses the points lying exactly on a 60 m chunk edge at that bound
+# (this fixture ends at 2040 = 34 x 60), which the COPC's boundary reads keep, so
+# its top row and last column may hold less. Every other cell must be identical.
 cmp "${test_root}/ordered-output/150_dtm.tif" "${test_root}/copc-output/150_dtm.tif"
 docker run --rm --network none --user "$(id -u):$(id -g)" --entrypoint python3 \
   --volume "${test_root}:/check:ro" "${image_name}" -c '
@@ -132,7 +134,10 @@ for name in ("150_chm.tif", "150_dsm.tif"):
     assert b.RasterYSize - a.RasterYSize == rows, name
     x = a.GetRasterBand(1).ReadAsArray()
     y = b.GetRasterBand(1).ReadAsArray()[rows:rows + a.RasterYSize, :a.RasterXSize]
-    assert np.array_equal(x, y), name
+    assert np.array_equal(x[1:, :-1], y[1:, :-1]), name
+    nodata = a.GetRasterBand(1).GetNoDataValue()
+    for edge_x, edge_y in ((x[0, :], y[0, :]), (x[:, -1], y[:, -1])):
+        assert np.all((edge_x == edge_y) | (edge_x == nodata) | (edge_y >= edge_x)), name
 '
 
 # Guard fixture quality: distinct dimension inputs must not collapse to the same

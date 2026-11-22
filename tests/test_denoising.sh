@@ -78,7 +78,7 @@ run_case() {
     --env "RASTER_CATALOG_WORKERS=${workers}" \
     -v "${root}/input:/input:ro" -v "${case_dir}/output:/output" \
     -v "${case_dir}/scratch:/scratch" "${baseline}" \
-    /opt/raster/raster.R --point-cloud /input/input.copc.laz \
+    /opt/raster/raster.R --debug --point-cloud /input/input.copc.laz \
     --instance-dimension PredInstance,PredInstance_SAT,PredInstance_FM \
     --memory-budget-gib 3.4 --target-chunk-points "${target}" "$@" \
     > "${case_dir}/run.log" 2>&1

@@ -20,7 +20,7 @@ is_copc_point_cloud <- function(path) {
 # The original LAZ is optional at runtime and is never used for computation.
 # Reject incompatible companions without re-scanning the source. Lossless
 # preparation validation (indices and fingerprints) remains the identity proof.
-TOOL_VERSION <- "1.0.1"
+TOOL_VERSION <- "1.0.0"
 # Scientific settings exposed on the command line. Defaults are the published
 # production contract; every run records the values it used in its provenance.
 SCIENTIFIC_DEFAULTS <- list(

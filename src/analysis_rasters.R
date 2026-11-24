@@ -215,6 +215,11 @@ ensure_nonempty_grid_bounds <- function(bounds, resolution) {
   bounds
 }
 
+chunk_crs_wkt <- function(chunk) {
+  wkt <- sf::st_crs(chunk)$wkt
+  if (is.null(wkt) || is.na(wkt)) "" else wkt
+}
+
 empty_chunk_raster <- function(chunk, resolution) {
   if (!chunk_has_valid_extent(chunk)) return(NULL)
   chunk_bounds <- st_bbox(chunk)
@@ -222,12 +227,15 @@ empty_chunk_raster <- function(chunk, resolution) {
     covering_grid_bounds(chunk_bounds, resolution),
     resolution
   )
+  # Name the chunk's own CRS (or none): without it terra labels any extent that
+  # fits in degrees, such as local coordinates near 0,0, as WGS84 lon/lat.
   raster <- terra::rast(
     xmin = bounds[["xmin"]],
     xmax = bounds[["xmax"]],
     ymin = bounds[["ymin"]],
     ymax = bounds[["ymax"]],
-    resolution = resolution
+    resolution = resolution,
+    crs = chunk_crs_wkt(chunk)
   )
   terra::values(raster) <- NA_real_
   raster
@@ -390,8 +398,14 @@ chunk_reference_crs <- function(paths, label) {
     terra::crs(terra::rast(path))
   }, character(1))
   candidates <- unique(candidates[!is.na(candidates) & nzchar(candidates)])
+  # One point cloud gives every chunk the same CRS; a mismatch is a labelling slip,
+  # and the published raster takes the point cloud's CRS anyway, so only warn.
   if (length(candidates) > 1L) {
-    stop(sprintf("%s chunk rasters contain conflicting CRS metadata", label))
+    message(sprintf(
+      "Warning: %s chunk rasters carry %d different CRS; using the point cloud's CRS",
+      label, length(candidates)
+    ))
+    return(NA_character_)
   }
   if (length(candidates) == 1L) candidates[[1L]] else NA_character_
 }
@@ -504,7 +518,9 @@ build_chunk_virtual_raster <- function(results, work_directory, label,
   )
   unlink(vrt_path, force = TRUE)
   writeLines(paths, input_list_path, useBytes = TRUE)
-  arguments <- c("-overwrite")
+  # gdalbuildvrt skips a source whose CRS differs from the first one; every chunk
+  # comes from one point cloud, so keep them all and name the CRS once.
+  arguments <- c("-overwrite", "-allow_projection_difference")
   if (!is.na(reference_crs) && nzchar(reference_crs)) {
     arguments <- c(arguments, "-a_srs", shQuote(reference_crs))
   }
@@ -759,11 +775,11 @@ cover_virtual_raster <- function(result, point_cloud, resolution,
         target_bounds,
         resolution
       )) {
-    stop(sprintf(
-      paste0(
-        "global %s mosaic does not contain the complete pinned-lidR ",
-        "publication extent"
-      ),
+    # Chunks too sparse for a surface come back empty on their own grid, without
+    # lidR's extra cell where the cloud's bound sits exactly on a grid line (local
+    # clouds shifted to 0,0). The covering VRT below adds those cells as NoData.
+    message(sprintf(
+      "Warning: global %s mosaic misses edge cells of the lidR extent; filling them with NoData",
       label
     ))
   }

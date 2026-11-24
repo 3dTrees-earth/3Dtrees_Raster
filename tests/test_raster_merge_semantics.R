@@ -389,25 +389,35 @@ local({
   tile_json <- paste(readLines(tile_output_path, warn = FALSE), collapse = "")
   stopifnot(!grepl('"crs"', tile_json, fixed = TRUE))
 
-  conflicting_path <- write_test_raster(
-    "conflicting",
-    c(NA_real_, NA_real_),
-    "EPSG:3857"
+  # Chunks of one point cloud that disagree on CRS (empty chunks near
+  # 0,0 labelled WGS84 lon/lat by terra) only warn; every chunk stays in the VRT
+  # and the point cloud's CRS is used.
+  conflicting_path <- file.path(work_directory, "conflicting.tif")
+  conflicting_raster <- terra::rast(xmin = 2, xmax = 4, ymin = 0, ymax = 1, res = 1,
+                                    crs = "EPSG:3857")
+  terra::values(conflicting_raster) <- c(5, 5)
+  terra::writeRaster(conflicting_raster, conflicting_path, overwrite = TRUE)
+  conflict_messages <- character()
+  conflicting <- withCallingHandlers(
+    build_chunk_virtual_raster(
+      list(first_path, conflicting_path),
+      work_directory,
+      "CONFLICTING"
+    ),
+    message = function(condition) {
+      conflict_messages <<- c(conflict_messages, conditionMessage(condition))
+      invokeRestart("muffleMessage")
+    }
   )
-  conflicting <- tryCatch(
-    {
-      build_chunk_virtual_raster(
-        list(empty_path, conflicting_path),
-        work_directory,
-        "CONFLICTING"
-      )
-      FALSE
-    },
-    error = function(error) grepl(
-      "conflicting CRS metadata",
-      conditionMessage(error),
-      fixed = TRUE
-    )
-  )
-  stopifnot(conflicting)
+  stopifnot(any(grepl("different CRS; using the point cloud's CRS", conflict_messages,
+                      fixed = TRUE)))
+  stopifnot(identical(as.numeric(terra::values(conflicting)), c(1, 1, 5, 5)))
+
+  # An empty chunk takes the chunk's CRS, or none, never terra's lon/lat default.
+  local_wkt <- sf::st_crs(4978)$wkt
+  local_chunk <- function(crs) lidR:::LAScluster(list(x = 30, y = 30), 60, 60, 0,
+    lidR:::LIDRRECTANGLE, "cloud.laz", "local", crs, list())
+  stopifnot(terra::same.crs(empty_chunk_raster(local_chunk(sf::st_crs(4978)), 1),
+                            terra::rast(crs = local_wkt)))
+  stopifnot(identical(terra::crs(empty_chunk_raster(local_chunk(sf::st_crs(NA)), 1)), ""))
 })
